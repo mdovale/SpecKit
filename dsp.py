@@ -68,6 +68,8 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
         pd.DataFrame: The time-shifted DataFrame.
     """
     
+    if seconds == 0.0:
+        return df
 
     df_shifted = df.copy()
 
@@ -82,7 +84,8 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
             n_trunc = int(2*abs(seconds*fs))
         else:
             n_trunc = int(truncate)
-        df_shifted = df_shifted.iloc[n_trunc:-n_trunc]
+        if n_trunc > 0:
+            df_shifted = df_shifted.iloc[n_trunc:-n_trunc]
 
     return df_shifted
 
