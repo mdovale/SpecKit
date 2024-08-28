@@ -1,7 +1,7 @@
+""" This module contains signal processing functions.
+
+Miguel Dovale (Hannover, 2024)
 """
-Miguel Dovale, AEI (2024)
-"""
-import copy
 import numpy as np
 from scipy.integrate import cumtrapz
 from scipy.optimize import curve_fit
