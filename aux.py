@@ -11,3 +11,14 @@ def chunker(iter, chunk_size):
     for i in range(0, len(iter), chunk_size):
         chunks.append(iter[i:(i+chunk_size)])
     return chunks
+
+# Function to check if a function is contained in the dictionary
+def is_function_in_dict(function_to_check, function_dict):
+    return function_to_check in function_dict.values()
+
+# Function to get the key corresponding to a function
+def get_key_for_function(function_to_check, function_dict):
+    for key, func in function_dict.items():
+        if func == function_to_check:
+            return key
+    return None  # Return None if the function is not found

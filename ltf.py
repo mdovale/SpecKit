@@ -12,12 +12,13 @@ import sys
 import copy
 import types
 import numpy as np
+import scipy.signal.windows as windows
 import pandas as pd
 import math
 import time
 from spectools.flattop import olap_dict, win_dict
 from spectools.dsp import integral_rms, numpy_detrend
-from spectools.aux import chunker
+from spectools.aux import chunker, is_function_in_dict, get_key_for_function
 import matplotlib.pyplot as plt
 
 import logging
@@ -144,9 +145,10 @@ class LTFObject:
         if order is not None: self.order = order
         if psll is not None: self.psll = psll
 
-        if (win=="Kaiser")or(win=="kaiser")or(win==np.kaiser)or(win==None):
+        if (win=="Kaiser")or(win=="kaiser")or(win==np.kaiser)or(win==windows.kaiser)or(win==None):
             self.win = np.kaiser
-        elif (win == "Hanning")or(win=="hanning")or(win==np.hanning):
+            self.alpha = self._kaiser_alpha(self.psll)
+        elif (win == "Hanning")or(win=="hanning")or(win==np.hanning)or(win==windows.hann):
             self.win = np.hanning
         elif isinstance(win, str):
             win_str = win
@@ -154,15 +156,18 @@ class LTFObject:
                 self.win = win_dict[win_str]
         elif isinstance(win, types.FunctionType):
             self.win = win
-            win_str = "User"
+            if is_function_in_dict(win, win_dict):
+                win_str = get_key_for_function(win, win_dict)
+            else:
+                win_str = "Unknown"
         else:
-            logging.error("This window function is not implemented in Python")
+            logging.error("This window function is not implemented, exiting...")
+            sys.exit(-1)
         
         if verbose: logging.info(f"Selected window: {self.win}")
         
         if self.olap == "default":
             if self.win == np.kaiser:
-                self.alpha = self._kaiser_alpha(self.psll)
                 self.olap = self._kaiser_rov(self.alpha)
             elif self.win == np.hanning:
                 self.olap = 0.5
