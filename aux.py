@@ -2,6 +2,7 @@
 
 Miguel Dovale (Hannover, 2024)
 """
+import numpy as np
 
 def chunker(iter, chunk_size):
     chunks = []
