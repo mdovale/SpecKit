@@ -8,7 +8,9 @@ https://doi.org/10.1016/j.measurement.2005.10.010
 
 Miguel Dovale (Hannover, 2024)
 """
+import sys
 import copy
+import types
 import numpy as np
 import pandas as pd
 import math
@@ -42,14 +44,13 @@ class LTFObject:
         self.r = None # Frequency resolution vector
         self.m = None # Frequency bin vector
         self.L = None # Segment lengths vector
-        self.K = None # Number of segments vector
+        self.K = None # Number of segments vector (should be the same as navg)
         self.navg    = None  # Number of averages vector
         self.compute_t = None # Computation time per frequency
         self.data    = None  # Input data as columns
         self.df      = None  # DataFrame containing the results
         self.nx      = None  # Total length of the time series
         self.nf      = None  # Number of frequencies in spectrum
-        self.f       = None  # Frequency axis
         self.ENBW    = None  # Equivalent noise bandwidth
         self.rms     = None  # Root mean square of the signal computed from the integral of the ASD
 
@@ -88,9 +89,20 @@ class LTFObject:
         self.coh_error = None  # Normalized random error of coherence
 
         if data is not None:
-            if verbose: logging.info("Loading data with shape {}".format(np.shape(data)))
-            self.data = copy.deepcopy(data)
-            self.nx = len(data)
+            x = np.asarray(data)
+            if len(x.shape) == 2 and ((x.shape[0] == 2)or(x.shape[1] == 2)):
+                self.iscsd = True
+                if x.shape[0] == 2:
+                    x = x.T
+                if verbose: logging.info(f"Detected two channel data with length {len(x)}")
+            elif len(x.shape) == 1:
+                if verbose: logging.info(f"Detected one channel data with length {len(x)}")
+                self.iscsd = False
+            else:
+                logging.error("Input array size must be 1xN or 2xN")
+                sys.exit(-1)
+            self.data = copy.deepcopy(x)
+            self.nx = len(self.data)
 
     def _myround(self, val):
         if (float(val) % 1) >= 0.5:
@@ -140,6 +152,9 @@ class LTFObject:
             win_str = win
             if win_str in win_dict:
                 self.win = win_dict[win_str]
+        elif isinstance(win, types.FunctionType):
+            self.win = win
+            win_str = "User"
         else:
             logging.error("This window function is not implemented in Python")
         
@@ -155,7 +170,8 @@ class LTFObject:
                 self.olap = olap_dict[win_str]
                 if verbose: logging.info(f"Automatic setting of overlap for window {win_str}: {self.olap}")
             else:
-                logging.error(f"Automatic setting of overlap for window {win_str} failed")
+                logging.warning(f"Automatic setting of overlap for window {win_str} failed, setting to 0.5")
+                self.olap = 0.5
 
         if (self.win==-1)or(self.win==-2):
             assert self.psll > 0, logging.error("Need to specify PSLL if window is -1 or -2")
@@ -273,18 +289,32 @@ class LTFObject:
 
         self.nf = len(self.f)
 
-    def calc_lpsd_single_bin(self, freq, fres, csd):
+        if self.nf == 0:
+            logging.error("Error: frequency scheduler returned zero frequencies")
+            sys.exit(-1)
+
+    def calc_lpsd_single_bin(self, freq, fres=None, L=None):
         """
         Implements the LPSD algorithm on a single frequency bin.
         
         Args:
             freq (float): Fourier frequency at which to perform DFT.
-            fres (float): Desired frequency resolution.
-            csd (bool): Whether to compute auto-spectrums or cross-spectrums.
+            fres (float, Optional): Desired frequency resolution.
+            L (int, Optional): Desired segment length.
         """
-        self.iscsd = csd
+        csd = self.iscsd
 
-        l = int(self.fs/fres)
+        if L is not None:
+            l = int(L)
+            fres = self.fs/l
+            self.r = fres
+        elif fres is not None:
+            self.r = fres
+            l = int(self.fs/fres)
+        else:
+            logging.error(f"You need to provide either `fres` (frequency resolution) or `L` (segment length)")
+            sys.exit(-1)
+
         m = freq/fres
 
         if self.win == np.kaiser:
@@ -472,12 +502,11 @@ class LTFObject:
             self.G = self.Gxx * self.ENBW # Power spectrum
             self.ps = self.G # Power spectrum
 
-    def calc_lpsd(self, csd, pool, verbose):
+    def calc_lpsd(self, pool, verbose):
         """
         Executes calls to _calc_lpsd and gathers the output.
 
         Args:
-            csd (bool): Whether to compute a cross-spectrum (True) or auto-spectrum (False).
             pool (multiprocessing.Pool): For parallel computation.
             verbose (bool): Prints additional information if True.
 
@@ -488,7 +517,7 @@ class LTFObject:
             self.ENBW
             self.compute_t
         """
-        self.iscsd = csd
+        csd = self.iscsd
 
         assert self.nf is not None
 
@@ -823,17 +852,18 @@ class LTFObject:
     
     def get_measurement(self, freq, which):
         """
-        Evaluates the value of a result at a given frequency, using interpolation if necessary.
-        
+        Evaluates the value of a result at given frequency/frequencies, using interpolation if necessary.
+
         Args:
-            requested_freq (float): The frequency at which to evaluate the result.
+            freq (float, list of floats, or numpy array): The frequency or frequencies at which to evaluate the result.
             which (str): The result to evaluate ('asd', 'psd', 'csd', etc.)
-        
+
         Returns:
-            float: The measurement value at the requested frequency.
-        
+            float or numpy array of floats: The measurement value(s) at the requested frequency/frequencies.
+
         Raises:
-            ValueError: If the requested frequency is outside the range of the freq array.
+            ValueError: If any requested frequency is outside the range of the freq array,
+                        or if the 'which' parameter is invalid.
         """
         signal_options = {
             'ps': self.ps if not self.iscsd else None,
@@ -843,27 +873,36 @@ class LTFObject:
             'csd': self.csd if self.iscsd else None,
             'cpsd': self.cpsd if self.iscsd else None,
             'cf': self.cf if self.iscsd else None,
+            'Hxy': self.Hxy if self.iscsd else None,
+            'Hxy_mag': abs(self.Hxy) if self.iscsd else None,
+            'Hxy_angle': np.angle(self.Hxy, deg=True) if self.iscsd else None,
             'coh': self.coh if self.iscsd else None,
             'm': self.m,
             'r': self.r,
             'f': self.f
         }
 
-        freqs = np.array(self.f)
-
         signal = signal_options.get(which)
 
         if signal is None:
-            return
-        else:
-            signal = np.array(signal)
+            raise ValueError(f"Invalid measurement type '{which}'.")
 
-        if freq < freqs.min() or freq > freqs.max():
-            raise ValueError(f"Requested frequency {freq} is outside the range of the frequency array.")
-        
-        measurement = np.interp(freq, freqs, signal)
-        
-        return measurement
+        freqs = np.array(self.f)
+        signal = np.array(signal)
+
+        if np.isscalar(freq):
+            # Single frequency case
+            if freq < freqs.min() or freq > freqs.max():
+                raise ValueError(f"Requested frequency {freq} is outside the range of the frequency array.")
+            measurement = np.interp(freq, freqs, signal)
+            return measurement
+        else:
+            # Array-like frequency case
+            freq = np.asarray(freq)
+            if np.any((freq < freqs.min()) | (freq > freqs.max())):
+                raise ValueError("One or more requested frequencies are outside the range of the frequency array.")
+            measurements = np.interp(freq, freqs, signal)
+            return measurements
     
     def get_rms(self):
         self.rms = integral_rms(self.f, self.asd)

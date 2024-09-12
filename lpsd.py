@@ -51,29 +51,19 @@ def lpsd(x, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes
         np.nan
         Gxx_dev or Gxy_dev (list): Array of standard deviation of power spectral density or cross spectral density.
     """
-    x = np.asarray(x)
-    if len(x.shape) == 2 and ((x.shape[0] == 2)or(x.shape[1] == 2)):
-        csd = True
-        if x.shape[0] == 2:
-            x = x.T
-    elif len(x.shape) == 1:
-        csd = False
-    else:
-        logging.error("Input array size must be 1xN or 2xN")
-        sys.exit(-1)
-
     ltf_obj = LTFObject(data=x, fs=fs, verbose=verbose)
 
     ltf_obj.load_params(verbose, default=False, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Jdes=Jdes, Kdes=Kdes, order=order, win=win, psll=psll)
 
     if verbose: logging.info(f"Attempting to schedule {ltf_obj.Jdes} frequencies...")
-    # ltf_obj.info()
+
     ltf_obj.ltf_plan(band)
+
     if verbose: logging.info(f"Scheduler returned {ltf_obj.nf} frequencies.")
 
     if verbose: logging.info("Computing {} frequencies, discarding first {} bins".format(ltf_obj.nf, ltf_obj.bmin))
 
-    ltf_obj.calc_lpsd(csd=csd, pool=pool, verbose=verbose)
+    ltf_obj.calc_lpsd(pool=pool, verbose=verbose)
 
     if object_return:
         return ltf_obj
@@ -361,7 +351,7 @@ def coh(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kd
     
     return ltf_obj.f, ltf_obj.coh
 
-def ltf_single_bin(x, fs, freq, fres, olap="default", order=None, win=None, psll=None, verbose=False):
+def ltf_single_bin(x, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, verbose=False):
     """Main function to perform the LPSD algorithm for a single frequency bin.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -383,22 +373,11 @@ def ltf_single_bin(x, fs, freq, fres, olap="default", order=None, win=None, psll
     Returns:
         LTFObject: Instance of LTFObject.
     """
-    x = np.asarray(x)
-    if len(x.shape) == 2 and ((x.shape[0] == 2)or(x.shape[1] == 2)):
-        csd = True
-        if x.shape[0] == 2:
-            x = x.T
-    elif len(x.shape) == 1:
-        csd = False
-    else:
-        logging.error("Input array size must be 1xN or 2xN")
-        sys.exit(-1)
-
     ltf_obj = LTFObject(data=x, fs=fs, verbose=verbose)
 
     ltf_obj.load_params(verbose, default=False, fs=fs, olap=olap, order=order, win=win, psll=psll)
 
-    ltf_obj.calc_lpsd_single_bin(freq, fres, csd)
+    ltf_obj.calc_lpsd_single_bin(freq, fres, L)
 
     return ltf_obj
 
