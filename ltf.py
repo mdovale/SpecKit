@@ -83,6 +83,7 @@ class LTFObject:
         self.ccoh_dev = None # Standar deviation of complex coherence
  
         # Normalized random errors:
+        # A normalized random error multiplied with the value of the function estimate becomes the standard deviation. 
         self.Gxx_error = None  # Normalized random error of PSD
         self.Gxy_error = None  # Normalized random error of CSD
         self.Hxy_magnitude_error = None  # Normalized random error of |Hxy|

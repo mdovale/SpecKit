@@ -381,7 +381,7 @@ def ltf_single_bin(x, fs, freq, fres=None, L=None, olap="default", order=None, w
 
     return ltf_obj
 
-def asd_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, psll=None, verbose=False):
+def asd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the amplitude spectral density.
 
     Args:
@@ -403,11 +403,11 @@ def asd_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, p
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
     
     return np.sqrt(ltf_obj.Gxx)
 
-def psd_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def psd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the power spectral density.
 
     Args:
@@ -429,11 +429,11 @@ def psd_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, p
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
     
     return ltf_obj.Gxx
 
-def csd_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def csd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the cross spectral density.
 
     Args:
@@ -455,11 +455,11 @@ def csd_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, p
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
     
     return ltf_obj.Gxy
 
-def tf_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def tf_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the transfer function estimate.
 
     Args:
@@ -481,11 +481,11 @@ def tf_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, ps
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
     
     return ltf_obj.Hxy
 
-def cf_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def cf_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the coupling coefficient.
 
     Args:
@@ -507,11 +507,11 @@ def cf_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, ps
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
     
     return np.abs(ltf_obj.Hxy)
 
-def coh_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def coh_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the coherence or cross-correlation.
 
     Args:
@@ -533,6 +533,6 @@ def coh_single_bin(data, fs, freq, fres, olap="default", order=None, win=None, p
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
     
     return ltf_obj.coh
