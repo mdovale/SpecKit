@@ -18,7 +18,7 @@ import math
 import time
 from spectools.flattop import olap_dict, win_dict
 from spectools.dsp import integral_rms, numpy_detrend
-from spectools.aux import chunker, is_function_in_dict, get_key_for_function
+from spectools.aux import round_half_up, chunker, is_function_in_dict, get_key_for_function
 import matplotlib.pyplot as plt
 
 import logging
@@ -31,22 +31,24 @@ datefmt='%Y-%m-%d %H:%M:%S'
 class LTFObject:
     def __init__(self, data=None, fs=None, verbose=False):
         self.fs = fs # Sampling frequency of input data
-        self.olap = "default" # Segment overlap
-        self.bmin = 1 # Number of the first frequency bin to consider
+        self.olap = "default" # Desired fractional overlap between segments
+        self.bmin = 1 # Minimum bin number to be used
         self.Lmin = 0 # The smallest allowable segment length to be processed
         self.Jdes = 500 # Desired number of frequencies in spectrum
-        self.Kdes = 100 # Desired number of averages
+        self.Kdes = 100 # Desired number of averages (control parameter)
         self.order = 0 # Detrending order (0: remove mean, 1: linear regression, 2: quadratic regression)
         self.win = np.kaiser # Window function to use
         self.psll = 200 # Peak side-lobe level
-        self.alpha = None # 
+        self.alpha = None # Alpha parameter for Kaiser window
         self.iscsd = None # True if it is a cross-spectrum
         self.f = None # Fourier frequency vector
         self.r = None # Frequency resolution vector
         self.m = None # Frequency bin vector
         self.L = None # Segment lengths vector
-        self.K = None # Number of segments vector (should be the same as navg)
-        self.navg    = None  # Number of averages vector
+        self.K = None # Number of segments vector
+        self.D = None # Starting indices of segments
+        self.O = None # Actual overlap factors
+        self.navg    = None  # Actual number of averages vector (should be equal to K)
         self.compute_t = None # Computation time per frequency
         self.data    = None  # Input data as columns
         self.df      = None  # DataFrame containing the results
@@ -105,13 +107,6 @@ class LTFObject:
                 sys.exit(-1)
             self.data = copy.deepcopy(x)
             self.nx = len(self.data)
-
-    def _myround(self, val):
-        if (float(val) % 1) >= 0.5:
-            x = math.ceil(val)
-        else:
-            x = round(val)
-        return x
 
     def _kaiser_alpha(self, psll):
         a0 = -0.0821377
@@ -212,92 +207,9 @@ class LTFObject:
         self.psll = 200
         self.win = np.kaiser
 
-    def ltf_plan(self, band):
-        """
-        LTF frequency plan from S2-AEI-TN-3052 (Gerhard Heinzel).
-
-        Computes:
-            self.f
-            self.r
-            self.m
-            self.L
-            self.K
-            self.nf
-        """
-
-        xov = (1 - self.olap)
-        fmin = self.fs / self.nx * self.bmin
-        fmax = self.fs / 2
-        fresmin = self.fs / self.nx
-        freslim = fresmin * (1 + xov * (self.Kdes - 1))
-        logfact = (self.nx / 2)**(1 / self.Jdes) - 1
-
-        self.f = []
-        self.r = []
-        self.m = []
-        self.L = []
-        self.K = []
-
-        fi = fmin
-        while fi < fmax:
-            fres = fi * logfact
-            if fres <= freslim:
-                fres = np.sqrt(fres * freslim)
-            if fres < fresmin:
-                fres = fresmin
-
-            fbin = fi / fres
-            if fbin < self.bmin:
-                fbin = self.bmin
-                fres = fi / fbin
-
-            dftlen = self._myround(self.fs / fres)
-            if dftlen > self.nx:
-                dftlen = self.nx
-            if dftlen < self.Lmin:
-                dftlen = self.Lmin
-
-            nseg = self._myround((self.nx - dftlen) / (xov * dftlen) + 1)
-            if nseg == 1:
-                dftlen = self.nx
-
-            fres = self.fs / dftlen
-            fbin = fi / fres
-
-            self.f.append(fi)
-            self.r.append(fres)
-            self.m.append(fbin)
-            self.L.append(dftlen)
-            self.K.append(nseg)
-
-            fi = fi + fres
-
-        self.f = np.array(self.f)
-        self.r = np.array(self.r)
-        self.m = np.array(self.m)
-        self.L = np.array(self.L)
-        self.K = np.array(self.K)
-
-        if band is not None:
-            fmin = band[0]
-            fmax = band[1]
-
-            if not np.any((self.f >= fmin) & (self.f <= fmax)):
-                logging.error("Cannot compute a spectrum in the specified frequency band")
-                return
-        
-            mask = (self.f >= fmin) & (self.f <= fmax)
-            self.f = self.f[mask]
-            self.r = self.r[mask]
-            self.m = self.m[mask]
-            self.L = self.L[mask]
-            self.K = self.K[mask]
-
-        self.nf = len(self.f)
-
-        if self.nf == 0:
-            logging.error("Error: frequency scheduler returned zero frequencies")
-            sys.exit(-1)
+    def calc_ltf_plan(self, band):
+        self.f, self.r, self.m, self.L, self.K, self.D, self.O, self.nf \
+            = ltf_plan(self.nx, self.fs, self.olap, self.bmin, self.Lmin, self.Jdes, self.Kdes, band)
 
     def calc_lpsd_single_bin(self, freq, fres=None, L=None):
         """
@@ -339,22 +251,18 @@ class LTFObject:
         MXX2 = 0.0
         MYY2 = 0.0
 
-        segLen = l  # Segment length
-        ovfact = 1 / (1 - self.olap)
-
-        davg = (((self.nx - segLen)) * ovfact) / segLen + 1
-        self.navg = self._myround(davg)
+        self.navg = round_half_up(((self.nx - l) / (1 - self.olap)) / l + 1)
 
         if self.navg == 1:
             shift = 1.0
         else:
-            shift = (float)(self.nx - segLen) / (float)(self.navg - 1)
+            shift = (float)(self.nx - l) / (float)(self.navg - 1)
         if shift < 1:
             shift = 1.0
 
         start = 0.0
         for j in range(self.navg):
-            istart = int(self._myround(start))
+            istart = int(round_half_up(start))
             start = start + shift
 
             x1s = self.data[istart:istart + l].copy()
@@ -619,14 +527,12 @@ class LTFObject:
 
             now = time.time()
 
-            l = int(self.L[i]) # segment length
-
             if self.win == np.kaiser:
-                window = self.win(l + 1, self.alpha*np.pi)[0:-1]
+                window = self.win(self.L[i] + 1, self.alpha*np.pi)[0:-1]
             else:
-                window = self.win(l)        
+                window = self.win(self.L[i])        
 
-            p = 1j * 2 * np.pi * self.m[i] / l * np.arange(0, l)
+            p = 1j * 2 * np.pi * self.m[i] / self.L[i] * np.arange(0, self.L[i])
             C = window * np.exp(p)
 
             MXYr = 0.0
@@ -637,28 +543,12 @@ class LTFObject:
             MXX2 = 0.0
             MYY2 = 0.0
 
-            segLen = l  # Segment length
-            ovfact = 1 / (1 - self.olap)
+            for j in range(self.K[i]):
 
-            davg = (((self.nx - segLen)) * ovfact) / segLen + 1
-            navg = self._myround(davg)
-
-            if navg == 1:
-                shift = 1.0
-            else:
-                shift = (float)(self.nx - segLen) / (float)(navg - 1)
-            if shift < 1:
-                shift = 1.0
-
-            start = 0.0
-            for j in range(navg):
-                istart = int(self._myround(start))
-                start = start + shift
-
-                x1s = self.data[istart:istart + l].copy()
+                x1s = self.data[self.D[i][j]:self.D[i][j] + self.L[i]].copy()
                 if csd:
-                    x1s = self.data[istart:istart + l, 0].copy()
-                    x2s = self.data[istart:istart + l, 1].copy()
+                    x1s = self.data[self.D[i][j]:self.D[i][j] + self.L[i], 0].copy()
+                    x2s = self.data[self.D[i][j]:self.D[i][j] + self.L[i], 1].copy()
 
                 if self.order == -1:
                     pass  # do nothing
@@ -728,10 +618,10 @@ class LTFObject:
             # /* Outputs */
             Pxyr = MXYr
             Pxyi = MXYi
-            if (navg == 1):
+            if (self.K[i] == 1):
                 Vr = MXYr * MXYr
             else:
-                Vr = MXY2 / (navg - 1)
+                Vr = MXY2 / (self.K[i] - 1)
             Pxx = MXX
             Pyy = MYY
 
@@ -769,6 +659,8 @@ class LTFObject:
             Hxy_magnitude_error = 1.0
             Hxy_angle_error = 0.0
             coh_error = 1.0
+
+            navg = self.K[i]
 
             if (navg > 1) and (XX != 0):
                 Hxy_dev = math.sqrt(abs((navg / (navg - 1)**2) * (YY / XX) * (1 - (abs(XY)**2) / (XX * YY))))
@@ -925,3 +817,219 @@ class LTFObject:
                 
         pycbc_psd = pycbc.psd.read.from_numpy_arrays(self.f, self.Gxx, int(self.f[-1]/self.f[0]), self.f[0], self.f[0])
         return pycbc.noise.noise_from_psd(int(size), 1/fs, pycbc_psd).data
+
+
+def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
+    """
+    LTF scheduler from S2-AEI-TN-3052 (Gerhard Heinzel).
+
+    Based on the input parameters, the algorithm generates an array of 
+    frequencies (f), with corresponding resolution bandwidths (r), bin 
+    numbers (b), segment lengths (L), number of averages (K), and starting 
+    indices (D) for subsequent spectral analysis of time series using 
+    the windowed, overlapped segmented averaging method.
+
+    The time series will then be segmented for each frequency as follows:
+    [---------------------------------------------------------------------------------] total length N
+    [---------] segment length L[j], starting at index D[j][0] = 0                    .
+    .     [---------] segment length L[j], starting at index D[j][1]                  .
+    .           [---------] segment length L[j], starting at index D[j][2]            .
+    .                 [---------] segment length L[j], starting at index D[j][3]      .
+    .                           ... (total of K[j] segments to average)               .
+    .                                                                       [---------] segment length L[j]
+                                                                                        starting at index D[j][-1]
+
+    Inputs: 
+        N (int): Total length of the input data.
+        fs (float): Sampling frequency of the input data.
+        olap (float): Desired fractional overlap between segments of the input data.
+        bmin (float): Minimum bin number to be used (used to discard the lower bins with biased estimates due to power aliasing from negative bins).
+        Lmin (int): Smallest allowable segment length to be processed (used to tackle time delay bias error in cross spectra estimation).
+        Jdes (int): Desired number of frequencies to produce. This value is almost never met exactly.
+        Kdes (int): Desired number of segments to be averaged. This value is almost nowhere met exactly, and is actually only used as control parameter in the algorithm to ﬁnd a compromise between conflicting goals.
+
+    The algorithm balances several conflicting goals:
+        - Desire to compute approximately Jdes frequencies.
+        - Desire for those frequencies to be approximately log-spaced.
+        - For each frequency, desire to have approximately `olap` fractional overlap between segments while using the full time series.
+
+    Computes:
+        f (array of float): Frequency vector in Hz.
+        r (array of float): For each frequency, resolution bandwidth in Hz.
+        b (array of float): For each frequency, fractional bin number.
+        L (array of int): For each frequency, length of the segments to be processed.
+        K (array of float): For each frequency, number of segments to be processed.
+        D (array of arrays of int): For each frequency, array containing the starting indices of each segment to be processed.
+        O (array of float): For each frequency, actual fractional overlap between segments.
+        nf (int): Total number of frequencies produced.
+
+    Constraints:
+        f[j] = r[j] * m[j]: Definition of the non-integer bin number
+        r[j] * L[j] = fs: DFT constraint
+        f[j+1] = f[j] + r[j]: Local spacing between frequency bins equivalent to original WOSA method.
+        L[j] <= nx: Time series segment length cannot be larger than total length of the time series
+        L[j] >= Lmin: Time series segment length must be greater or equal to Lmin
+        b[j] >= bmin: Discard frequency bin numbers lower or equal to bmin
+        f[0] = fmin: Lowest possible frequency must be met.
+        f[-1] <= fmax: Maximum possible frequency must be met.
+
+    Internal constants:
+        xov (float): Desired non-overlapping fraction, xov = 1 - olap.
+        fmin (float): Lowest possible frequency, fmin = fs/nx*bmin.
+        fmax (float): Maximum possible frequency (Nyquist criterion), fmax = fs/2.
+        logfact (float): Constant factor that would ensure logarithmic frequency spacing, logfact = (nx/2)^(1/Jdes)-1.
+        fresmin (float): The smallest possible frequency resolution bandwidth in Hz, fresmin = fs/nx.
+        freslim (float): The smallest possible frequency resolution bandwidth in Hz when Kdes averages are performed, freslim = fresmin*(1+xov(Kdes-1)).
+
+    Targets:
+    1. r[j]/f[j] = x1[j] with x1[j] -> logfact:
+    This targets the approximate logarithmic spacing of frequencies on the x-axis, 
+    and also the desired number of frequencies Jdes.
+
+    2. if K[j] = 1, then L[j] = nx:
+    This describes the requirement to use the complete time series. In the case of K[j] > 1, the starting points of the individual segments
+    can and will be adjusted such that the complete time series is used, at the expense of not precisely achieving the desired overlap.
+
+    3. K[j] >= Kdes:
+    This describes the desire to have at least Kdes segments for averaging at each frequency. As mentioned above, 
+    this cannot be met at low frequencies but is easy to over-achieve at high frequencies, such that this serves only as a 
+    guideline for ﬁnding compromises in the scheduler.
+    """
+    def round_half_up(val):
+        if (float(val) % 1) >= 0.5:
+            x = math.ceil(val)
+        else:
+            x = round(val)
+        return x
+
+    # Init constants:
+    xov = (1 - olap)
+    fmin = fs / N * bmin
+    fmax = fs / 2
+    fresmin = fs / N
+    freslim = fresmin * (1 + xov * (Kdes - 1))
+    logfact = (N / 2)**(1 / Jdes) - 1
+
+    # Init lists:
+    f = []
+    r = []
+    b = []
+    L = []
+    K = []
+    O = []
+    D = []
+    navg = []
+
+    # Scheduler algorithm:
+    fi = fmin
+    while fi < fmax:
+        fres = fi * logfact
+        if fres <= freslim:
+            fres = np.sqrt(fres * freslim)
+        if fres < fresmin:
+            fres = fresmin
+
+        fbin = fi / fres
+        if fbin < bmin:
+            fbin = bmin
+            fres = fi / fbin
+
+        dftlen = round_half_up(fs / fres)
+        if dftlen > N:
+            dftlen = N
+        if dftlen < Lmin:
+            dftlen = Lmin
+
+        nseg = round_half_up((N - dftlen) / (xov * dftlen) + 1)
+        if nseg == 1:
+            dftlen = N
+
+        fres = fs / dftlen
+        fbin = fi / fres
+
+        f.append(fi)
+        r.append(fres)
+        b.append(fbin)
+        L.append(dftlen)
+        K.append(nseg)
+
+        fi = fi + fres
+
+    nf = len(f)
+
+    # Compute actual averages and starting indices:
+    for j in range(nf):
+        L_j = int(L[j])
+        L[j] = L_j
+        averages = int(round_half_up(((N - L_j) / (1 - olap)) / L_j + 1))
+        navg.append(averages)
+
+        if averages == 1:
+            shift = 1.0
+        else:
+            shift = (float)(N - L_j) / (float)(averages - 1)
+        if shift < 1:
+            shift = 1.0
+
+        start = 0.0
+        D.append([])
+        for _ in range(averages):
+            istart = int(float(start) + 0.5) if start >= 0 else int(float(start) - 0.5)
+            start = start + shift
+            D[j].append(istart)
+
+    # Compute the actual overlaps:
+    O = []
+    for j in range(nf):
+        indices = np.array(D[j])
+        if len(indices) > 1:
+            overlaps = indices[1:] - indices[:-1]
+            O.append(np.mean((L[j] - overlaps) / L[j]))
+        else:
+            O.append(0.0)
+
+    # Convert lists to numpy arrays:
+    f = np.array(f)
+    r = np.array(r)
+    b = np.array(b)
+    L = np.array(L)
+    K = np.array(K)
+    O = np.array(O)
+    navg = np.array(navg)
+
+    # Filter results to the frequency band provided:
+    if band is not None:
+        fmin = band[0]
+        fmax = band[1]
+
+        if not np.any((f >= fmin) & (f <= fmax)):
+            logging.error("Cannot compute a spectrum in the specified frequency band")
+            return
+    
+        mask = (f >= fmin) & (f <= fmax)
+        f = f[mask]
+        r = r[mask]
+        b = b[mask]
+        L = L[mask]
+        K = K[mask]
+        D = [row for row, keep in zip(D, mask) if keep]
+        O = O[mask]
+        navg = navg[mask]
+
+    # Constraint verification (note that some constraints are "soft"):
+    if not np.isclose(f[-1], fmax, rtol=0.05): logging.warning(f"ltf::ltf_plan: f[-1]={f[-1]} and fmax={fmax}")
+    if not np.allclose(f, r * b): logging.warning(f"ltf::ltf_plan: f[j] != r[j]*b[j]")
+    if not np.allclose(r * L, np.full(len(r), fs)): logging.warning(f"ltf::ltf_plan: r[j]*L[j] != fs")
+    if not np.allclose(r[:-1], np.diff(f)): logging.warning(f"ltf::ltf_plan: r[j] != f[j+1] - f[j]")
+    if not np.all(L < N+1): logging.warning(f"ltf::ltf_plan: L[j] >= N+1")
+    if not np.all(L >= Lmin): logging.warning(f"ltf::ltf_plan: L[j] < Lmin")
+    if not np.all(b >= bmin * (1 - 0.05)): logging.warning(f"ltf::ltf_plan: b[j] < bmin")
+    if not np.all(L[K == 1] == N): logging.warning(f"ltf::ltf_plan: L[K==1] != N")
+
+    # Final number of frequencies:
+    nf = len(f)
+    if nf == 0:
+        logging.error("Error: frequency scheduler returned zero frequencies")
+        sys.exit(-1)
+
+    return f, r, b, L, K, D, O, nf

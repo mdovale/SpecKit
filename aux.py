@@ -2,7 +2,15 @@
 
 Miguel Dovale (Hannover, 2024)
 """
+import math
 import numpy as np
+
+def round_half_up(val):
+    if (float(val) % 1) >= 0.5:
+        x = math.ceil(val)
+    else:
+        x = round(val)
+    return x
 
 def chunker(iter, chunk_size):
     chunks = []

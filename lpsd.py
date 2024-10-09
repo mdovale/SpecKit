@@ -57,7 +57,7 @@ def lpsd(x, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes
 
     if verbose: logging.info(f"Attempting to schedule {ltf_obj.Jdes} frequencies...")
 
-    ltf_obj.ltf_plan(band)
+    ltf_obj.calc_ltf_plan(band)
 
     if verbose: logging.info(f"Scheduler returned {ltf_obj.nf} frequencies.")
 
