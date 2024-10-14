@@ -19,6 +19,7 @@ import time
 from spectools.flattop import olap_dict, win_dict
 from spectools.dsp import integral_rms, numpy_detrend
 from spectools.aux import round_half_up, chunker, is_function_in_dict, get_key_for_function
+from spectools.aux import find_Jdes_binary_search
 import matplotlib.pyplot as plt
 
 import logging
@@ -39,6 +40,7 @@ class LTFObject:
         self.order = 0 # Detrending order (0: remove mean, 1: linear regression, 2: quadratic regression)
         self.win = np.kaiser # Window function to use
         self.psll = 200 # Peak side-lobe level
+        self.scheduler = None # Scheduler algorithm to be used
         self.alpha = None # Alpha parameter for Kaiser window
         self.iscsd = None # True if it is a cross-spectrum
         self.f = None # Fourier frequency vector
@@ -125,7 +127,7 @@ class LTFObject:
         x = alpha
         return (100 - 1 / (((((a3 * x) + a2) * x) + a1) * x + a0)) / 100
 
-    def load_params(self, verbose, default=False, fs=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None):
+    def load_params(self, verbose, default=False, fs=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, scheduler=None):
         """
         Function to load or update parameters.
         """
@@ -140,6 +142,19 @@ class LTFObject:
         if Kdes is not None: self.Kdes = Kdes
         if order is not None: self.order = order
         if psll is not None: self.psll = psll
+        
+        if scheduler is not None:
+            if scheduler == 'ltf':
+                self.scheduler = ltf_plan
+            elif scheduler == 'lpsd':
+                self.scheduler = lpsd_plan
+            elif scheduler == 'new_ltf':
+                self.scheduler = new_ltf_plan
+            elif callable(scheduler):
+                self.scheduler = scheduler
+            else:
+                logging.error("The specified scheduler not recognized")
+                sys.exit(-1)
 
         if (win=="Kaiser")or(win=="kaiser")or(win==np.kaiser)or(win==windows.kaiser)or(win==None):
             self.win = np.kaiser
@@ -180,6 +195,82 @@ class LTFObject:
         if (self.win==-1):
             assert isinstance(self.olap, float), logging.error("Need to specify an overlap if window is -1")
 
+    def load_defaults(self):
+        """
+        Loads default values of the parameters.
+        """
+        self.fs = 2.0
+        self.olap = "default"
+        self.bmin = 1.0
+        self.Lmin = int(1)
+        self.Jdes = 500
+        self.Kdes = 100
+        self.order = 0
+        self.psll = 200
+        self.win = np.kaiser
+        self.scheduler = ltf_plan
+
+    def calc_plan(self):
+
+        params = {"N": self.nx, 
+                  "fs": self.fs, 
+                  "olap": self.olap, 
+                  "bmin": self.bmin, 
+                  "Lmin": self.Lmin, 
+                  "Jdes": self.Jdes,
+                  "Kdes": self.Kdes}
+
+        output = self.scheduler(params)
+        
+        self.f = output["f"]
+        self.r = output["r"]
+        self.m = output["b"]
+        self.L = output["L"]
+        self.K = output["K"]
+        self.navg = output["navg"]
+        self.D = output["D"]
+        self.O = output["O"]
+        self.nf = output["nf"]
+
+    def get_plan(self):
+
+        if self.f is None:
+            self.calc_plan()
+        
+        return self.f, self.r, self.m, self.L, self.K, self.D, self.O, self.nf
+
+    def filter_to_band(self, band):
+        fmin = band[0]
+        fmax = band[1]
+
+        if not np.any((self.f >= fmin) & (self.f <= fmax)):
+            logging.error("Cannot compute a spectrum in the specified frequency band")
+            return
+    
+        mask = (self.f >= fmin) & (self.f <= fmax)
+        self.f = self.f[mask]
+        self.r = self.r[mask]
+        self.m = self.m[mask]
+        self.L = self.L[mask]
+        self.K = self.K[mask]
+        self.navg = self.navg[mask]
+        self.D = [row for row, keep in zip(self.D, mask) if keep]
+        self.O = self.O[mask]
+        self.nf = len(self.f)
+
+    def adjust_Jdes_to_target_nf(self, target_nf, min_Jdes=100, max_Jdes=5000):
+
+        params = {"N": self.nx, 
+                  "fs": self.fs, 
+                  "olap": self.olap, 
+                  "bmin": self.bmin, 
+                  "Lmin": self.Lmin, 
+                  "Jdes": self.Jdes,
+                  "Kdes": self.Kdes}
+
+        self.Jdes = find_Jdes_binary_search(self.scheduler, params, target_nf, min_Jdes, max_Jdes)
+        self.calc_plan()
+        
     def info(self):
         print(f"LTF/LPSD object properties:")
         print(f"Input data shape: {np.shape(self.data)}")
@@ -192,32 +283,6 @@ class LTFObject:
             return self.f, self.XY, self.Gxy, np.nan, self.Gxy_dev, self.ENBW
         else:
             return self.f, self.XX, self.Gxx, np.nan, self.Gxx_dev, self.ENBW
-
-    def load_defaults(self):
-        """
-        Loads default values of the parameters.
-        """
-        self.fs = 1
-        self.olap = "default"
-        self.bmin = 1
-        self.Lmin = 0
-        self.Jdes = 500
-        self.Kdes = 100
-        self.order = 0
-        self.psll = 200
-        self.win = np.kaiser
-
-    def calc_ltf_plan(self, band, scheduler='ltf'):
-
-        if scheduler == 'ltf':
-            self.f, self.r, self.m, self.L, self.K, self.D, self.O, self.nf \
-                = ltf_plan(self.nx, self.fs, self.olap, self.bmin, self.Lmin, self.Jdes, self.Kdes, band)
-        elif scheduler == 'new_ltf':
-            self.f, self.r, self.m, self.L, self.K, self.D, self.O, self.nf \
-                = new_ltf_plan(self.nx, self.fs, self.olap, self.bmin, self.Lmin, self.Jdes, self.Kdes, band)
-        else:
-            logging.error(f"LTFObject::calc_ltf_plan: {scheduler} scheduler not implemented")
-            return
 
     def calc_lpsd_single_bin(self, freq, fres=None, L=None):
         """
@@ -551,7 +616,7 @@ class LTFObject:
             MXX2 = 0.0
             MYY2 = 0.0
 
-            for j in range(self.K[i]):
+            for j in range(self.navg[i]):
 
                 x1s = self.data[self.D[i][j]:self.D[i][j] + self.L[i]].copy()
                 if csd:
@@ -668,7 +733,7 @@ class LTFObject:
             Hxy_angle_error = 0.0
             coh_error = 1.0
 
-            navg = self.K[i]
+            navg = self.navg[i]
 
             if (navg > 1) and (XX != 0):
                 Hxy_dev = math.sqrt(abs((navg / (navg - 1)**2) * (YY / XX) * (1 - (abs(XY)**2) / (XX * YY))))
@@ -827,7 +892,18 @@ class LTFObject:
         return pycbc.noise.noise_from_psd(int(size), 1/fs, pycbc_psd).data
 
 
-def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
+def lpsd_plan(params):
+    """
+    Original LPSD scheduler.
+
+    Like ltf_plan, but bmin = 1 and Lmin = 1.
+    """
+
+    params["bmin"] = 1.0
+    params["Lmin"] = int(1)
+    return ltf_plan(params)
+
+def ltf_plan(params):
     """
     LTF scheduler from S2-AEI-TN-3052 (Gerhard Heinzel).
 
@@ -909,6 +985,14 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
         else:
             x = round(val)
         return x
+    
+    N = params['N']
+    fs = params['fs']
+    olap = params['olap']
+    bmin = params['bmin']
+    Lmin = params['Lmin']
+    Jdes = params['Jdes']
+    Kdes = params['Kdes']
 
     # Init constants:
     xov = (1 - olap)
@@ -1007,25 +1091,6 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
     O = np.array(O)
     navg = np.array(navg)
 
-    # Filter results to the frequency band provided:
-    if band is not None:
-        fmin = band[0]
-        fmax = band[1]
-
-        if not np.any((f >= fmin) & (f <= fmax)):
-            logging.error("Cannot compute a spectrum in the specified frequency band")
-            return
-    
-        mask = (f >= fmin) & (f <= fmax)
-        f = f[mask]
-        r = r[mask]
-        b = b[mask]
-        L = L[mask]
-        K = K[mask]
-        D = [row for row, keep in zip(D, mask) if keep]
-        O = O[mask]
-        navg = navg[mask]
-
     # Constraint verification (note that some constraints are "soft"):
     if not np.isclose(f[-1], fmax, rtol=0.05): logging.warning(f"ltf::ltf_plan: f[-1]={f[-1]} and fmax={fmax}")
     if not np.allclose(f, r * b): logging.warning(f"ltf::ltf_plan: f[j] != r[j]*b[j]")
@@ -1042,11 +1107,13 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
         logging.error("Error: frequency scheduler returned zero frequencies")
         sys.exit(-1)
 
-    return f, r, b, L, K, D, O, nf
+    output = {"f": f, "r": r, "b": b, "L": L, "K": K, "navg": navg, "D": D, "O": O, "nf": nf}
 
-def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
+    return output
+
+def new_ltf_plan(params):
     """
-    LTF scheduler from S2-AEI-TN-3052 (Gerhard Heinzel).
+    New LTF scheduler.
 
     Based on the input parameters, the algorithm generates an array of 
     frequencies (f), with corresponding resolution bandwidths (r), bin 
@@ -1126,6 +1193,14 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
         else:
             x = round(val)
         return x
+    
+    N = params['N']
+    fs = params['fs']
+    olap = params['olap']
+    bmin = params['bmin']
+    Lmin = params['Lmin']
+    Jdes = params['Jdes']
+    Kdes = params['Kdes']
 
     # Init constants:
     xov = (1 - olap)
@@ -1283,25 +1358,6 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
     O = np.array(O)
     navg = np.array(navg)
 
-    # Filter results to the frequency band provided:
-    if band is not None:
-        fmin = band[0]
-        fmax = band[1]
-
-        if not np.any((f >= fmin) & (f <= fmax)):
-            logging.error("Cannot compute a spectrum in the specified frequency band")
-            return
-    
-        mask = (f >= fmin) & (f <= fmax)
-        f = f[mask]
-        r = r[mask]
-        b = b[mask]
-        L = L[mask]
-        K = K[mask]
-        D = [row for row, keep in zip(D, mask) if keep]
-        O = O[mask]
-        navg = navg[mask]
-
     # Constraint verification (note that some constraints are "soft"):
     if not np.isclose(f[-1], fmax, rtol=0.05): logging.warning(f"ltf::ltf_plan: f[-1]={f[-1]} and fmax={fmax}")
     if not np.allclose(f, r * b): logging.warning(f"ltf::ltf_plan: f[j] != r[j]*b[j]")
@@ -1318,4 +1374,6 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes, band):
         logging.error("Error: frequency scheduler returned zero frequencies")
         sys.exit(-1)
 
-    return f, r, b, L, K, D, O, nf
+    output = {"f": f, "r": r, "b": b, "L": L, "K": K, "navg": navg, "D": D, "O": O, "nf": nf}
+
+    return output

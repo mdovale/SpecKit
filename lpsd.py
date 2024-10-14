@@ -17,7 +17,7 @@ datefmt='%Y-%m-%d %H:%M:%S'
 version = 1.0
 
 def lpsd(x, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None,\
-         object_return=False, pool=None, scheduler='ltf', verbose=False):
+         object_return=False, pool=None, scheduler='ltf', adjust_Jdes = False, verbose=False):
     """Main function to perform LPSD/LTF algorithm on data.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -53,11 +53,17 @@ def lpsd(x, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes
     """
     ltf_obj = LTFObject(data=x, fs=fs, verbose=verbose)
 
-    ltf_obj.load_params(verbose, default=False, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Jdes=Jdes, Kdes=Kdes, order=order, win=win, psll=psll)
+    ltf_obj.load_params(verbose, default=False, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Jdes=Jdes, Kdes=Kdes, order=order, win=win, psll=psll, scheduler=scheduler)
 
     if verbose: logging.info(f"Attempting to schedule {ltf_obj.Jdes} frequencies...")
 
-    ltf_obj.calc_ltf_plan(band, scheduler)
+    if adjust_Jdes:
+        ltf_obj.adjust_Jdes_to_target_nf()
+    else:
+        ltf_obj.calc_plan()
+
+    if band is not None:
+        ltf_obj.filter_to_band(band)
 
     if verbose: logging.info(f"Scheduler returned {ltf_obj.nf} frequencies.")
 
