@@ -5,6 +5,23 @@ Miguel Dovale (Hannover, 2024)
 import math
 import numpy as np
 
+def kaiser_alpha(psll):
+    a0 = -0.0821377
+    a1 = 4.71469
+    a2 = -0.493285
+    a3 = 0.0889732
+
+    x = psll / 100
+    return (((((a3 * x) + a2) * x) + a1) * x + a0)
+
+def kaiser_rov(alpha):
+    a0 = 0.0061076
+    a1 = 0.00912223
+    a2 = -0.000925946
+    a3 = 4.42204e-05
+    x = alpha
+    return (100 - 1 / (((((a3 * x) + a2) * x) + a1) * x + a0)) / 100
+
 def round_half_up(val):
     if (float(val) % 1) >= 0.5:
         x = math.ceil(val)

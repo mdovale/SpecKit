@@ -18,8 +18,8 @@ import math
 import time
 from spectools.flattop import olap_dict, win_dict
 from spectools.dsp import integral_rms, numpy_detrend
-from spectools.aux import round_half_up, chunker, is_function_in_dict, get_key_for_function
-from spectools.aux import find_Jdes_binary_search
+from spectools.aux import kaiser_alpha, kaiser_rov, round_half_up, chunker
+from spectools.aux import is_function_in_dict, get_key_for_function, find_Jdes_binary_search
 import matplotlib.pyplot as plt
 
 import logging
@@ -30,17 +30,21 @@ datefmt='%Y-%m-%d %H:%M:%S'
 )
 
 class LTFObject:
-    def __init__(self, data=None, fs=None, verbose=False):
+    def __init__(self, default=False, data=None, N=None, fs=None, olap=None, bmin=None, Lmin=None,\
+                 Jdes=None, Kdes=None, order=None, psll=None, win=None, scheduler=None, verbose=False):
+        ########################
+        # LTFObject attributes #
+        ########################
         self.fs = fs # Sampling frequency of input data
         self.olap = "default" # Desired fractional overlap between segments
-        self.bmin = 1 # Minimum bin number to be used
+        self.bmin = 1.0 # Fractional bin numbers < bmin will be discarded
         self.Lmin = 0 # The smallest allowable segment length to be processed
         self.Jdes = 500 # Desired number of frequencies in spectrum
         self.Kdes = 100 # Desired number of averages (control parameter)
         self.order = 0 # Detrending order (0: remove mean, 1: linear regression, 2: quadratic regression)
         self.win = np.kaiser # Window function to use
         self.psll = 200 # Peak side-lobe level
-        self.scheduler = None # Scheduler algorithm to be used
+        self.scheduler = "ltf" # Scheduler algorithm to be used
         self.alpha = None # Alpha parameter for Kaiser window
         self.iscsd = None # True if it is a cross-spectrum
         self.f = None # Fourier frequency vector
@@ -94,6 +98,7 @@ class LTFObject:
         self.Hxy_angle_error = None  # Normalized random error of arg(Hxy)
         self.coh_error = None  # Normalized random error of coherence
 
+        # Load data:
         if data is not None:
             x = np.asarray(data)
             if len(x.shape) == 2 and ((x.shape[0] == 2)or(x.shape[1] == 2)):
@@ -109,28 +114,11 @@ class LTFObject:
                 sys.exit(-1)
             self.data = copy.deepcopy(x)
             self.nx = len(self.data)
+        else:
+            self.nx = int(N)
+            self.data = np.zeros(N)
 
-    def _kaiser_alpha(self, psll):
-        a0 = -0.0821377
-        a1 = 4.71469
-        a2 = -0.493285
-        a3 = 0.0889732
-
-        x = psll / 100
-        return (((((a3 * x) + a2) * x) + a1) * x + a0)
-
-    def _kaiser_rov(self, alpha):
-        a0 = 0.0061076
-        a1 = 0.00912223
-        a2 = -0.000925946
-        a3 = 4.42204e-05
-        x = alpha
-        return (100 - 1 / (((((a3 * x) + a2) * x) + a1) * x + a0)) / 100
-
-    def load_params(self, verbose, default=False, fs=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, scheduler=None):
-        """
-        Function to load or update parameters.
-        """
+        # Load parameters:
         if default:
             self.load_defaults()
 
@@ -142,23 +130,26 @@ class LTFObject:
         if Kdes is not None: self.Kdes = Kdes
         if order is not None: self.order = order
         if psll is not None: self.psll = psll
-        
-        if scheduler is not None:
-            if scheduler == 'ltf':
-                self.scheduler = ltf_plan
-            elif scheduler == 'lpsd':
-                self.scheduler = lpsd_plan
-            elif scheduler == 'new_ltf':
-                self.scheduler = new_ltf_plan
-            elif callable(scheduler):
-                self.scheduler = scheduler
-            else:
-                logging.error("The specified scheduler not recognized")
-                sys.exit(-1)
+        if scheduler is not None: self.scheduler = scheduler
 
+        # Load scheduler function:
+        if self.scheduler == 'ltf':
+            self.scheduler = ltf_plan
+        elif self.scheduler == 'lpsd':
+            self.scheduler = lpsd_plan
+        elif self.scheduler == 'new_ltf':
+            self.scheduler = new_ltf_plan
+        elif callable(self.scheduler):
+            self.scheduler = scheduler
+        else:
+            logging.error("The specified scheduler not recognized")
+            sys.exit(-1)
+
+        # Load window parameters:
         if (win=="Kaiser")or(win=="kaiser")or(win==np.kaiser)or(win==windows.kaiser)or(win==None):
+            assert self.psll > 0, logging.error("Need to specify PSLL for the Kaiser window")
             self.win = np.kaiser
-            self.alpha = self._kaiser_alpha(self.psll)
+            self.alpha = kaiser_alpha(self.psll)
         elif (win == "Hanning")or(win=="hanning")or(win==np.hanning)or(win==windows.hann):
             self.win = np.hanning
         elif isinstance(win, str):
@@ -177,9 +168,10 @@ class LTFObject:
         
         if verbose: logging.info(f"Selected window: {self.win}")
         
+        # Load overlap parameters:
         if self.olap == "default":
             if self.win == np.kaiser:
-                self.olap = self._kaiser_rov(self.alpha)
+                self.olap = kaiser_rov(self.alpha)
             elif self.win == np.hanning:
                 self.olap = 0.5
             elif win_str in olap_dict:
@@ -189,12 +181,9 @@ class LTFObject:
                 logging.warning(f"Automatic setting of overlap for window {win_str} failed, setting to 0.5")
                 self.olap = 0.5
 
-        if (self.win==-1)or(self.win==-2):
-            assert self.psll > 0, logging.error("Need to specify PSLL if window is -1 or -2")
-        
-        if (self.win==-1):
-            assert isinstance(self.olap, float), logging.error("Need to specify an overlap if window is -1")
-
+    #####################
+    # LTFObject methods #
+    #####################
     def load_defaults(self):
         """
         Loads default values of the parameters.
@@ -211,7 +200,9 @@ class LTFObject:
         self.scheduler = ltf_plan
 
     def calc_plan(self):
-
+        """
+        Uses the callable self.scheduler function to compute the frequency and time series segmentation plans.
+        """
         params = {"N": self.nx, 
                   "fs": self.fs, 
                   "olap": self.olap, 
@@ -233,13 +224,18 @@ class LTFObject:
         self.nf = output["nf"]
 
     def get_plan(self):
-
+        """
+        Returns the scheduler output
+        """
         if self.f is None:
             self.calc_plan()
         
         return self.f, self.r, self.m, self.L, self.K, self.D, self.O, self.nf
 
     def filter_to_band(self, band):
+        """
+        Filters the scheduler output to the desired frequency band.
+        """
         fmin = band[0]
         fmax = band[1]
 
@@ -259,7 +255,9 @@ class LTFObject:
         self.nf = len(self.f)
 
     def adjust_Jdes_to_target_nf(self, target_nf, min_Jdes=100, max_Jdes=5000):
-
+        """
+        Adjusts the Jdes parameter to achieve the desired number of bins.
+        """
         params = {"N": self.nx, 
                   "fs": self.fs, 
                   "olap": self.olap, 

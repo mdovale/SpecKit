@@ -16,8 +16,8 @@ datefmt='%Y-%m-%d %H:%M:%S'
 
 version = 1.0
 
-def lpsd(x, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None,\
-         object_return=False, pool=None, scheduler='ltf', adjust_Jdes = False, verbose=False):
+def lpsd(x, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None,\
+         object_return=False, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Main function to perform LPSD/LTF algorithm on data.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -51,32 +51,31 @@ def lpsd(x, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes
         np.nan
         Gxx_dev or Gxy_dev (list): Array of standard deviation of power spectral density or cross spectral density.
     """
-    ltf_obj = LTFObject(data=x, fs=fs, verbose=verbose)
-
-    ltf_obj.load_params(verbose, default=False, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Jdes=Jdes, Kdes=Kdes, order=order, win=win, psll=psll, scheduler=scheduler)
-
-    if verbose: logging.info(f"Attempting to schedule {ltf_obj.Jdes} frequencies...")
+    ltf_obj = LTFObject(data=x, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Jdes=Jdes, Kdes=Kdes, order=order, win=win, psll=psll, scheduler=scheduler, verbose=verbose)
 
     if adjust_Jdes:
+        if verbose: logging.info(f"Forcing {ltf_obj.Jdes} frequencies...")
         ltf_obj.adjust_Jdes_to_target_nf()
     else:
+        if verbose: logging.info(f"Attempting to schedule {ltf_obj.Jdes} frequencies...")
         ltf_obj.calc_plan()
 
     if band is not None:
+        logging.info(f"Restricting frequencies to the desired band.")
         ltf_obj.filter_to_band(band)
 
-    if verbose: logging.info(f"Scheduler returned {ltf_obj.nf} frequencies.")
-
-    if verbose: logging.info("Computing {} frequencies, discarding first {} bins".format(ltf_obj.nf, ltf_obj.bmin))
+    if verbose: logging.info("Computing {} frequencies, discarding frequency bins with b < {}".format(ltf_obj.nf, ltf_obj.bmin))
 
     ltf_obj.calc_lpsd(pool=pool, verbose=verbose)
+
+    if verbose: logging.info("Done.")
 
     if object_return:
         return ltf_obj
     else:
         return ltf_obj.legacy_return()
 
-def ltf(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler='ltf', verbose=False):
+def ltf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
     """Main function to perform LPSD/LTF algorithm on data. Returns an LTFObject instance.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -106,7 +105,7 @@ def ltf(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kd
     return ltf_obj
 
 
-def lpsd_legacy(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None):
+def lpsd_legacy(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None):
     """Main function to perform LPSD/LTF algorithm on data. Returns the "traditional" output tuple.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -136,11 +135,11 @@ def lpsd_legacy(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=
         np.nan
         Gxx_dev or Gxy_dev (list): Array of standard deviation of power spectral density or cross spectral density.
     """
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, verbose=False)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler="ltf", verbose=False)
     
     return ltf_obj.legacy_return()
     
-def asd(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler='ltf', verbose=False):
+def asd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the amplitude spectral density.
 
     Args:
@@ -171,7 +170,7 @@ def asd(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kd
     
     return ltf_obj.f, np.sqrt(ltf_obj.Gxx)
 
-def psd(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler='ltf', verbose=False):
+def psd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the power spectral density.
 
     Args:
@@ -202,7 +201,7 @@ def psd(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kd
     
     return ltf_obj.f, ltf_obj.Gxx
 
-def ps(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler='ltf', verbose=False):
+def ps(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the power spectrum.
 
     Args:
@@ -233,7 +232,7 @@ def ps(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kde
     
     return ltf_obj.f, ltf_obj.G
 
-def csd(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler='ltf', verbose=False):
+def csd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the cross spectral density.
 
     Args:
@@ -264,7 +263,7 @@ def csd(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kd
     
     return ltf_obj.f, ltf_obj.Gxy
 
-def tf(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler='ltf', verbose=False):
+def tf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the transfer function.
 
     Args:
@@ -295,7 +294,7 @@ def tf(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kde
     
     return ltf_obj.f, ltf_obj.Hxy
 
-def cf(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler='ltf', verbose=False):
+def cf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the coupling coefficient.
 
     Args:
@@ -326,7 +325,7 @@ def cf(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kde
     
     return ltf_obj.f, np.abs(ltf_obj.Hxy)
 
-def coh(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler='ltf', verbose=False):
+def coh(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the coherence or cross-correlation.
 
     Args:
@@ -357,7 +356,7 @@ def coh(data, fs, band=None, olap="default", bmin=None, Lmin=None, Jdes=None, Kd
     
     return ltf_obj.f, ltf_obj.coh
 
-def ltf_single_bin(x, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, verbose=False):
+def ltf_single_bin(x, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, verbose=False):
     """Main function to perform the LPSD algorithm for a single frequency bin.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -387,7 +386,7 @@ def ltf_single_bin(x, fs, freq, fres=None, L=None, olap="default", order=None, w
 
     return ltf_obj
 
-def asd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, verbose=False):
+def asd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the amplitude spectral density.
 
     Args:
@@ -413,7 +412,7 @@ def asd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None
     
     return np.sqrt(ltf_obj.Gxx)
 
-def psd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def psd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the power spectral density.
 
     Args:
@@ -439,7 +438,7 @@ def psd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None
     
     return ltf_obj.Gxx
 
-def csd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def csd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the cross spectral density.
 
     Args:
@@ -465,7 +464,7 @@ def csd_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None
     
     return ltf_obj.Gxy
 
-def tf_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def tf_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the transfer function estimate.
 
     Args:
@@ -491,7 +490,7 @@ def tf_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None,
     
     return ltf_obj.Hxy
 
-def cf_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def cf_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the coupling coefficient.
 
     Args:
@@ -517,7 +516,7 @@ def cf_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None,
     
     return np.abs(ltf_obj.Hxy)
 
-def coh_single_bin(data, fs, freq, fres=None, L=None, olap="default", order=None, win=None, psll=None, pool=None, verbose=False):
+def coh_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
     """Perform the LPSD algorithm on a single frequency bin and return the coherence or cross-correlation.
 
     Args:
