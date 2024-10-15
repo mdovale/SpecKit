@@ -55,7 +55,7 @@ def lpsd(x, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None
 
     if adjust_Jdes:
         if verbose: logging.info(f"Forcing {ltf_obj.Jdes} frequencies...")
-        ltf_obj.adjust_Jdes_to_target_nf()
+        ltf_obj.adjust_Jdes_to_target_nf(ltf_obj.Jdes)
     else:
         if verbose: logging.info(f"Attempting to schedule {ltf_obj.Jdes} frequencies...")
         ltf_obj.calc_plan()
@@ -75,7 +75,7 @@ def lpsd(x, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None
     else:
         return ltf_obj.legacy_return()
 
-def ltf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
+def ltf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Main function to perform LPSD/LTF algorithm on data. Returns an LTFObject instance.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -101,7 +101,7 @@ def ltf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
     Returns:
         LTFObject: Instance of LTFObject.
     """
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler,  verbose=verbose)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes,  verbose=verbose)
     return ltf_obj
 
 
@@ -139,7 +139,7 @@ def lpsd_legacy(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None,
     
     return ltf_obj.legacy_return()
     
-def asd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
+def asd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the amplitude spectral density.
 
     Args:
@@ -166,11 +166,11 @@ def asd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, verbose=verbose)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
     
     return ltf_obj.f, np.sqrt(ltf_obj.Gxx)
 
-def psd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
+def psd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the power spectral density.
 
     Args:
@@ -197,11 +197,11 @@ def psd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, verbose=verbose)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
     
     return ltf_obj.f, ltf_obj.Gxx
 
-def ps(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
+def ps(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the power spectrum.
 
     Args:
@@ -228,11 +228,11 @@ def ps(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, verbose=verbose)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
     
     return ltf_obj.f, ltf_obj.G
 
-def csd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
+def csd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the cross spectral density.
 
     Args:
@@ -259,11 +259,11 @@ def csd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, verbose=verbose)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
     
     return ltf_obj.f, ltf_obj.Gxy
 
-def tf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
+def tf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the transfer function.
 
     Args:
@@ -290,11 +290,11 @@ def tf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, verbose=verbose)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
     
     return ltf_obj.f, ltf_obj.Hxy
 
-def cf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
+def cf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the coupling coefficient.
 
     Args:
@@ -321,11 +321,11 @@ def cf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, verbose=verbose)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
     
     return ltf_obj.f, np.abs(ltf_obj.Hxy)
 
-def coh(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, verbose=False):
+def coh(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Perform the LPSD/LTF algorithm on data and return the coherence or cross-correlation.
 
     Args:
@@ -352,7 +352,7 @@ def coh(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, verbose=verbose)
+    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
     
     return ltf_obj.f, ltf_obj.coh
 
