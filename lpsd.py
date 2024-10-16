@@ -1,7 +1,8 @@
 """ This module contains functions to perform spectral analysis on time series 
 data using the LTFObject class.
 
-Miguel Dovale, AEI (2024)
+Miguel Dovale (Hannover, 2024)
+E-mail: spectools@pm.me
 """
 import sys
 import numpy as np

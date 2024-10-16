@@ -1,6 +1,7 @@
 """ This module contains signal processing functions.
 
 Miguel Dovale (Hannover, 2024)
+E-mail: spectools@pm.me
 """
 import numpy as np
 from scipy.integrate import cumtrapz
@@ -90,7 +91,7 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
     return df_shifted
 
 def integral_rms(fourier_freq, asd, pass_band=[-np.inf,np.inf]):
-    """ Compute the RMS as integral of the ASD.
+    """ Compute the RMS as integral of an ASD.
     
     Args:
         fourier_freq: fourier frequency (Hz)

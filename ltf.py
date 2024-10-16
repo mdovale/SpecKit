@@ -7,6 +7,7 @@ Reference: LPSD algorithm by Gerhard Heinzel and Michael Troebs.
 https://doi.org/10.1016/j.measurement.2005.10.010
 
 Miguel Dovale (Hannover, 2024)
+E-mail: spectools@pm.me
 """
 import sys
 import copy

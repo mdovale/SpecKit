@@ -1,6 +1,7 @@
 """This module contains auxiliary functions.
 
 Miguel Dovale (Hannover, 2024)
+E-mail: spectools@pm.me
 """
 import math
 import numpy as np
