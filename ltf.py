@@ -10,7 +10,6 @@ Miguel Dovale (Hannover, 2024)
 """
 import sys
 import copy
-import types
 import numpy as np
 import scipy.signal.windows as windows
 import pandas as pd
@@ -150,13 +149,13 @@ class LTFObject:
             assert self.psll > 0, logging.error("Need to specify PSLL for the Kaiser window")
             self.win = np.kaiser
             self.alpha = kaiser_alpha(self.psll)
-        elif (win == "Hanning")or(win=="hanning")or(win==np.hanning)or(win==windows.hann):
+        elif (win == "Hann")or(win=="hann")or(win == "Hanning")or(win=="hanning")or(win==np.hanning)or(win==windows.hann):
             self.win = np.hanning
         elif isinstance(win, str):
             win_str = win
             if win_str in win_dict:
                 self.win = win_dict[win_str]
-        elif isinstance(win, types.FunctionType):
+        elif callable(win):
             self.win = win
             if is_function_in_dict(win, win_dict):
                 win_str = get_key_for_function(win, win_dict)
