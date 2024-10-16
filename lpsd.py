@@ -40,7 +40,9 @@ def lpsd(x, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         object_return (bool, optional): Whether to return an instance of LTFObject or a tuple of lists containing the traditional output. Default is False.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
     if object_return is True:
@@ -97,7 +99,9 @@ def ltf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         LTFObject: Instance of LTFObject.
@@ -127,7 +131,9 @@ def lpsd_legacy(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None,
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -156,7 +162,9 @@ def asd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -187,7 +195,9 @@ def psd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -218,7 +228,9 @@ def ps(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -249,7 +261,9 @@ def csd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -280,7 +294,9 @@ def tf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -311,7 +327,9 @@ def cf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -342,7 +360,9 @@ def coh(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -374,7 +394,7 @@ def ltf_single_bin(x, fs, freq, fres=None, L=None, olap=None, order=None, win=No
         order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
         win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         LTFObject: Instance of LTFObject.
@@ -397,7 +417,7 @@ def asd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win
         order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
         win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         asd (float): Amplitude spectral density.
@@ -423,7 +443,7 @@ def psd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win
         order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
         win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         psd (float): Power spectral density.
@@ -449,7 +469,7 @@ def csd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win
         order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
         win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         csd (list): Cross spectral density.
@@ -475,7 +495,7 @@ def tf_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=
         order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
         win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         tf (list): Transfer function estimate.
@@ -501,7 +521,7 @@ def cf_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=
         order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
         win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         cf (list): Coupling coefficient.
@@ -527,7 +547,7 @@ def coh_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win
         order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
         win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
         psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is None.
+        verbose (bool, optional): Whether to print out some useful information. Default is False.
 
     Returns:
         coh (list): Coherence.
