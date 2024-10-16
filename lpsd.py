@@ -378,9 +378,7 @@ def ltf_single_bin(x, fs, freq, fres=None, L=None, olap=None, order=None, win=No
     Returns:
         LTFObject: Instance of LTFObject.
     """
-    ltf_obj = LTFObject(data=x, fs=fs, verbose=verbose)
-
-    ltf_obj.load_params(verbose, default=False, fs=fs, olap=olap, order=order, win=win, psll=psll)
+    ltf_obj = LTFObject(data=x, fs=fs, olap=olap, order=order, win=win, psll=psll, verbose=verbose)
 
     ltf_obj.calc_lpsd_single_bin(freq, fres, L)
 
