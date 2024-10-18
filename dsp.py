@@ -5,8 +5,15 @@ E-mail: spectools@pm.me
 """
 import numpy as np
 from scipy.integrate import cumtrapz
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, minimize
 from pytdi.dsp import timeshift
+
+import logging
+logging.basicConfig(
+format='%(asctime)s %(levelname)-8s %(message)s',
+level=logging.INFO,
+datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 def numpy_detrend(x, order=1):
     """
@@ -55,7 +62,7 @@ def truncation(x, n_trunc):
         return x
 
 def df_timeshift(df, fs, seconds, columns=None, truncate=None):
-    """ Time shift an entire DataFrame.
+    """ Timeshift columns of a DataFrame or the entire DataFrame.
 
     Args:
         df (pd.DataFrame): The input DataFrame.
@@ -66,7 +73,7 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
                                         If int, specify the exact number of rows to truncate at both ends.
 
     Returns:
-        pd.DataFrame: The time-shifted DataFrame.
+        pd.DataFrame: The timeshifted DataFrame.
     """
     
     if seconds == 0.0:
@@ -90,14 +97,16 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
 
     return df_shifted
 
-def integral_rms(fourier_freq, asd, pass_band=[-np.inf,np.inf]):
+def integral_rms(fourier_freq, asd, pass_band=None):
     """ Compute the RMS as integral of an ASD.
     
     Args:
         fourier_freq: fourier frequency (Hz)
         asd: amplitude spectral density from which RMS is computed
-        pass_band: [0] = min, [1] = max
+        pass_band: [0] = min, [1] = max 
     """
+    if pass_band is None:
+        pass_band = [-np.inf,np.inf]
 
     integral_range_min = max(np.min(fourier_freq), pass_band[0])
     integral_range_max = min(np.max(fourier_freq), pass_band[1])
@@ -198,3 +207,76 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     peak_measurements = measurement[valid_peaks]
     
     return peak_frequencies, peak_measurements
+
+def optimal_linear_combination(df, inputs, output, timeshifts=False):
+    """
+    Computes the optimal coefficients of a linear combination of optionally timeshifted input signals 
+    to minimize noise in the output, minimizing the RMS of the combined signal.
+
+    output = Sum [coefficient_i * timeshift(input_i, shift_i) ]
+
+    Target: Minimize RMS in output
+
+    Args:
+        df (DataFrame): Data from signals.
+        inputs (list of str): Labels of the input signal columns in the input DataFrame.
+        output (str): Label of the output signal column in the input DataFrame.
+        timeshifts (bool, optional): Whether the input signals should be timeshifted. Default is False/
+
+    Returns:
+        OptimizeResult: The optimization result object.
+        np.ndarray: The output with 
+    """
+    def print_optimization_result(res):
+        logging.info("Optimization Results:")
+        logging.info("=====================")
+        logging.info(f"Success: {res.success}")
+        logging.info(f"Message: {res.message}")
+        logging.info(f"Function value at minimum: {res.fun}")
+        logging.info("Solution:")
+        for idx, val in enumerate(res.x, start=1):
+            logging.info(f"Variable {idx}: {val}")
+
+    def fun(x):
+        y = np.array(df[output] - np.mean(df[output]))        
+
+        if timeshifts:
+            for i, input in enumerate(df[inputs]):
+                Si = np.array(df[input] - np.mean(df[input]))
+                y += x[len(inputs)+i]*timeshift(Si, x[i])
+            max_delay = np.max(x[:len(inputs)])
+            y = truncation(y, n_trunc=int(2*max_delay))
+        else:
+            for i, input in enumerate(df[inputs]):
+                Si = np.array(df[input] - np.mean(df[input]))
+                y += x[i]*Si
+
+        rms_value = np.sqrt(np.mean(np.square(y-np.mean(y))))
+        
+        return rms_value
+
+    if timeshifts:
+        x_initial = np.zeros(len(inputs)*2)
+    else:
+        x_initial = np.zeros(len(inputs))
+
+    logging.info(f"Solving {len(x_initial)}-dimensional problem...")
+
+    res = minimize(fun, x_initial, method='TNC')
+
+    print_optimization_result(res)
+
+    if timeshifts:
+        y = np.array(df[output] - np.mean(df[output]))        
+        for i, input in enumerate(df[inputs]):
+            Si = np.array(df[input] - np.mean(df[input]))
+            y += res.x[len(inputs)+i]*timeshift(Si, res.x[i])
+        max_delay = np.max(res.x[:len(inputs)])
+        y = truncation(y, int(2*max_delay))
+    else:
+        y = np.array(df[output] - np.mean(df[output]))        
+        for i, input in enumerate(df[inputs]):
+            Si = np.array(df[input] - np.mean(df[input]))
+            y += res.x[i]*Si
+
+    return res, y
