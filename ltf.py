@@ -12,6 +12,7 @@ E-mail: spectools@pm.me
 import sys
 import copy
 import numpy as np
+import control as ct
 import scipy.signal.windows as windows
 import pandas as pd
 import math
@@ -78,7 +79,12 @@ class LTFObject:
         self.csd     = None  # Cross spectral density (CSD)
         self.cpsd    = None  # Cross power spectral density (CPSD)
         self.Hxy     = None  # Transfer function (TF)
-        self.cf      = None  # Coupling coefficient (magnitude of the transfer function)
+        self.cf      = None  # Magnitude of the transfer function
+        self.cf_db   = None  # Magnitude of the transfer function in dB
+        self.cf_deg  = None  # Argument of the transfer function in degrees
+        self.cf_rad  = None  # Argument of the transfer function in rad
+        self.cf_deg_unwrapped = None # Argument of the transfer function in degrees, unwrapped
+        self.cf_rad_unwrapped = None # Argument of the transfer function in degrees, unwrapped
         self.coh     = None  # Coherence
         self.ccoh    = None  # Complex coherence
 
@@ -94,8 +100,9 @@ class LTFObject:
         # A normalized random error multiplied with the value of the function estimate becomes the standard deviation. 
         self.Gxx_error = None  # Normalized random error of PSD
         self.Gxy_error = None  # Normalized random error of CSD
-        self.Hxy_magnitude_error = None  # Normalized random error of |Hxy|
-        self.Hxy_angle_error = None  # Normalized random error of arg(Hxy)
+        self.Hxy_mag_error = None  # Normalized random error of |Hxy|
+        self.Hxy_rad_error = None  # Normalized random error of arg(Hxy) in radians
+        self.Hxy_deg_error = None  # Normalized random error of arg(Hxy) in degrees
         self.coh_error = None  # Normalized random error of coherence
 
         # Load data:
@@ -446,8 +453,9 @@ class LTFObject:
         self.coh_dev = 1.0
         self.ccoh_dev = 1.0
         self.Gxy_error = 1.0
-        self.Hxy_magnitude_error = 1.0
-        self.Hxy_angle_error = 0.0
+        self.cf_mag_error = 1.0
+        self.cf_rad_error = 0.0
+        self.cf_deg_error = 0.0
         self.coh_error = 1.0
 
         if (self.navg > 1) and (self.XX != 0):
@@ -460,13 +468,14 @@ class LTFObject:
             except ValueError:
                 pass
             try:
-                self.Hxy_magnitude_error = math.sqrt(1 - self.coh) / ( math.sqrt(self.coh) * math.sqrt(2*self.navg))
+                self.cf_mag_error = math.sqrt(1 - self.coh) / ( math.sqrt(self.coh) * math.sqrt(2*self.navg))
             except ValueError:
                 pass
             try:
-                # Hxy_angle_error = math.asin(math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*self.navg)))
-                # Hxy_angle_error = math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*self.navg))
-                self.Hxy_angle_error = self.Hxy_dev/abs(self.Hxy)
+                # cf_rad_error = math.asin(math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*self.navg)))
+                # cf_rad_error = math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*self.navg))
+                self.cf_rad_error = self.Hxy_dev/abs(self.Hxy)
+                self.cf_deg_error = self.cf_rad_error*180.0/np.pi/2.0
             except ValueError:
                 pass
             try:
@@ -477,8 +486,11 @@ class LTFObject:
         if self.iscsd:
             self.csd = self.Gxy # Cross spectral density
             self.cpsd = np.sqrt(self.Gxy) # Cross power spectral density
-            self.cf = np.abs(self.Hxy) # Coupling coefficient
             self.cs = self.csd * self.ENBW # Cross spectrum
+            self.cf = np.abs(self.Hxy) # Coupling coefficient
+            self.cf_db   = ct.mag2db(self.cf)  # Magnitude of the transfer function in dB
+            self.cf_deg  = np.angle(self.Hxy, deg=True)  # Argument of the transfer function in degrees
+            self.cf_rad  = np.angle(self.Hxy, deg=False)  # Argument of the transfer function in rad
         else:
             self.Gxx = self.Gxy.real # Power spectral density
             self.Gxx_dev = self.Gxy_dev # Standar deviation of Gxx
@@ -530,7 +542,7 @@ class LTFObject:
         if verbose: logging.info('Completed in {} seconds'.format(total_time))
 
         self.df = pd.concat([pd.DataFrame(chunk, columns=['i', 'XY', 'XX', 'YY', 'Gxy', 'Gxx', 'Gyy', 'Hxy', 'coh', 'ccoh', 
-                                                          'Gxy_dev', 'Gxy_error', 'Hxy_dev', 'Hxy_magnitude_error', 'Hxy_angle_error', 
+                                                          'Gxy_dev', 'Gxy_error', 'Hxy_dev', 'cf_mag_error', 'cf_rad_error', 'cf_deg_error', 
                                                           'coh_dev', 'ccoh_dev', 'coh_error',
                                                           'ENBW', 'navg', 'compute_t']) \
                 for chunk in r], axis=0, ignore_index=True)
@@ -551,8 +563,9 @@ class LTFObject:
         self.Gxy_dev = np.array(self.df.Gxy_dev)
         self.Gxy_error = np.array(self.df.Gxy_error)
         self.Hxy_dev = np.array(self.df.Hxy_dev)
-        self.Hxy_magnitude_error = np.array(self.df.Hxy_magnitude_error)
-        self.Hxy_angle_error = np.array(self.df.Hxy_angle_error)
+        self.cf_mag_error = np.array(self.df.cf_mag_error)
+        self.cf_rad_error = np.array(self.df.cf_rad_error)
+        self.cf_deg_error = np.array(self.df.cf_deg_error)
         self.coh_dev = np.array(self.df.coh_dev)
         self.coh_error = np.array(self.df.coh_error)
         self.ccoh_dev = np.array(self.df.ccoh_dev)
@@ -560,13 +573,18 @@ class LTFObject:
         self.navg = np.array(self.df.navg) # Number of averages
         self.compute_t = np.array(self.df.compute_t) # Compute time
 
-        if self.iscsd:
+        if self.iscsd: # We are computing cross-spectra:
             self.csd = self.Gxy.copy() # Cross spectral density
             self.cpsd = np.sqrt(self.Gxy) # Cross power spectral density
-            self.cf = np.abs(self.Hxy) # Coupling coefficient
             self.cs = self.csd * self.ENBW # Cross spectrum
+            self.cf = np.abs(self.Hxy) # Magnitude of the transfer function
+            self.cf_db   = ct.mag2db(self.cf)  # Magnitude of the transfer function in dB
+            self.cf_deg  = np.angle(self.Hxy, deg=True)  # Argument of the transfer function in degrees
+            self.cf_rad  = np.angle(self.Hxy, deg=False)  # Argument of the transfer function in rad
+            self.cf_rad_unwrapped = np.unwrap(self.cf_rad) # Argument of the transfer function in degrees, unwrapped
+            self.cf_deg_unwrapped = np.rad2deg(self.cf_rad_unwrapped) # Argument of the transfer function in degrees, unwrapped
         
-        if np.all(np.imag(self.Gxy) == 0):
+        if np.all(np.imag(self.Gxy) == 0): # The computed cross-spectrum is actually an auto-spectrum:
             self.Gxx = self.Gxy.real # Power spectral density
             self.Gxx_dev = self.Gxy_dev.copy()
             self.Gxx_error = self.Gxy_error.copy()
@@ -727,8 +745,9 @@ class LTFObject:
             coh_dev = 1.0
             ccoh_dev = 1.0
             Gxy_error = 1.0
-            Hxy_magnitude_error = 1.0
-            Hxy_angle_error = 0.0
+            cf_mag_error = 1.0
+            cf_rad_error = 0.0
+            cf_deg_error = 0.0
             coh_error = 1.0
 
             navg = self.navg[i]
@@ -743,13 +762,14 @@ class LTFObject:
                 except ValueError:
                     pass
                 try:
-                    Hxy_magnitude_error = math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg))
+                    cf_mag_error = math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg))
                 except ValueError:
                     pass
                 try:
-                    # Hxy_angle_error = math.asin(math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg)))
-                    # Hxy_angle_error = math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg))
-                    Hxy_angle_error = Hxy_dev/abs(Hxy)
+                    # cf_rad_error = math.asin(math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg)))
+                    # cf_rad_error = math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg))
+                    cf_rad_error = Hxy_dev/abs(Hxy)
+                    cf_deg_error = np.rad2deg(cf_rad_error)
                 except ValueError:
                     pass
                 try:
@@ -763,7 +783,7 @@ class LTFObject:
 
             r_block.append([i, XY, XX, YY, Gxy, Gxx, Gyy, Hxy, coh, ccoh,
                             Gxy_dev, Gxy_error, 
-                            Hxy_dev, Hxy_magnitude_error, Hxy_angle_error,
+                            Hxy_dev, cf_mag_error, cf_rad_error, cf_deg_error,
                             coh_dev, ccoh_dev, coh_error, 
                             ENBW, navg, compute_t])
 
@@ -774,9 +794,7 @@ class LTFObject:
 
         return r_block
 
-    def plot(self, which=None, ylabel=None, figsize=(3, 2), dpi=300, fontsize=8, *args, **kwargs):
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-
+    def plot(self, which=None, ylabel=None, dB=False, deg=True, unwrap=True, errors=False, sigma=1, *args, **kwargs):
         # Dictionary to map 'which' to appropriate data and y-label
         plot_options = {
             'ps': (self.f, self.G, r"PS") if not self.iscsd else None,
@@ -787,37 +805,138 @@ class LTFObject:
             'cpsd': (self.f, self.cpsd, r"CPSD") if self.iscsd else None,
             'coh': (self.f, self.coh, r"Coherence") if self.iscsd else None,
             'cf': (self.f, self.cf, r"Coupling coefficient") if self.iscsd else None,
+            'bode': (self.f, self.cf, self.cf_rad) if self.iscsd else None,
         }
-        
+        plot_errors = {
+            'ps': None if not self.iscsd else None,
+            'asd': np.sqrt(self.Gxx_dev) if not self.iscsd else None,
+            'psd': self.Gxx_dev if not self.iscsd else None,
+            'cs': None if self.iscsd else None,
+            'csd': self.Gxy_dev if self.iscsd else None,
+            'cpsd': np.sqrt(self.Gxy_dev) if self.iscsd else None,
+            'coh': self.coh_dev if self.iscsd else None,
+            'cf': self.Hxy_dev if self.iscsd else None,
+            'bode': (self.cf_mag_error, self.cf_rad_error) if self.iscsd else None,
+        }
+
         if which is None:
             if self.iscsd:
-                which = 'csd'
+                which = 'bode'
             else:
                 which = 'asd'
 
-        # Retrieve plot data and y-label
-        plot_data = plot_options.get(which)
+        # Retrieve plot data:
+        plot_data = plot_options.get(which.lower())
         if plot_data is None:
-            return  # Return if plot data is None (invalid 'which' or 'iscsd' is False)
-
-        x_data, y_data, y_label = plot_data
-        if which == 'coh':
-            ax.semilogx(x_data, y_data, *args, **kwargs);
+            return
+        if errors:
+            error = plot_errors.get(which.lower())
         else:
-            ax.loglog(x_data, y_data, *args, **kwargs);
-        if ylabel is not None:
-            ax.set_ylabel(ylabel, fontsize=fontsize);
-        else:
-            ax.set_ylabel(y_label, fontsize=fontsize);
+            error = None
+        
+        with plt.rc_context({
+            # Figure and axes properties
+            'figure.figsize': (5, 3),            # Figure size in inches
+            'figure.dpi': 150,                   # Dots per inch for the figure (controls resolution)
+            'figure.facecolor': 'white',         # Background color of the figure
+            'figure.edgecolor': 'white',         # Edge color of the figure
+            'axes.facecolor': 'white',           # Background color of the axes
+            'axes.edgecolor': 'black',           # Edge color of the axes
+            'axes.linewidth': 1.0,               # Line width of the axes' frame
+            'axes.grid': True,                   # Whether to show grid lines by default
+            'grid.color': 'gray',                # Grid line color
+            'grid.linestyle': '--',              # Grid line style
+            'grid.linewidth': 0.7,               # Grid line width
+            # Font and text properties
+            'font.size': 8,                      # Default font size
+            'font.family': 'sans-serif',         # Font family
+            'font.sans-serif': ['Arial'],        # Specify sans-serif font
+            'axes.labelsize': 8,                 # Font size for axes labels
+            'axes.titlesize': 9,                 # Font size for the plot title
+            'axes.labelcolor': 'black',          # Color of the axes labels
+            'axes.titleweight': 'regular',       # Weight of the title font
+            'legend.fontsize': 8,                # Font size of the legend
+            'legend.frameon': True,              # Whether to draw a frame around the legend
+            # Tick properties
+            'xtick.labelsize': 8,                # Font size for x-axis tick labels
+            'ytick.labelsize': 8,                # Font size for y-axis tick labels
+            'xtick.color': 'black',              # Color of x-axis ticks
+            'ytick.color': 'black',              # Color of y-axis ticks
+            'xtick.direction': 'out',            # Direction of x-axis ticks ('in' or 'out')
+            'ytick.direction': 'out',            # Direction of y-axis ticks
+            # Lines properties
+            'lines.linewidth': 1.5,              # Default line width
+            'lines.color': 'black',              # Default line color
+            'lines.linestyle': '-',              # Default line style ('-', '--', '-.', ':')
+            'lines.marker': '',                  # Default marker for points
+            'lines.markersize': 5,               # Marker size
+            # Legend properties
+            'legend.loc': 'best',                # Legend location ('best', 'upper right', etc.)
+            'legend.framealpha': 1.0,            # Transparency of the legend frame
+            'legend.edgecolor': 'black',         # Edge color of the legend box
+            # Save figure properties
+            'savefig.dpi': 300,                  # Resolution when saving figures
+            'savefig.format': 'pdf',             # Default format for saving figures
+            'savefig.bbox': 'tight',             # Bounding box when saving figures
+            'savefig.facecolor': 'white',        # Background color for saved figures
 
-        ax.set_xlim([self.f[0], self.f[-1]]);
-        ax.set_xlabel("Fourier frequency (Hz)", fontsize=fontsize);
-        ax.tick_params(which='both', labelsize=fontsize);
-        ax.grid();
-        fig.tight_layout();
+            # Color properties
+            'axes.prop_cycle': plt.cycler('color', ['#000000', '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']),
+        }):
+            if which == 'bode':
+                fig, (ax2, ax1) = plt.subplots(2,1, figsize=(5,5))
+                f, magnitude, phase = plot_data
+                if unwrap:
+                    phase = np.unwrap(phase)
+                if dB:
+                    ax2.semilogx(f, ct.mag2db(magnitude), *args, **kwargs)
+                    ax2.set_ylabel('Magnitude (dB)')
+                else:
+                    ax2.loglog(f, magnitude, *args, **kwargs)
+                    ax2.set_ylabel('Magnitude')
+                if deg:
+                    ax1.semilogx(f, np.rad2deg(phase), *args, **kwargs)
+                    ax1.set_ylabel('Phase (deg)')
+                else:
+                    ax1.semilogx(f, phase, *args, **kwargs)
+                    ax1.set_ylabel('Phase (rad)')
+                if error is not None:
+                    if dB:
+                        ax2.fill_between(f,
+                            ct.mag2db(magnitude*(1 - sigma*error[0])),
+                            ct.mag2db(magnitude*(1 + sigma*error[0])),
+                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                    else:
+                        ax2.fill_between(f,
+                            magnitude*(1 - sigma*error[0]),
+                            magnitude*(1 + sigma*error[0]),
+                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                    ax2.legend()
+                ax1.set_xlim([f[0], f[-1]])
+                ax2.set_xlim([f[0], f[-1]])
+            else:
+                fig, ax1 = plt.subplots()
+                f, y_data, y_label = plot_data        
+                if ylabel is not None:
+                    y_label = ylabel
+                ax1.set_ylabel(y_label)
+                if which == 'coh':
+                    ax1.semilogx(f, y_data, *args, **kwargs)
+                    ax1.set_ylim(0,1.1)
+                else:
+                    ax1.loglog(f, y_data, *args, **kwargs)
+                if error is not None:
+                    ax1.fill_between(f,
+                        y_data - sigma*error,
+                        y_data + sigma*error,
+                        color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                    ax1.legend()
+                ax1.set_xlim([f[0], f[-1]])
 
-        plt.close(fig)
-        return fig
+            ax1.set_xlabel("Fourier frequency (Hz)")
+            fig.tight_layout()
+            plt.close(fig)
+            return fig
     
     def get_measurement(self, freq, which):
         """
@@ -844,7 +963,8 @@ class LTFObject:
             'cf': self.cf if self.iscsd else None,
             'Hxy': self.Hxy if self.iscsd else None,
             'Hxy_mag': abs(self.Hxy) if self.iscsd else None,
-            'Hxy_angle': np.angle(self.Hxy, deg=True) if self.iscsd else None,
+            'Hxy_deg': np.angle(self.Hxy, deg=True) if self.iscsd else None,
+            'Hxy_rad': np.angle(self.Hxy, deg=False) if self.iscsd else None,
             'coh': self.coh if self.iscsd else None,
             'm': self.m,
             'r': self.r,
