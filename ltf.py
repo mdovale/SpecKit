@@ -89,7 +89,7 @@ class LTFObject:
         self.ccoh    = None  # Complex coherence
 
         # For uncertainty estimations, see Bendat, Piersol - ISBN10:0471058874, Chapter 11
-        # Standard deviation of estimates:
+        # Standard deviations of estimates:
         self.Gxx_dev = None  # Standard deviation of PSD
         self.Gxy_dev = None  # Standard deviation of CSD
         self.Hxy_dev = None  # Standard deviation of Hxy
@@ -809,11 +809,11 @@ class LTFObject:
         }
         plot_errors = {
             'ps': None if not self.iscsd else None,
-            'asd': np.sqrt(self.Gxx_dev) if not self.iscsd else None,
+            'asd': self.Gxx_dev/2/self.asd if not self.iscsd else None,
             'psd': self.Gxx_dev if not self.iscsd else None,
             'cs': None if self.iscsd else None,
             'csd': self.Gxy_dev if self.iscsd else None,
-            'cpsd': np.sqrt(self.Gxy_dev) if self.iscsd else None,
+            'cpsd': self.Gxy_dev/2/self.csd if self.iscsd else None,
             'coh': self.coh_dev if self.iscsd else None,
             'cf': self.Hxy_dev if self.iscsd else None,
             'bode': (self.cf_mag_error, self.cf_rad_error) if self.iscsd else None,
@@ -869,7 +869,7 @@ class LTFObject:
             'lines.color': 'black',              # Default line color
             'lines.linestyle': '-',              # Default line style ('-', '--', '-.', ':')
             'lines.marker': '',                  # Default marker for points
-            'lines.markersize': 5,               # Marker size
+            'lines.markersize': 3.5,             # Marker size
             # Legend properties
             'legend.loc': 'best',                # Legend location ('best', 'upper right', etc.)
             'legend.framealpha': 1.0,            # Transparency of the legend frame
@@ -885,35 +885,67 @@ class LTFObject:
         }):
             if which == 'bode':
                 fig, (ax2, ax1) = plt.subplots(2,1, figsize=(5,5))
-                f, magnitude, phase = plot_data
-                if unwrap:
-                    phase = np.unwrap(phase)
+                f, cf, cf_rad = plot_data
+                # Magnitude plot:
                 if dB:
-                    ax2.semilogx(f, ct.mag2db(magnitude), *args, **kwargs)
+                    ax2.semilogx(f, ct.mag2db(cf), *args, **kwargs)
                     ax2.set_ylabel('Magnitude (dB)')
                 else:
-                    ax2.loglog(f, magnitude, *args, **kwargs)
+                    ax2.loglog(f, cf, *args, **kwargs)
                     ax2.set_ylabel('Magnitude')
+                # Phase plot:
                 if deg:
-                    ax1.semilogx(f, np.rad2deg(phase), *args, **kwargs)
-                    ax1.set_ylabel('Phase (deg)')
+                    if unwrap:
+                        ax1.semilogx(f, np.rad2deg(np.unwrap(cf_rad)), *args, **kwargs)
+                        ax1.set_ylabel('Phase (deg)')
+                    else:
+                        ax1.semilogx(f, np.rad2deg(cf_rad), *args, **kwargs)
+                        ax1.set_ylabel('Phase (deg)')
                 else:
-                    ax1.semilogx(f, phase, *args, **kwargs)
-                    ax1.set_ylabel('Phase (rad)')
+                    if unwrap:
+                        ax1.semilogx(f, np.unwrap(cf_rad), *args, **kwargs)
+                        ax1.set_ylabel('Phase (rad)')
+                    else:
+                        ax1.semilogx(f, cf_rad, *args, **kwargs)
+                        ax1.set_ylabel('Phase (rad)')
                 if error is not None:
+                    # Magnitude plot:
                     if dB:
+                        cf_lower_bound = np.maximum(cf * (1 - sigma*error[0]), 1e-10)
+                        cf_upper_bound = cf * (1 + sigma*error[0])
+                        cf_dB_lower = 20 * np.log10(cf_lower_bound)
+                        cf_dB_upper = 20 * np.log10(cf_upper_bound)
                         ax2.fill_between(f,
-                            ct.mag2db(magnitude*(1 - sigma*error[0])),
-                            ct.mag2db(magnitude*(1 + sigma*error[0])),
+                            cf_dB_lower,
+                            cf_dB_upper,
                             color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
                     else:
                         ax2.fill_between(f,
-                            magnitude*(1 - sigma*error[0]),
-                            magnitude*(1 + sigma*error[0]),
+                            cf*(1 - sigma*error[0]),
+                            cf*(1 + sigma*error[0]),
                             color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
                     ax2.legend()
+                    # Phase plot:
+                    cf_rad_lower = sigma*error[1]
+                    cf_rad_upper = sigma*error[1]
+                    if deg:
+                        if unwrap:
+                            ax1.fill_between(f, np.rad2deg(np.unwrap(cf_rad) - cf_rad_lower), np.rad2deg(np.unwrap(cf_rad) + cf_rad_upper), 
+                                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                        else:
+                            ax1.fill_between(f, np.rad2deg(cf_rad - cf_rad_lower), np.rad2deg(cf_rad + cf_rad_upper), 
+                                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                    else:
+                        if unwrap:
+                            ax1.fill_between(f, np.unwrap(cf_rad) - cf_rad_lower, np.unwrap(cf_rad) + cf_rad_upper, 
+                                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                        else:
+                            ax1.fill_between(f, cf_rad - cf_rad_lower, cf_rad + cf_rad_upper, 
+                                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                    ax1.legend()
                 ax1.set_xlim([f[0], f[-1]])
                 ax2.set_xlim([f[0], f[-1]])
+                fig.align_ylabels()
             else:
                 fig, ax1 = plt.subplots()
                 f, y_data, y_label = plot_data        
@@ -935,8 +967,10 @@ class LTFObject:
 
             ax1.set_xlabel("Fourier frequency (Hz)")
             fig.tight_layout()
-            plt.close(fig)
-            return fig
+            if which == 'bode':
+                return fig, (ax2, ax1)
+            else:
+                return fig, ax1
     
     def get_measurement(self, freq, which):
         """
