@@ -4,9 +4,13 @@ Miguel Dovale (Hannover, 2024)
 E-mail: spectools@pm.me
 """
 import numpy as np
+import pandas as pd
 from scipy.integrate import cumtrapz
 from scipy.optimize import curve_fit, minimize
 from pytdi.dsp import timeshift
+from tqdm import tqdm
+from typing import List, Optional
+import warnings
 
 import logging
 logging.basicConfig(
@@ -96,6 +100,83 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
             df_shifted = df_shifted.iloc[n_trunc:-n_trunc]
 
     return df_shifted
+
+def downsample_to_common_grid(df_list: List[pd.DataFrame], fs: float, 
+                              t_col_list: Optional[List[str]] = None, suffixes: bool = True) -> pd.DataFrame:
+    """
+    Downsample multiple DataFrames to a common time grid by interpolating each
+    DataFrame's data to align with a unified time axis.
+
+    Parameters
+    ----------
+    df_list : list of pd.DataFrame
+        A list of DataFrames, each containing a time column and associated data 
+        columns to be interpolated onto a common time grid.
+        
+    fs : float
+        Sampling frequency (Hz) for the common time grid. Must be positive.
+        
+    t_col_list : list of str, optional
+        Column names representing time for each DataFrame in `df_list`. If not provided, 
+        defaults to 'time' for all DataFrames.
+        
+    suffixes : bool, default=True
+        If True, suffixes the column names of each DataFrame with its index in `df_list` 
+        to avoid name conflicts. If False, original column names are retained (name 
+        conflicts may arise if columns have identical names).
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing interpolated values of each input DataFrame aligned 
+        on a common time grid, with time values in 'common_time'. If `suffixes=True`, 
+        data columns are suffixed with DataFrame index to clarify origin.
+        
+    Raises
+    ------
+    ValueError
+        If less than two DataFrames are provided, `fs` is non-positive, or any DataFrame 
+        lacks the specified time column.
+    """
+    if fs <= 0:
+        raise ValueError("Sampling frequency `fs` must be positive.")
+    if len(df_list) < 2:
+        raise ValueError("At least two DataFrames must be provided.")
+
+    n = len(df_list)
+    start_time, end_time = 0.0, float('inf')
+    df_interp_list = []
+    t_col_list = t_col_list or ['time'] * n
+
+    for i, (df, t) in enumerate(zip(df_list, t_col_list)):
+        if t not in df:
+            raise ValueError(f"DataFrame #{i} does not contain the time column '{t}'")
+        start_time = max(start_time, df[t].min())
+        end_time = min(end_time, df[t].max())
+        logging.info(f"DataFrame #{i} with length {len(df)}, start time {df[t].iloc[0]:.2f}, "
+                     f"end time {df[t].iloc[-1]:.2f}")
+
+    if start_time >= end_time:
+        logging.warning("No overlapping time range between DataFrames; output DataFrame is empty.")
+        return pd.DataFrame(columns=["common_time"])
+
+    common_time = np.arange(start_time, end_time, 1/fs)
+    logging.info(f"New start time: {start_time:.2f}; New end time: {end_time:.2f}; "
+                 f"Samples: {len(common_time)}")
+    
+    logging.info("Interpolating...")
+
+    for i, (df, t) in enumerate(zip(df_list, t_col_list)):
+        df_interp = pd.DataFrame({'common_time': common_time})
+        for col in df.columns:
+            if col != t:
+                col_name = col + f'_{i}' if suffixes else col
+                df_interp[col_name] = np.interp(common_time, df[t], df[col])
+        df_interp_list.append(df_interp)
+
+    dfr = pd.concat(df_interp_list, axis=1).loc[:,~pd.concat(df_interp_list, axis=1).columns.duplicated()]
+    logging.info("Merging complete.")
+    return dfr
 
 def integral_rms(fourier_freq, asd, pass_band=None):
     """ Compute the RMS as integral of an ASD.
@@ -208,20 +289,21 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     
     return peak_frequencies, peak_measurements
 
-def optimal_linear_combination(df, inputs, output, timeshifts=False):
+def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=False, method='TNC', tol=1e-9):
     """
-    Computes the optimal coefficients of a linear combination of optionally timeshifted input signals 
-    to minimize noise in the output, minimizing the RMS of the combined signal.
+    Computes the coefficients of a linear combination of optionally timeshifted "input" signals 
+    that minimize noise when added to the "output" signal.
 
-    output = Sum [coefficient_i * timeshift(input_i, shift_i) ]
-
-    Target: Minimize RMS in output
+    Target: `RMS[ output + Sum [coefficient_i * timeshift(input_i, shift_i) ] ]`
 
     Args:
         df (DataFrame): Data from signals.
         inputs (list of str): Labels of the input signal columns in the input DataFrame.
         output (str): Label of the output signal column in the input DataFrame.
-        timeshifts (bool, optional): Whether the input signals should be timeshifted. Default is False/
+        timeshifts (bool, optional): Whether the input signals should be timeshifted. Default is False.
+        gradient (bool, optional): Whether to minimize rms in the time series or on its derivative.
+        method (str, optional): The minimizer method.
+        tol (float, optional): The minimizer tolerance parameter.
 
     Returns:
         OptimizeResult: The optimization result object.
@@ -251,6 +333,9 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False):
                 Si = np.array(df[input] - np.mean(df[input]))
                 y += x[i]*Si
 
+        if gradient:
+            y = np.gradient(y)
+
         rms_value = np.sqrt(np.mean(np.square(y-np.mean(y))))
         
         return rms_value
@@ -262,7 +347,7 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False):
 
     logging.info(f"Solving {len(x_initial)}-dimensional problem...")
 
-    res = minimize(fun, x_initial, method='TNC')
+    res = minimize(fun, x_initial, method=method, tol=tol)
 
     print_optimization_result(res)
 
@@ -280,3 +365,48 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False):
             y += res.x[i]*Si
 
     return res, y
+
+def adaptive_linear_combination(df, inputs, output, method='TNC', tol=1e-9):
+    """
+    Work in progress.
+    """
+    def fun(x, t):
+        y = df[output].iloc[t]
+        S = 0.0
+
+        for i, input in enumerate(df[inputs]):
+            Si = df[input].iloc[t]  
+            S += x[i]*Si
+
+        obj = (y - S)**2
+        
+        return obj
+
+    for input in inputs:
+        df[input] = df[input] - np.mean(df[input])
+
+    y = []
+    x = {}
+    for input in df[inputs]:
+        x[input] = []
+
+    for t in tqdm(range(len(df))):
+        if t == 0:
+            x_initial = np.zeros(len(inputs))
+        else:
+            x_initial = res.x
+
+        res = minimize(fun, x_initial, (t), method=method, tol=tol)
+        
+        # if not res.success:
+            # logging.warning(f"Potential minimizer failure at t={t}")
+        
+        S = 0.0
+        for i, input in enumerate(df[inputs]):
+            x[input].append(res.x[i])
+            Si = df[input].iloc[t]  
+            S += res.x[i]*Si
+        
+        y.append(df[output].iloc[t] - S)
+
+    return x, y
