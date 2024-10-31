@@ -101,10 +101,10 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
 
     return df_shifted
 
-def downsample_to_common_grid(df_list: List[pd.DataFrame], fs: float, 
-                              t_col_list: Optional[List[str]] = None, suffixes: bool = True) -> pd.DataFrame:
+def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, 
+                              t_col_list: Optional[List[str]] = None, suffixes: bool = False) -> pd.DataFrame:
     """
-    Downsample multiple DataFrames to a common time grid by interpolating each
+    Resample multiple DataFrames to a common time grid by interpolating each
     DataFrame's data to align with a unified time axis.
 
     Parameters
@@ -164,8 +164,7 @@ def downsample_to_common_grid(df_list: List[pd.DataFrame], fs: float,
     logging.info(f"New start time: {start_time:.2f}; New end time: {end_time:.2f}; "
                  f"Samples: {len(common_time)}")
     
-    logging.info("Interpolating...")
-
+    logging.info("Resampling...")
     for i, (df, t) in enumerate(zip(df_list, t_col_list)):
         df_interp = pd.DataFrame({'common_time': common_time})
         for col in df.columns:
@@ -174,8 +173,10 @@ def downsample_to_common_grid(df_list: List[pd.DataFrame], fs: float,
                 df_interp[col_name] = np.interp(common_time, df[t], df[col])
         df_interp_list.append(df_interp)
 
+    logging.info("Merging...")
     dfr = pd.concat(df_interp_list, axis=1).loc[:,~pd.concat(df_interp_list, axis=1).columns.duplicated()]
-    logging.info("Merging complete.")
+    logging.info("Done.")
+
     return dfr
 
 def integral_rms(fourier_freq, asd, pass_band=None):
