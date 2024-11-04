@@ -3,6 +3,8 @@
 Miguel Dovale (Hannover, 2024)
 E-mail: spectools@pm.me
 """
+import os
+import csv
 import numpy as np
 import pandas as pd
 from scipy.integrate import cumtrapz
@@ -100,84 +102,6 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
             df_shifted = df_shifted.iloc[n_trunc:-n_trunc]
 
     return df_shifted
-
-def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, 
-                              t_col_list: Optional[List[str]] = None, suffixes: bool = False) -> pd.DataFrame:
-    """
-    Resample multiple DataFrames to a common time grid by interpolating each
-    DataFrame's data to align with a unified time axis.
-
-    Parameters
-    ----------
-    df_list : list of pd.DataFrame
-        A list of DataFrames, each containing a time column and associated data 
-        columns to be interpolated onto a common time grid.
-        
-    fs : float
-        Sampling frequency (Hz) for the common time grid. Must be positive.
-        
-    t_col_list : list of str, optional
-        Column names representing time for each DataFrame in `df_list`. If not provided, 
-        defaults to 'time' for all DataFrames.
-        
-    suffixes : bool, default=True
-        If True, suffixes the column names of each DataFrame with its index in `df_list` 
-        to avoid name conflicts. If False, original column names are retained (name 
-        conflicts may arise if columns have identical names).
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame containing interpolated values of each input DataFrame aligned 
-        on a common time grid, with time values in 'common_time'. If `suffixes=True`, 
-        data columns are suffixed with DataFrame index to clarify origin.
-        
-    Raises
-    ------
-    ValueError
-        If less than two DataFrames are provided, `fs` is non-positive, or any DataFrame 
-        lacks the specified time column.
-    """
-    if fs <= 0:
-        raise ValueError("Sampling frequency `fs` must be positive.")
-    if len(df_list) < 2:
-        raise ValueError("At least two DataFrames must be provided.")
-
-    n = len(df_list)
-    start_time, end_time = 0.0, float('inf')
-    df_interp_list = []
-    t_col_list = t_col_list or ['time'] * n
-
-    for i, (df, t) in enumerate(zip(df_list, t_col_list)):
-        if t not in df:
-            raise ValueError(f"DataFrame #{i} does not contain the time column '{t}'")
-        start_time = max(start_time, df[t].min())
-        end_time = min(end_time, df[t].max())
-        logging.info(f"DataFrame #{i} with length {len(df)}, start time {df[t].iloc[0]:.2f}, "
-                     f"end time {df[t].iloc[-1]:.2f}")
-
-    if start_time >= end_time:
-        logging.warning("No overlapping time range between DataFrames; output DataFrame is empty.")
-        return pd.DataFrame(columns=["common_time"])
-
-    common_time = np.arange(start_time, end_time, 1/fs)
-    logging.info(f"New start time: {start_time:.2f}; New end time: {end_time:.2f}; "
-                 f"Samples: {len(common_time)}")
-    
-    logging.info("Resampling...")
-    for i, (df, t) in enumerate(zip(df_list, t_col_list)):
-        df_interp = pd.DataFrame({'common_time': common_time})
-        for col in df.columns:
-            if col != t:
-                col_name = col + f'_{i}' if suffixes else col
-                df_interp[col_name] = np.interp(common_time, df[t], df[col])
-        df_interp_list.append(df_interp)
-
-    logging.info("Merging...")
-    dfr = pd.concat(df_interp_list, axis=1).loc[:,~pd.concat(df_interp_list, axis=1).columns.duplicated()]
-    logging.info("Done.")
-
-    return dfr
 
 def integral_rms(fourier_freq, asd, pass_band=None):
     """ Compute the RMS as integral of an ASD.
@@ -411,3 +335,255 @@ def adaptive_linear_combination(df, inputs, output, method='TNC', tol=1e-9):
         y.append(df[output].iloc[t] - S)
 
     return x, y
+
+def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], start_time: Optional[float] = 0.0,
+                              delimiter_list: Optional[List[str]] = None, nrows: Optional[int] = 100, dropna: Optional[bool] = True) -> List[pd.DataFrame]:
+    """
+    Loads time-series data from multiple files, restricting the output to the maximum overlapping time window across the datasets. 
+    The function assumes that the first non-commented row in each file contains the column names, and rows with comment symbols
+    (e.g., '#', '%', etc.) are ignored.
+
+    Parameters
+    ----------
+    file_list : List[str]
+        A list of file paths for the input data files. Each file must contain time-series data sampled with the
+        sampling frequencies provided in `fs_list`.
+    
+    fs_list : List[float]
+        A list of sampling frequencies (in Hz) corresponding to each file in `file_list`. The length of `fs_list` must
+        match the length of `file_list`, and each value must be positive.
+    
+    start_time : float, optional
+        The starting time (in seconds) from which the data will be extracted in each file. The function will extract data
+        starting at this time in each file, adjusting for the sampling frequency. Default is 0.0 seconds.
+    
+    delimiter_list : List[str], optional
+        A list of delimiters to be used for reading each file. If not provided, a space (' ') will be assumed as the
+        delimiter for all files. The length of `delimiter_list` must match the length of `file_list` if provided.
+    
+    dropna : bool, optional
+        Whether to drop columns that consist entirely of missing values (NaN) in the final DataFrame. If `True`, such
+        columns will be removed. Default is `True`.
+
+    Returns
+    -------
+    List[pd.DataFrame]
+        A list of pandas DataFrames containing the synchronized time-series data for each file. Each DataFrame will have
+        been sliced to ensure the maximum overlap duration between all datasets, starting from `start_time`.
+    
+    Raises
+    ------
+    ValueError
+        If the length of `file_list` does not match the length of `fs_list` or `delimiter_list` (if provided), or if any
+        value in `fs_list` is non-positive.
+
+    Notes
+    -----
+    - The function assumes that the first row in each file (after skipping comment rows) contains the column names.
+    - The data in each file will be truncated based on the maximum overlapping time window. The function computes
+      this by calculating the number of rows in each file and their corresponding time durations, based on the sampling
+      frequencies (`fs_list`).
+    - The function supports files with different delimiters and skips any header rows that begin with comment symbols
+      such as `#`, `%`, `!`, etc.
+    """
+    def count_header_rows(file):
+        header_symbols = ['#', '%', '!', '@', ';', '&', '*', '"', "'"]  # Add more symbols as needed
+        header_count = 0
+        with open(file, 'r') as file:
+            for line in file:
+                # Check if the line starts with any of the header symbols
+                if any(line.startswith(symbol) for symbol in header_symbols):
+                    header_count += 1
+                else:
+                    # Stop counting once the first non-header line is encountered
+                    break
+        return header_count
+    
+    # Ensure matching lengths of input lists
+    if len(file_list) != len(fs_list):
+        raise ValueError("The length of `file_list` must match the length of `fs_list`.")
+    if delimiter_list is not None and len(file_list) != len(delimiter_list):
+        raise ValueError("The length of `delimiter_list` must match the length of `file_list`.")
+    for fs in fs_list:
+        if fs <= 0:
+            raise ValueError("Sampling frequency `fs` must be positive.")
+    
+    delimiter_list = delimiter_list or [' '] * len(file_list)
+    header_rows = []  # Stores the number of header rows for each file
+    record_lengths = []  # Stores the duration for each file
+    df_list = []  # Store the actual dataframes
+    max_duration = None  # Will hold the maximum overlapping time duration
+
+    # File names and metadata discovery:
+    file_names = []
+    header_rows = []
+    for i, file in enumerate(file_list):
+        file_names.append(os.path.basename(file))
+        rows = count_header_rows(file)
+        header_rows.append(rows)
+        logging.info(f"File \'{file_names[i]}\' contains {header_rows[i]} header rows.")
+
+    # Data ingestion:
+    logging.info(f"Loading data and calculating maximum time series overlap...")
+    for i, file in enumerate(file_list):
+        df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='c')
+        logging.info(f"Loaded data from file \'{file_names[i]}\' with length {len(df)}")
+        logging.info(f"Columns: {list(df.columns)}")
+        rows = len(df.index)
+        record_length = rows / fs_list[i]  # Calculate the duration of the record
+        record_lengths.append(record_length)
+        df_list.append(df)
+
+    # Determine the maximum overlap between datasets:
+    max_duration = min(record_lengths)  # Maximum overlapping time between datasets
+    logging.info(f"Maximum overlap: {max_duration / 3600.0:.6f} hours")
+
+    # Truncation to the overlapping section:
+    final_df_list = []
+    for i, df in enumerate(df_list):
+        start_row = int(start_time * fs_list[i])  # Convert start time to row index
+        end_row = start_row + int(max_duration * fs_list[i])  # Calculate the end row based on max overlap
+        df = df.iloc[start_row:end_row].copy() # Slice the dataframe to get the relevant rows
+        df.reset_index(drop=True, inplace=True)
+        if dropna:
+            df.dropna(axis=1, how='all', inplace=True)
+        df['time'] = np.linspace(start_row/fs_list[i], end_row/fs_list[i], len(df))
+        logging.info(f"""File \'{file_names[i]}\':
+                                        Start row: {start_row}
+                                        End row: {end_row}
+                                        Total time: {(end_row - start_row) / fs_list[i] / 3600.0:.6f} hours.""")
+        final_df_list.append(df)
+
+    return final_df_list
+
+def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, 
+                              t_col_list: Optional[List[str]] = None, suffixes: bool = False) -> pd.DataFrame:
+    """
+    Resample multiple DataFrames to a common time grid by interpolating each
+    DataFrame's data to align with a unified time axis.
+
+    Parameters
+    ----------
+    df_list : list of pd.DataFrame
+        A list of DataFrames, each containing a time column and associated data 
+        columns to be interpolated onto a common time grid.
+        
+    fs : float
+        Sampling frequency (Hz) for the common time grid. Must be positive.
+        
+    t_col_list : list of str, optional
+        Column names representing time for each DataFrame in `df_list`. If not provided, 
+        defaults to 'time' for all DataFrames.
+        
+    suffixes : bool, default=True
+        If True, suffixes the column names of each DataFrame with its index in `df_list` 
+        to avoid name conflicts. If False, original column names are retained (name 
+        conflicts may arise if columns have identical names).
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing interpolated values of each input DataFrame aligned 
+        on a common time grid, with time values in 'common_time'. If `suffixes=True`, 
+        data columns are suffixed with DataFrame index to clarify origin.
+        
+    Raises
+    ------
+    ValueError
+        If less than two DataFrames are provided, `fs` is non-positive, or any DataFrame 
+        lacks the specified time column.
+    """
+    if fs <= 0:
+        raise ValueError("Sampling frequency `fs` must be positive.")
+    if len(df_list) < 2:
+        raise ValueError("At least two DataFrames must be provided.")
+
+    start_time, end_time = 0.0, float('inf')
+    df_interp_list = []
+    t_col_list = t_col_list or ['time'] * len(df_list)
+
+    for i, (df, t) in enumerate(zip(df_list, t_col_list)):
+        if t not in df:
+            raise ValueError(f"DataFrame #{i} does not contain the time column '{t}'")
+        start_time = max(start_time, df[t].min())
+        end_time = min(end_time, df[t].max())
+        logging.info(f"""DataFrame #{i}:
+                                        Start time {df[t].iloc[0]:.2f} seconds
+                                        End time {df[t].iloc[-1]/3600.0:.2f} hours
+                                        Samples: {len(df)}""")
+
+    if start_time >= end_time:
+        logging.warning("No overlapping time range between DataFrames; output DataFrame is empty.")
+        return pd.DataFrame(columns=["common_time"])
+
+    common_time = np.arange(start_time, end_time, 1/fs)
+    logging.info(f"""New start time: {start_time:.2f} seconds; New end time: {end_time/3600.0:.2f} hours; Samples: {len(common_time)}""")
+
+    logging.info("Resampling...")
+    for i, (df, t) in enumerate(zip(df_list, t_col_list)):
+        df_interp = pd.DataFrame({'common_time': common_time})
+        for col in df.columns:
+            if col != t:
+                col_name = col + f'_{i}' if suffixes else col
+                df_interp[col_name] = np.interp(common_time, df[t], df[col])
+        df_interp_list.append(df_interp)
+
+    logging.info("Merging...")
+    resampled_df = pd.concat(df_interp_list, axis=1).loc[:,~pd.concat(df_interp_list, axis=1).columns.duplicated()]
+    logging.info("Done.")
+
+    return resampled_df
+
+def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], resample_fs: float, start_time: Optional[float] = 0.0,
+                                   delimiter_list: Optional[List[str]] = None, nrows: Optional[int] = 100, dropna: Optional[bool] = True,
+                                   t_col_list: Optional[List[str]] = None, suffixes: bool = False) -> pd.DataFrame:
+    """
+    Loads time-series data from multiple files, truncates to the maximum overlapping time window, 
+    and resamples to a common time grid by interpolating each data stream.
+
+    Parameters
+    ----------
+    file_list : List[str]
+        A list of file paths for the input data files. Each file must contain time-series data sampled with the
+        sampling frequencies provided in `fs_list`.
+    
+    fs_list : List[float]
+        A list of sampling frequencies (in Hz) corresponding to each file in `file_list`. The length of `fs_list` must
+        match the length of `file_list`, and each value must be positive.
+    
+    resample_fs : float
+        Sampling frequency (Hz) for the common time grid. Must be positive.
+    
+    start_time : float, optional
+        The starting time (in seconds) from which the data will be extracted in each file. Default is 0.0 seconds.
+    
+    delimiter_list : List[str], optional
+        A list of delimiters to be used for reading each file. If not provided, a space (' ') will be assumed as the
+        delimiter for all files.
+    
+    nrows : int, optional
+        Number of rows to read from each file. Default is 100.
+    
+    dropna : bool, optional
+        Whether to drop columns that consist entirely of missing values (NaN). Default is `True`.
+
+    t_col_list : list of str, optional
+        Column names representing time for each DataFrame in `file_list`. Defaults to 'time' for all.
+    
+    suffixes : bool, default=False
+        If True, suffixes the column names of each DataFrame with its index in `file_list` to avoid name conflicts.
+
+    Returns
+    -------
+    pd.DataFrame
+        A single DataFrame containing the resampled time-series data aligned on a common time grid.
+    """
+    
+    # Load the time series data from multiple files using the loader function
+    df_list = multi_file_timeseries_loader(file_list=file_list, fs_list=fs_list, start_time=start_time,
+                                           delimiter_list=delimiter_list, nrows=nrows, dropna=dropna)
+
+    # Resample the loaded data to a common time grid using the resampler function
+    resampled_df = resample_to_common_grid(df_list=df_list, fs=resample_fs, t_col_list=t_col_list, suffixes=suffixes)
+
+    return resampled_df
