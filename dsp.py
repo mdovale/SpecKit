@@ -322,7 +322,7 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
         columns = df.columns
 
     for c in columns:
-        df_shifted[c] = timeshift(np.array(df[c]), seconds*fs)
+        df_shifted[c] = timeshift(df[c].to_numpy(), seconds*fs)
 
     if truncate is not None:
         if isinstance(truncate, bool):
@@ -334,8 +334,8 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
 
     return df_shifted
 
-def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], start_time: Optional[float] = 0.0, timeshifts: Optional[List[float]] = None,
-                                 delimiter_list: Optional[List[str]] = None, nrows: Optional[int] = 100, dropna: Optional[bool] = True) -> List[pd.DataFrame]:
+def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], start_time: Optional[float] = 0.0,
+                                 timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None) -> List[pd.DataFrame]:
     """
     Loads time-series data from multiple files, restricting the output to the maximum overlapping time window across the datasets. 
     The function assumes that the first non-commented row in each file contains the column names, and rows with comment symbols
@@ -354,14 +354,13 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
     start_time : float, optional
         The starting time (in seconds) from which the data will be extracted in each file. The function will extract data
         starting at this time in each file, adjusting for the sampling frequency. Default is 0.0 seconds.
+
+    timeshifts : List[float], optional
+        Time shifts (in seconds) to appy to each data stream.
     
     delimiter_list : List[str], optional
         A list of delimiters to be used for reading each file. If not provided, a space (' ') will be assumed as the
         delimiter for all files. The length of `delimiter_list` must match the length of `file_list` if provided.
-    
-    dropna : bool, optional
-        Whether to drop columns that consist entirely of missing values (NaN) in the final DataFrame. If `True`, such
-        columns will be removed. Default is `True`.
 
     Returns
     -------
@@ -399,16 +398,17 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
     
     # Ensure matching lengths of input lists
     if len(file_list) != len(fs_list):
-        raise ValueError("The length of `file_list` must match the length of `fs_list`.")
+        raise ValueError("The length of `fs_list` must match the length of `file_list`.")
     if delimiter_list is not None and len(file_list) != len(delimiter_list):
         raise ValueError("The length of `delimiter_list` must match the length of `file_list`.")
-    if timeshifts is not None and len(timeshifts) != len(delimiter_list):
+    if timeshifts is not None and len(file_list) != len(timeshifts):
         raise ValueError("The length of `timeshifts` must match the length of `file_list`.")
     for fs in fs_list:
         if fs <= 0:
             raise ValueError("Sampling frequency `fs` must be positive.")
     
     delimiter_list = delimiter_list or [' '] * len(file_list)
+    timeshifts = timeshifts or [None] * len(file_list)
     header_rows = []  # Stores the number of header rows for each file
     record_lengths = []  # Stores the duration for each file
     df_list = []  # Store the actual dataframes
@@ -428,33 +428,38 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
     for i, file in enumerate(file_list):
         df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='c')
         logging.info(f"Loaded data from file \'{file_names[i]}\' with length {len(df)}")
-        logging.info(f"Columns: {list(df.columns)}")
         rows = len(df.index)
-        record_length = rows / fs_list[i]  # Calculate the duration of the record
+        record_length = rows / fs_list[i]
         record_lengths.append(record_length)
         df_list.append(df)
 
+    # Drop NaN columns:
+    for i, df in enumerate(df_list):
+        df.dropna(axis=1, how='all', inplace=True)
+        logging.info(f"Columns: {list(df_list[i].columns)}")
+
     # Determine the maximum overlap between datasets:
     max_duration = min(record_lengths)  # Maximum overlapping time between datasets
-    logging.info(f"Maximum overlap: {max_duration / 3600.0:.6f} hours")
+    logging.info(f"Maximum overlap: {max_duration:.2f} seconds")
 
     # Apply optional timeshifts:
     samples_shifted = []
     for i, df in enumerate(df_list):
-        if timeshifts[i] is not None:
+        if (timeshifts[i] is not None) and (timeshifts[i] != 0.0):
             logging.info(f"Applying {timeshifts[i]} seconds timeshift to the \'{file_names[i]}\' data stream")
-            df = df_timeshift(df, seconds=timeshifts[i], fs=fs_list[i])
+            df_list[i] = df_timeshift(df, seconds=timeshifts[i], fs=fs_list[i], columns=df.select_dtypes(include=['number']).columns)
             samples_shifted.append(timeshifts[i]*fs_list[i])
         else:
             samples_shifted.append(0)
 
     # Readjust of start_time and max_duration in the case of large time shifts:
-    for i, df in enumerate(df_list):
-        if (samples_shifted[i] < 0) and (abs(samples_shifted[i]) > int(start_time * fs_list[i])):
-            start_time = int(2*abs(samples_shifted[i]))
-        if (samples_shifted[i] > 0) and (abs(samples_shifted[i]) > len(df) - (start_row + int(max_duration * fs_list[i]))):
-            max_duration = (len(df) - start_row - int(2*abs(samples_shifted[i]))) / fs_list[i]
-        logging.info(f"Maximum overlap after timeshift and truncation: {max_duration / 3600.0:.6f} hours")
+    if any(samples_shifted):
+        for i, df in enumerate(df_list):
+            if (samples_shifted[i] < 0) and (abs(samples_shifted[i]) > int(start_time * fs_list[i])):
+                start_time = int(2*abs(samples_shifted[i]))
+            if (samples_shifted[i] > 0) and (abs(samples_shifted[i]) > len(df) - (int(start_time * fs_list[i]) + int(max_duration * fs_list[i]))):
+                max_duration = (len(df) - int(start_time * fs_list[i]) - int(2*abs(samples_shifted[i]))) / fs_list[i]
+        logging.info(f"Maximum overlap after timeshift and truncation: {max_duration:.2f} seconds")
 
     # Truncation to the overlapping section:
     final_df_list = []
@@ -464,13 +469,11 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
 
         df = df.iloc[start_row:end_row].copy() # Slice the dataframe to get the relevant rows
         df.reset_index(drop=True, inplace=True)
-        if dropna:
-            df.dropna(axis=1, how='all', inplace=True)
         df['time'] = np.linspace(start_row/fs_list[i], end_row/fs_list[i], len(df))
         logging.info(f"""File \'{file_names[i]}\':
-                                        Start row: {start_row}; Start time: {df.time[0]:.2f} seconds
-                                        End row: {end_row}; End time: {df.time[-1]:.2f} seconds
-                                        Total time: {(df.time[-1] - df.time[0]) / 3600.0:.6f} hours.""")
+                                        Start row: {start_row}; Start time: {df.time.iloc[0]:.2f} seconds
+                                        End row: {end_row}; End time: {df.time.iloc[-1]:.2f} seconds
+                                        Total time: {(df.time.iloc[-1] - df.time.iloc[0]):.2f} seconds.""")
         final_df_list.append(df)
 
     return final_df_list
@@ -532,7 +535,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         end_time = min(end_time, df[t].max())
         logging.info(f"""DataFrame #{i+1}:
                                         Start time: {df[t].iloc[0]:.2f} seconds
-                                        End time: {df[t].iloc[-1]/3600.0:.2f} hours
+                                        End time: {df[t].iloc[-1]:.2f} seconds
                                         Samples: {len(df)}""")
 
     if start_time >= end_time:
@@ -540,7 +543,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         return pd.DataFrame(columns=["common_time"])
 
     common_time = np.arange(start_time, end_time, 1/fs)
-    logging.info(f"""New start time: {start_time:.2f} seconds; New end time: {end_time/3600.0:.2f} hours; Samples: {len(common_time)}""")
+    logging.info(f"""New start time: {start_time:.2f} seconds; New end time: {end_time:.2f} seconds; Samples: {len(common_time)}""")
 
     for i, (df, proc) in enumerate(zip(df_list, preprocessors)):
         if proc is not None:
@@ -562,10 +565,10 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
 
     return resampled_df
 
-def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], resample_fs: float, start_time: Optional[float] = 0.0, timeshifts: Optional[List[float]] = None,
-                                   delimiter_list: Optional[List[str]] = None, nrows: Optional[int] = 100, dropna: Optional[bool] = True,
-                                   t_col_list: Optional[List[str]] = None, preprocessors: Optional[List[callable]] = None, 
-                                   suffixes: bool = False) -> pd.DataFrame:
+def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], resample_fs: float, start_time: Optional[float] = 0.0, 
+                                    timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None,
+                                    t_col_list: Optional[List[str]] = None, preprocessors: Optional[List[callable]] = None,
+                                    suffixes: bool = False) -> pd.DataFrame:
     """
     Loads time-series data from multiple files, truncates to the maximum overlapping time window, 
     and resamples to a common time grid by interpolating each data stream.
@@ -585,17 +588,14 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
     
     start_time : float, optional
         The starting time (in seconds) from which the data will be extracted in each file. Default is 0.0 seconds.
+
+    timeshifts : List[float], optional
+        Time shifts (in seconds) to appy to each data stream.
     
     delimiter_list : List[str], optional
         A list of delimiters to be used for reading each file. If not provided, a space (' ') will be assumed as the
         delimiter for all files.
     
-    nrows : int, optional
-        Number of rows to read from each file. Default is 100.
-    
-    dropna : bool, optional
-        Whether to drop columns that consist entirely of missing values (NaN). Default is `True`.
-
     t_col_list : List[str], optional
         Column names representing time for each DataFrame in `file_list`. Defaults to 'time' for all.
 
@@ -613,7 +613,7 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
     
     # Load the time series data from multiple files using the loader function
     df_list = multi_file_timeseries_loader(file_list=file_list, fs_list=fs_list, start_time=start_time, timeshifts=timeshifts,
-                                           delimiter_list=delimiter_list, nrows=nrows, dropna=dropna)
+                                           delimiter_list=delimiter_list)
 
     # Resample the loaded data to a common time grid using the resampler function
     resampled_df = resample_to_common_grid(df_list=df_list, fs=resample_fs, t_col_list=t_col_list, preprocessors=preprocessors, suffixes=suffixes)
