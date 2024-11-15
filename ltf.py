@@ -1267,77 +1267,7 @@ def new_ltf_plan(params):
     """
     New LTF scheduler.
 
-    Based on the input parameters, the algorithm generates an array of 
-    frequencies (f), with corresponding resolution bandwidths (r), bin 
-    numbers (b), segment lengths (L), number of averages (K), and starting 
-    indices (D) for subsequent spectral analysis of time series using 
-    the windowed, overlapped segmented averaging method.
-
-    The time series will then be segmented for each frequency as follows:
-    [---------------------------------------------------------------------------------] total length N
-    [---------] segment length L[j], starting at index D[j][0] = 0                    .
-    .     [---------] segment length L[j], starting at index D[j][1]                  .
-    .           [---------] segment length L[j], starting at index D[j][2]            .
-    .                 [---------] segment length L[j], starting at index D[j][3]      .
-    .                           ... (total of K[j] segments to average)               .
-    .                                                                       [---------] segment length L[j]
-                                                                                        starting at index D[j][-1]
-
-    Inputs: 
-        N (int): Total length of the input data.
-        fs (float): Sampling frequency of the input data.
-        olap (float): Desired fractional overlap between segments of the input data.
-        bmin (float): Minimum bin number to be used (used to discard the lower bins with biased estimates due to power aliasing from negative bins).
-        Lmin (int): Smallest allowable segment length to be processed (used to tackle time delay bias error in cross spectra estimation).
-        Jdes (int): Desired number of frequencies to produce. This value is almost never met exactly.
-        Kdes (int): Desired number of segments to be averaged. This value is almost nowhere met exactly, and is actually only used as control parameter in the algorithm to ﬁnd a compromise between conflicting goals.
-
-    The algorithm balances several conflicting goals:
-        - Desire to compute approximately Jdes frequencies.
-        - Desire for those frequencies to be approximately log-spaced.
-        - For each frequency, desire to have approximately `olap` fractional overlap between segments while using the full time series.
-
-    Computes:
-        f (array of float): Frequency vector in Hz.
-        r (array of float): For each frequency, resolution bandwidth in Hz.
-        b (array of float): For each frequency, fractional bin number.
-        L (array of int): For each frequency, length of the segments to be processed.
-        K (array of float): For each frequency, number of segments to be processed.
-        D (array of arrays of int): For each frequency, array containing the starting indices of each segment to be processed.
-        O (array of float): For each frequency, actual fractional overlap between segments.
-        nf (int): Total number of frequencies produced.
-
-    Constraints:
-        f[j] = r[j] * m[j]: Definition of the non-integer bin number
-        r[j] * L[j] = fs: DFT constraint
-        f[j+1] = f[j] + r[j]: Local spacing between frequency bins equivalent to original WOSA method.
-        L[j] <= nx: Time series segment length cannot be larger than total length of the time series
-        L[j] >= Lmin: Time series segment length must be greater or equal to Lmin
-        b[j] >= bmin: Discard frequency bin numbers lower or equal to bmin
-        f[0] = fmin: Lowest possible frequency must be met.
-        f[-1] <= fmax: Maximum possible frequency must be met.
-
-    Internal constants:
-        xov (float): Desired non-overlapping fraction, xov = 1 - olap.
-        fmin (float): Lowest possible frequency, fmin = fs/nx*bmin.
-        fmax (float): Maximum possible frequency (Nyquist criterion), fmax = fs/2.
-        logfact (float): Constant factor that would ensure logarithmic frequency spacing, logfact = (nx/2)^(1/Jdes)-1.
-        fresmin (float): The smallest possible frequency resolution bandwidth in Hz, fresmin = fs/nx.
-        freslim (float): The smallest possible frequency resolution bandwidth in Hz when Kdes averages are performed, freslim = fresmin*(1+xov(Kdes-1)).
-
-    Targets:
-    1. r[j]/f[j] = x1[j] with x1[j] -> logfact:
-    This targets the approximate logarithmic spacing of frequencies on the x-axis, 
-    and also the desired number of frequencies Jdes.
-
-    2. if K[j] = 1, then L[j] = nx:
-    This describes the requirement to use the complete time series. In the case of K[j] > 1, the starting points of the individual segments
-    can and will be adjusted such that the complete time series is used, at the expense of not precisely achieving the desired overlap.
-
-    3. K[j] >= Kdes:
-    This describes the desire to have at least Kdes segments for averaging at each frequency. As mentioned above, 
-    this cannot be met at low frequencies but is easy to over-achieve at high frequencies, such that this serves only as a 
-    guideline for ﬁnding compromises in the scheduler.
+    Work in progress.
     """
     def round_half_up(val):
         if (float(val) % 1) >= 0.5:
