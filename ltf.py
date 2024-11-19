@@ -65,20 +65,21 @@ class LTFObject:
         self.rms     = None  # Root mean square of the signal computed from the integral of the ASD
 
         # Spectral estimates
-        self.XX      = None  # Spectrum
-        self.YY      = None  # Spectrum
+        self.XX      = None  # Spectrum (S)
+        self.YY      = None  # Spectrum (S)
         self.G       = None  # Power spectrum (PS)
         self.ps      = None  # Power spectrum (PS)
         self.Gxx     = None  # Power spectral density (PSD)
         self.Gyy     = None  # Power spectral density (PSD)
         self.psd     = None  # Power spectral density (PSD)
         self.asd     = None  # Amplitude spectral density (ASD)
-        self.XY      = None  # Cross spectrum
-        self.cs      = None  # Cross power spectrum
+        self.XY      = None  # Cross spectrum (CS)
+        self.cs      = None  # Cross power spectrum (CPS)
         self.Gxy     = None  # Cross spectral density (CSD)
         self.csd     = None  # Cross spectral density (CSD)
         self.cpsd    = None  # Cross power spectral density (CPSD)
         self.Hxy     = None  # Transfer function (TF)
+        self.tf      = None  # Transfer function (TF)
         self.cf      = None  # Magnitude of the transfer function
         self.cf_db   = None  # Magnitude of the transfer function in dB
         self.cf_deg  = None  # Argument of the transfer function in degrees
@@ -91,6 +92,7 @@ class LTFObject:
         # For uncertainty estimations, see Bendat, Piersol - ISBN10:0471058874, Chapter 11
         # Standard deviations of estimates:
         self.Gxx_dev = None  # Standard deviation of PSD
+        self.Gyy_dev = None  # Standard deviation of PSD
         self.Gxy_dev = None  # Standard deviation of CSD
         self.Hxy_dev = None  # Standard deviation of Hxy
         self.coh_dev = None  # Standar deviation of coherence
@@ -99,6 +101,7 @@ class LTFObject:
         # Normalized random errors:
         # A normalized random error multiplied with the value of the function estimate becomes the standard deviation. 
         self.Gxx_error = None  # Normalized random error of PSD
+        self.Gyy_error = None  # Normalized random error of PSD
         self.Gxy_error = None  # Normalized random error of CSD
         self.Hxy_mag_error = None  # Normalized random error of |Hxy|
         self.Hxy_rad_error = None  # Normalized random error of arg(Hxy) in radians
@@ -453,6 +456,10 @@ class LTFObject:
         self.coh_dev = 1.0
         self.ccoh_dev = 1.0
         self.Gxy_error = 1.0
+        self.Gxx_dev = self.Gxx/np.sqrt(self.navg)
+        self.Gxx_error = 1/np.sqrt(self.navg)
+        self.Gyy_dev = self.Gyy/np.sqrt(self.navg)
+        self.Gyy_error = 1/np.sqrt(self.navg)
         self.cf_mag_error = 1.0
         self.cf_rad_error = 0.0
         self.cf_deg_error = 0.0
@@ -483,21 +490,21 @@ class LTFObject:
             except ValueError:
                 pass
 
-        if self.iscsd:
-            self.csd = self.Gxy # Cross spectral density
-            self.cpsd = np.sqrt(self.Gxy) # Cross power spectral density
+        if self.iscsd: # We are computing cross-spectra:
+            self.csd = copy.copy(self.Gxy) # Cross spectral density
+            self.cpsd = np.sqrt(self.csd) # Cross power spectral density
             self.cs = self.csd * self.ENBW # Cross spectrum
             self.cf = np.abs(self.Hxy) # Coupling coefficient
-            self.cf_db   = ct.mag2db(self.cf)  # Magnitude of the transfer function in dB
-            self.cf_deg  = np.angle(self.Hxy, deg=True)  # Argument of the transfer function in degrees
-            self.cf_rad  = np.angle(self.Hxy, deg=False)  # Argument of the transfer function in rad
-        else:
-            self.Gxx = self.Gxy.real # Power spectral density
-            self.Gxx_dev = self.Gxy_dev # Standar deviation of Gxx
-            self.psd = self.Gxx # Power spectral density
-            self.asd = np.sqrt(self.Gxx) # Amplitude spectral density
-            self.G = self.Gxx * self.ENBW # Power spectrum
-            self.ps = self.G # Power spectrum
+            self.cf_db  = ct.mag2db(self.cf)  # Magnitude of the transfer function in dB
+            self.cf_deg = np.angle(self.Hxy, deg=True)  # Argument of the transfer function in degrees
+            self.cf_rad = np.angle(self.Hxy, deg=False)  # Argument of the transfer function in rad
+        
+        if np.imag(self.Gxy) == 0:  # The computed cross-spectrum is actually an auto-spectrum:
+            self.Gxy = self.Gxy.real # Power spectral density
+            self.psd = copy.copy(self.Gxx) # Power spectral density
+            self.asd = np.sqrt(self.psd) # Amplitude spectral density
+            self.G = self.psd * self.ENBW # Power spectrum
+            self.ps = copy.copy(self.G) # Power spectrum
 
     def calc_lpsd(self, pool, verbose):
         """
@@ -554,12 +561,17 @@ class LTFObject:
         self.XX = np.array(self.df.XX) # Spectrum
         self.YY = np.array(self.df.YY) # Spectrum
         self.XY = np.array(self.df.XY) # Cross spectrum
-        self.Gxy = np.array(self.df.Gxy) # Cross spectral density
         self.Gxx = np.array(self.df.Gxx) # Power spectral density
         self.Gyy = np.array(self.df.Gyy) # Power spectral density
+        self.Gxy = np.array(self.df.Gxy) # Cross spectral density
         self.Hxy = np.array(self.df.Hxy) # Transfer function estimate
         self.coh = np.array(self.df.coh) # Coherence
         self.ccoh = np.array(self.df.ccoh) # Complex coherence
+
+        self.Gxx_dev = np.array(self.df.Gxx/np.sqrt(self.df.navg))
+        self.Gxx_error = np.array(1/np.sqrt(self.df.navg))
+        self.Gyy_dev = np.array(self.df.Gyy/np.sqrt(self.df.navg))
+        self.Gyy_error = np.array(1/np.sqrt(self.df.navg))
         self.Gxy_dev = np.array(self.df.Gxy_dev)
         self.Gxy_error = np.array(self.df.Gxy_error)
         self.Hxy_dev = np.array(self.df.Hxy_dev)
@@ -569,28 +581,28 @@ class LTFObject:
         self.coh_dev = np.array(self.df.coh_dev)
         self.coh_error = np.array(self.df.coh_error)
         self.ccoh_dev = np.array(self.df.ccoh_dev)
+        
         self.ENBW = np.array(self.df.ENBW) # Equivalent noise bandwidth
         self.navg = np.array(self.df.navg) # Number of averages
         self.compute_t = np.array(self.df.compute_t) # Compute time
 
         if self.iscsd: # We are computing cross-spectra:
             self.csd = self.Gxy.copy() # Cross spectral density
-            self.cpsd = np.sqrt(self.Gxy) # Cross power spectral density
+            self.cpsd = np.sqrt(self.csd) # Cross power spectral density
             self.cs = self.csd * self.ENBW # Cross spectrum
-            self.cf = np.abs(self.Hxy) # Magnitude of the transfer function
-            self.cf_db   = ct.mag2db(self.cf)  # Magnitude of the transfer function in dB
-            self.cf_deg  = np.angle(self.Hxy, deg=True)  # Argument of the transfer function in degrees
-            self.cf_rad  = np.angle(self.Hxy, deg=False)  # Argument of the transfer function in rad
+            self.tf = self.Hxy.copy() # Transfer function
+            self.cf = np.abs(self.tf) # Magnitude of the transfer function
+            self.cf_db  = ct.mag2db(self.cf)  # Magnitude of the transfer function in dB
+            self.cf_deg = np.angle(self.tf, deg=True)  # Argument of the transfer function in degrees
+            self.cf_rad = np.angle(self.tf, deg=False)  # Argument of the transfer function in rad
             self.cf_rad_unwrapped = np.unwrap(self.cf_rad) # Argument of the transfer function in degrees, unwrapped
             self.cf_deg_unwrapped = np.rad2deg(self.cf_rad_unwrapped) # Argument of the transfer function in degrees, unwrapped
         
         if np.all(np.imag(self.Gxy) == 0): # The computed cross-spectrum is actually an auto-spectrum:
-            self.Gxx = self.Gxy.real # Power spectral density
-            self.Gxx_dev = self.Gxy_dev.copy()
-            self.Gxx_error = self.Gxy_error.copy()
+            self.Gxy = self.Gxy.real
             self.psd = self.Gxx.copy() # Power spectral density
-            self.asd = np.sqrt(self.Gxx) # Amplitude spectral density
-            self.G = self.Gxx * self.ENBW # Power spectrum
+            self.asd = np.sqrt(self.psd) # Amplitude spectral density
+            self.G = self.psd * self.ENBW # Power spectrum
             self.ps = self.G # Power spectrum
 
     def _lpsd_core(self, f_block, csd, verbose):
