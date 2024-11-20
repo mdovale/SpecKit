@@ -497,8 +497,8 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
 
     return final_df_list
 
-def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: Optional[List[str]] = None,
-                            preprocessors: Optional[List[callable]] = None, suffixes: bool = False) -> pd.DataFrame:
+def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: Optional[List[str]] = None, tolerance: Optional[float] = 0.1,
+                            preprocessors: Optional[List[callable]] = None, suffixes: Optional[bool] = False) -> pd.DataFrame:
     """
     Resample multiple DataFrames to a common time grid by interpolating each
     DataFrame's data to align with a unified time axis.
@@ -516,10 +516,14 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         Column names representing time for each DataFrame in `df_list`. If not provided, 
         defaults to 'time' for all DataFrames.
 
+    tolerance : float, optional
+        The allowable deviation (in seconds) from the mean sampling interval. Values
+        exceeding this tolerance trigger warnings.
+
     preprocessors: List[callable], optional
         Pre-processing functions to apply to each data stream before resampling. Defaults to None for all.
         
-    suffixes : bool, default=True
+    suffixes : Optional[bool], default=True
         If True, suffixes the column names of each DataFrame with its index in `df_list` 
         to avoid name conflicts. If False, original column names are retained (name 
         conflicts may arise if columns have identical names).
@@ -549,6 +553,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
     t_col_list = t_col_list or ['time'] * len(_df_list)
     preprocessors = preprocessors or [None] * len(_df_list)
 
+    # Calculation of the maximum overlap:
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
         if t not in df:
             raise ValueError(f"DataFrame #{i+1} does not contain the time column '{t}'")
@@ -558,20 +563,38 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
                                         Start time: {df[t].iloc[0]:.2f} seconds
                                         End time: {df[t].iloc[-1]:.2f} seconds
                                         Samples: {len(df)}""")
-
     if start_time >= end_time:
         logging.warning("No overlapping time range between DataFrames; output DataFrame is empty.")
         return pd.DataFrame(columns=["common_time"])
+    
+    # Time grid consistency checks:
+    for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
+        monotonic = np.all(np.diff(df[t]) > 0)
+        if not monotonic:
+            logging.warning(f"Time array is not monotonically increasing in DataFrame #{i+1}.")
 
+        # Report intervals exceeding tolerance:
+        intervals = np.diff(df[t])
+        mean_interval = np.mean(intervals)
+        problematic_indices = np.where(np.abs(intervals - mean_interval) > tolerance)[0]
+        problematic_intervals = [(idx, intervals[idx]) for idx in problematic_indices]
+        if problematic_intervals:
+            logging.warning(f"DataFrame #{i+1}: found {len(problematic_intervals)} problematic intervals exceeding the provided tolerance:")
+            for idx, interval in problematic_intervals:
+                logging.warning(f"    Interval at index {idx} = {interval:.6f} s")
+
+    # Generation of common time grid:
     common_time = np.arange(start_time, end_time, 1/fs)
     logging.info(f"""New start time: {start_time:.2f} seconds; New end time: {end_time:.2f} seconds; Samples: {len(common_time)}""")
 
+    # Application of preprocessors:
     for i, (df, proc) in enumerate(zip(_df_list, preprocessors)):
         if proc is not None:
             logging.info(f"Applying pre-processor {proc} to DataFrame #{i+1}")
             _df_list[i] = proc(df)
             logging.info(f"Columns: {list(_df_list[i].columns)}")
 
+    # Downsampling and interpolation to the common grid:
     logging.info("Resampling...")
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
         df_interp = pd.DataFrame({'common_time': common_time})
@@ -580,6 +603,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
             df_interp[col_name] = np.interp(common_time, df[t], df[col])
         df_interp_list.append(df_interp)
 
+    # Merging all data streams to single DataFrame:
     logging.info("Merging...")
     resampled_df = pd.concat(df_interp_list, axis=1).loc[:,~pd.concat(df_interp_list, axis=1).columns.duplicated()]
     logging.info("Done.")
@@ -589,7 +613,8 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
 def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], resample_fs: float, 
                                     start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
                                     timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None,
-                                    t_col_list: Optional[List[str]] = None, preprocessors: Optional[List[callable]] = None,
+                                    t_col_list: Optional[List[str]] = None, tolerance: Optional[float] = 0.1,
+                                    preprocessors: Optional[List[callable]] = None,
                                     suffixes: bool = False) -> pd.DataFrame:
     """
     Loads time-series data from multiple files, truncates to the maximum overlapping time window, 
@@ -621,6 +646,10 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
     t_col_list : List[str], optional
         Column names representing time for each DataFrame in `file_list`. Defaults to 'time' for all.
 
+    tolerance : float, optional
+        The allowable deviation (in seconds) from the mean sampling interval. Values
+        exceeding this tolerance trigger warnings.
+
     preprocessors: List[callable], optional
         Pre-processing functions to apply to each data stream before resampling. Defaults to None for all.
     
@@ -639,6 +668,7 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
                                            timeshifts=timeshifts, delimiter_list=delimiter_list)
 
     # Resample the loaded data to a common time grid using the resampler function
-    resampled_df = resample_to_common_grid(_df_list=df_list, fs=resample_fs, t_col_list=t_col_list, preprocessors=preprocessors, suffixes=suffixes)
+    resampled_df = resample_to_common_grid(_df_list=df_list, fs=resample_fs, t_col_list=t_col_list, 
+                                           tolerance=tolerance, preprocessors=preprocessors, suffixes=suffixes)
 
     return resampled_df
