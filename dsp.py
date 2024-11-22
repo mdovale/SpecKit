@@ -6,12 +6,17 @@ E-mail: spectools@pm.me
 import os
 import numpy as np
 import pandas as pd
+import zipfile
+import tarfile
+import gzip
+from py7zr import SevenZipFile
 from copy import deepcopy
 from scipy.integrate import cumtrapz
 from scipy.optimize import curve_fit, minimize
 from pytdi.dsp import timeshift
 from tqdm import tqdm
 from typing import List, Optional
+import warnings
 
 import logging
 logging.basicConfig(
@@ -392,14 +397,43 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
     def count_header_rows(file):
         header_symbols = ['#', '%', '!', '@', ';', '&', '*', '"', "'"]  # Add more symbols as needed
         header_count = 0
-        with open(file, 'r') as file:
-            for line in file:
-                # Check if the line starts with any of the header symbols
+
+        def process_file(file_obj):
+            """Helper function to count headers in a file object."""
+            nonlocal header_count
+            for line in file_obj:
+                line = line.decode('utf-8') if isinstance(line, bytes) else line  # Handle binary content
                 if any(line.startswith(symbol) for symbol in header_symbols):
                     header_count += 1
                 else:
-                    # Stop counting once the first non-header line is encountered
                     break
+
+        if zipfile.is_zipfile(file):  # Check if it's a zip file
+            with zipfile.ZipFile(file, 'r') as zip_ref:
+                first_file_name = zip_ref.namelist()[0]
+                with zip_ref.open(first_file_name, 'r') as target_file:
+                    process_file(target_file)
+
+        elif tarfile.is_tarfile(file):  # Check if it's a tar file
+            with tarfile.open(file, 'r') as tar_ref:
+                first_member = tar_ref.getmembers()[0]
+                with tar_ref.extractfile(first_member) as target_file:
+                    process_file(target_file)
+
+        elif file.endswith('.gz'):  # Check if it's a gzip file
+            with gzip.open(file, 'rt') as target_file:  # 'rt' for reading text
+                process_file(target_file)
+
+        elif file.endswith('.7z'):  # Check if it's a 7z file
+            with SevenZipFile(file, 'r') as seven_zip_ref:
+                first_file_name = seven_zip_ref.getnames()[0]
+                with seven_zip_ref.open(first_file_name) as target_file:
+                    process_file(target_file)
+
+        else:  # Treat it as a regular text file
+            with open(file, 'r') as target_file:
+                process_file(target_file)
+
         return header_count
     
     # Ensure matching lengths of input lists
@@ -541,6 +575,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         If less than two DataFrames are provided, `fs` is non-positive, or any DataFrame 
         lacks the specified or default time column.
     """
+    warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
     _df_list = deepcopy(df_list)
 
     if fs <= 0:
@@ -668,7 +703,7 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
                                            timeshifts=timeshifts, delimiter_list=delimiter_list)
 
     # Resample the loaded data to a common time grid using the resampler function
-    resampled_df = resample_to_common_grid(_df_list=df_list, fs=resample_fs, t_col_list=t_col_list, 
+    resampled_df = resample_to_common_grid(df_list=df_list, fs=resample_fs, t_col_list=t_col_list, 
                                            tolerance=tolerance, preprocessors=preprocessors, suffixes=suffixes)
 
     return resampled_df
