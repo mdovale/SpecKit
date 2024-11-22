@@ -813,7 +813,7 @@ class LTFObject:
             'asd': (self.f, self.asd, r"ASD") if not self.iscsd else None,
             'psd': (self.f, self.psd, r"PSD") if not self.iscsd else None,
             'cs': (self.f, self.cs, r"CS") if self.iscsd else None,
-            'csd': (self.f, self.csd, r"CSD") if self.iscsd else None,
+            'csd': (self.f, np.abs(self.csd), r"CSD") if self.iscsd else None,
             'cpsd': (self.f, self.cpsd, r"CPSD") if self.iscsd else None,
             'coh': (self.f, self.coh, r"Coherence") if self.iscsd else None,
             'cf': (self.f, self.cf, r"Coupling coefficient") if self.iscsd else None,
