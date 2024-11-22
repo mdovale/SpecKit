@@ -954,7 +954,6 @@ class LTFObject:
                         else:
                             ax1.fill_between(f, cf_rad - cf_rad_lower, cf_rad + cf_rad_upper, 
                                             color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
-                    ax1.legend()
                 ax1.set_xlim([f[0], f[-1]])
                 ax2.set_xlim([f[0], f[-1]])
                 fig.align_ylabels()
