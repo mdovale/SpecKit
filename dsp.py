@@ -28,20 +28,24 @@ datefmt='%Y-%m-%d %H:%M:%S'
 
 def numpy_detrend(x, order=1):
     """
-    Detrend an input signal using linear regression with Numpy.
+    Detrend an input signal using a fast polynomial fit.
 
     Parameters
     ----------
-        y (numpy.ndarray): The input signal to be detrended.
-        order (int): The order of the polynomial fit
+        x (numpy.ndarray): The input signal to be detrended.
+        order (int): The order of the polynomial fit.
 
     Returns:
-        The detrended signal.
+        numpy.ndarray: The detrended signal.
     """
-    t = range(len(x))
-    p = np.polyfit(t, x, order)
-    residual = x - np.polyval(p, t)
-    return residual
+    t = np.arange(len(x))
+    # Construct the Vandermonde matrix
+    T = np.vander(t, order + 1, increasing=True)
+    # Solve the least squares problem directly
+    coeffs = np.linalg.lstsq(T, x, rcond=None)[0]
+    # Subtract the trend
+    trend = T @ coeffs
+    return x - trend
 
 def crop_data(x, y, xmin, xmax):
     """ Crop data.
