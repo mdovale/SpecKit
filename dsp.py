@@ -43,43 +43,6 @@ def numpy_detrend(x, order=1):
     residual = x - np.polyval(p, t)
     return residual
 
-def torch_detrend(x, order=1, device="mps"):
-    """
-    Detrend an input signal using linear regression with PyTorch.
-    
-    Handles input as a NumPy array.
-
-    Parameters
-    ----------
-        x (numpy.ndarray): The input signal to be detrended.
-        order (int): The order of the polynomial fit.
-        device (str): The device to perform computations on ("cpu", "cuda", or "mps").
-
-    Returns
-    -------
-        numpy.ndarray: The detrended signal.
-    """
-    # Convert the NumPy array to a PyTorch tensor and move it to the specified device
-    x_tensor = torch.tensor(x, dtype=torch.float32, device=device).unsqueeze(1)
-
-    # Create time indices as a tensor
-    t = torch.arange(len(x), device=device, dtype=torch.float32).unsqueeze(1)
-
-    # Construct the design matrix for polynomial fitting
-    T = torch.cat([t**i for i in reversed(range(order + 1))], dim=1)
-
-    # Solve for polynomial coefficients using the custom torch_lstsq function
-    coeffs = torch_lstsq(T, x_tensor)
-
-    # Compute the polynomial trend
-    trend = torch.matmul(T, coeffs)
-
-    # Subtract the trend from the input signal to get the residual
-    residual = x_tensor - trend
-
-    # Convert the result back to a NumPy array
-    return residual.squeeze().cpu().numpy()
-
 def crop_data(x, y, xmin, xmax):
     """ Crop data.
 
