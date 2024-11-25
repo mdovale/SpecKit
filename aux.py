@@ -4,6 +4,7 @@ Miguel Dovale (Hannover, 2024)
 E-mail: spectools@pm.me
 """
 import math
+import torch
 import numpy as np
 
 def kaiser_alpha(psll):
@@ -61,3 +62,40 @@ def find_Jdes_binary_search(scheduler, params, target_nf, min_Jdes=100, max_Jdes
             min_Jdes = Jdes + 1
         else:
             max_Jdes = Jdes - 1
+
+def check_gpu_availability():
+    """
+    Check if GPU-accelerated devices (MPS, CUDA, or others) are available.
+
+    Returns
+    -------
+    dict: A dictionary containing the status of MPS, CUDA, and other GPU devices.
+    """
+    availability = {
+        "CUDA": torch.cuda.is_available(),
+        "MPS": torch.backends.mps.is_available() if hasattr(torch.backends, "mps") else False,
+        "GPU Devices": [],
+    }
+
+    if availability["CUDA"]:
+        num_cuda_devices = torch.cuda.device_count()
+        availability["GPU Devices"].extend(
+            [torch.cuda.get_device_name(i) for i in range(num_cuda_devices)]
+        )
+    elif availability["MPS"]:
+        availability["GPU Devices"].append("Metal Performance Shaders (MPS)")
+
+    return availability
+
+
+# Print the results
+if __name__ == "__main__":
+    availability = check_gpu_availability()
+    print("CUDA Available:", availability["CUDA"])
+    print("MPS Available:", availability["MPS"])
+    if availability["GPU Devices"]:
+        print("Available GPU Devices:")
+        for device in availability["GPU Devices"]:
+            print(f"- {device}")
+    else:
+        print("No GPU-accelerated devices detected.")
