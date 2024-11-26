@@ -346,76 +346,52 @@ class LTFObject:
             istart = int(round_half_up(start))
             start = start + shift
 
-            x1s = self.data[istart:istart + l].copy()
             if csd:
                 x1s = self.data[istart:istart + l, 0].copy()
                 x2s = self.data[istart:istart + l, 1].copy()
-
-            if self.order == -1:
-                pass  # do nothing
-            elif self.order == 0:
-                x1s = x1s - np.mean(x1s)
-                if csd:
-                    x2s = x2s - np.mean(x2s)                    
             else:
+                x1s = self.data[istart:istart + l].copy()
+
+            if self.order == 0:
+                x1s -= np.mean(x1s)
+                if csd:
+                    x2s -= np.mean(x2s)                    
+            elif self.order >0:
                 x1s = numpy_detrend(x1s, self.order)
                 if csd:
                     x2s = numpy_detrend(x2s, self.order)
-            
-            rxsum = 0.0
-            rysum = 0.0
-            ixsum = 0.0
-            iysum = 0.0
 
             if csd:
-                rxsum = float(np.dot(np.real(C),x1s))
-                rysum = float(np.dot(np.real(C),x2s))
-                ixsum = float(np.dot(np.imag(C),x1s))
-                iysum = float(np.dot(np.imag(C),x2s))
+                rxsum, ixsum = np.real(C) @ x1s, np.imag(C) @ x1s
+                rysum, iysum = np.real(C) @ x2s, np.imag(C) @ x2s
             else:
-                rxsum = float(np.dot(np.real(C),x1s))
-                rysum = rxsum
-                ixsum = float(np.dot(np.imag(C),x1s))
-                iysum = ixsum
-
-            assert isinstance(rxsum, float)
-            assert isinstance(rysum, float)
-            assert isinstance(ixsum, float)
-            assert isinstance(iysum, float)
+                rxsum, ixsum = np.real(C) @ x1s, np.imag(C) @ x1s
+                rysum, iysum = rxsum, ixsum
 
             if (j == 0):
-                # /* for XY  */
                 MXYr = rysum * rxsum + iysum * ixsum
                 MXYi = iysum * rxsum - rysum * ixsum
-                # /* for XX  */
                 MXX = rxsum * rxsum + ixsum * ixsum
-                # /* for YY  */
                 MYY = rysum * rysum + iysum * iysum
             else:
-                # /* for XY cross - power */
                 XYr = rysum * rxsum + iysum * ixsum
                 XYi = iysum * rxsum - rysum * ixsum
                 QXYr = XYr - MXYr
                 QXYi = XYi - MXYi
                 MXYr += QXYr / j
                 MXYi += QXYi / j
-                # /* new Qs, using new mean */
                 QXYrn = XYr - MXYr
                 QXYin = XYi - MXYi
-                # /* taking abs to get real variance */
                 MXY2 += math.sqrt((QXYr * QXYrn - QXYi * QXYin)**2 + (QXYr * QXYin + QXYi * QXYrn)**2)
-                # /* for XX  */
                 XX = rxsum * rxsum + ixsum * ixsum
                 QXX = XX - MXX
                 MXX += QXX / j
                 MXX2 += QXX * (XX - MXX)
-                # /* for YY  */
                 YY = rysum * rysum + iysum * iysum
                 QYY = YY - MYY
                 MYY += QYY / j
                 MYY2 += QYY * (YY - MYY)
 
-        # /* Outputs */
         Pxyr = MXYr
         Pxyi = MXYi
         if (self.navg == 1):
@@ -424,33 +400,25 @@ class LTFObject:
             Vr = MXY2 / (self.navg - 1)
         Pxx = MXX
         Pyy = MYY
-
         S1 = np.sum(window)
         S12 = S1 * S1
         S2 = np.sum(window**2)
-
         self.XY = Pxyr + 1j*Pxyi
         self.XX = Pxx
         self.YY = Pyy
         M2 = Vr
-        try:
+        self.Gxx = 2.0 * self.XX / self.fs / S2
+        self.Gyy = 2.0 * self.YY / self.fs / S2
+        self.Gxy = 2.0 * self.XY / self.fs / S2
+        self.ENBW = self.fs * S2 / S12
+        if (self.XX > 0) and (self.YY) > 0:
             self.Hxy = self.XY.conjugate() / (self.XX)
-            self.Gxx = 2.0 * self.XX / self.fs / S2
-            self.Gyy = 2.0 * self.YY / self.fs / S2
-            self.Gxy = 2.0 * self.XY / self.fs / S2
             self.coh = (abs(self.XY)**2) / (self.XX * self.YY)
             self.ccoh = self.XY / math.sqrt(self.XX * self.YY)
-        except ZeroDivisionError:
-            self.XX = 0.0
+        else:
             self.Hxy = 0.0
-            self.Gxx = 0.0
-            self.Gyy = 0.0
-            self.Gxy = 0.0
             self.coh = 0.0
             self.ccoh = 0.0
-
-        self.ENBW = self.fs * S2 / S12
-
         self.Hxy_dev = 1.0
         self.Gxy_dev = 1.0
         self.coh_dev = 1.0
@@ -641,82 +609,51 @@ class LTFObject:
             MXY2 = 0.0
             MXX = 0.0
             MYY = 0.0
-            MXX2 = 0.0
-            MYY2 = 0.0
 
-            for j in range(self.navg[i]):
+            # Prepare the data slices for all `j`:
+            if csd:
+                x1s_all = np.array([self.data[self.D[i][j]:self.D[i][j] + self.L[i], 0] for j in range(self.navg[i])])
+                x2s_all = np.array([self.data[self.D[i][j]:self.D[i][j] + self.L[i], 1] for j in range(self.navg[i])])
+            else:
+                x1s_all = np.array([self.data[self.D[i][j]:self.D[i][j] + self.L[i]] for j in range(self.navg[i])])
 
-                x1s = self.data[self.D[i][j]:self.D[i][j] + self.L[i]].copy()
+            # Apply detrending if needed:
+            if self.order == 0:
+                x1s_all -= np.mean(x1s_all, axis=1, keepdims=True)
                 if csd:
-                    x1s = self.data[self.D[i][j]:self.D[i][j] + self.L[i], 0].copy()
-                    x2s = self.data[self.D[i][j]:self.D[i][j] + self.L[i], 1].copy()
-
-                if self.order == -1:
-                    pass  # do nothing
-                elif self.order == 0:
-                    x1s = x1s - np.mean(x1s)
-                    if csd:
-                        x2s = x2s - np.mean(x2s)                    
-                else:
-                    x1s = numpy_detrend(x1s, self.order)
-                    if csd:
-                        x2s = numpy_detrend(x2s, self.order)
-                
-                rxsum = 0.0
-                rysum = 0.0
-                ixsum = 0.0
-                iysum = 0.0
-
+                    x2s_all -= np.mean(x2s_all, axis=1, keepdims=True)
+            elif self.order > 0:
+                x1s_all = np.apply_along_axis(numpy_detrend, 1, x1s_all, self.order)
                 if csd:
-                    rxsum = float(np.dot(np.real(C),x1s))
-                    rysum = float(np.dot(np.real(C),x2s))
-                    ixsum = float(np.dot(np.imag(C),x1s))
-                    iysum = float(np.dot(np.imag(C),x2s))
-                else:
-                    rxsum = float(np.dot(np.real(C),x1s))
-                    rysum = rxsum
-                    ixsum = float(np.dot(np.imag(C),x1s))
-                    iysum = ixsum
+                    x2s_all = np.apply_along_axis(numpy_detrend, 1, x2s_all, self.order)
 
-                assert isinstance(rxsum, float)
-                assert isinstance(rysum, float)
-                assert isinstance(ixsum, float)
-                assert isinstance(iysum, float)
+            # Compute dot products for all `j` at once:
+            rxsums = np.dot(x1s_all, np.real(C))  # Dot product along axis=1
+            ixsums = np.dot(x1s_all, np.imag(C))
 
-                 # /* Welford's incremental mean and variance calculation  */
-                if (j == 0):
-                    # /* for XY  */
-                    MXYr = rysum * rxsum + iysum * ixsum
-                    MXYi = iysum * rxsum - rysum * ixsum
-                    # /* for XX  */
-                    MXX = rxsum * rxsum + ixsum * ixsum
-                    # /* for YY  */
-                    MYY = rysum * rysum + iysum * iysum
-                else:
-                    # /* for XY cross - power */
-                    XYr = rysum * rxsum + iysum * ixsum
-                    XYi = iysum * rxsum - rysum * ixsum
-                    QXYr = XYr - MXYr
-                    QXYi = XYi - MXYi
-                    MXYr += QXYr / j
-                    MXYi += QXYi / j
-                    # /* new Qs, using new mean */
-                    QXYrn = XYr - MXYr
-                    QXYin = XYi - MXYi
-                    # /* taking abs to get real variance */
-                    MXY2 += math.sqrt((QXYr * QXYrn - QXYi * QXYin)**2 + (QXYr * QXYin + QXYi * QXYrn)**2)
-                    # /* for XX  */
-                    XX = rxsum * rxsum + ixsum * ixsum
-                    QXX = XX - MXX
-                    MXX += QXX / j
-                    MXX2 += QXX * (XX - MXX)
-                    # /* for YY  */
-                    YY = rysum * rysum + iysum * iysum
-                    QYY = YY - MYY
-                    MYY += QYY / j
-                    MYY2 += QYY * (YY - MYY)
+            if csd:
+                rysum = np.dot(x2s_all, np.real(C))
+                iysum = np.dot(x2s_all, np.imag(C))
+            else:
+                rysum = rxsums
+                iysum = ixsums
 
-            # /* Outputs */
+            # Compute cross-power terms for all j:
+            XYr_all = rysum * rxsums + iysum * ixsums
+            XYi_all = iysum * rxsums - rysum * ixsums
+
+            # Compute auto-power terms for all j:
+            XX_all = rxsums**2 + ixsums**2
+            YY_all = rysum**2 + iysum**2
+
+            # Compute mean and variance:
+            MXYr = np.mean(XYr_all)
+            MXYi = np.mean(XYi_all)
+            MXX = np.mean(XX_all)
+            MYY = np.mean(YY_all)
+            MXY2 = np.var(XYr_all + 1j * XYi_all)
+
+            # Outputs:
             Pxyr = MXYr
             Pxyi = MXYi
             if (self.K[i] == 1):
@@ -725,32 +662,26 @@ class LTFObject:
                 Vr = MXY2 / (self.K[i] - 1)
             Pxx = MXX
             Pyy = MYY
-
             S1 = np.sum(window)
             S12 = S1 * S1
             S2 = np.sum(window**2)
-
             XY = Pxyr + 1j*Pxyi
             XX = Pxx
             YY = Pyy
             M2 = Vr
-            try:
+            Gxy = 2.0 * XY / self.fs / S2
+            Gxx = 2.0 * XX / self.fs / S2
+            Gyy = 2.0 * YY / self.fs / S2
+            ENBW = self.fs * S2 / S12
+
+            if (XX > 0) and (YY > 0):
                 Hxy = XY.conjugate() / (XX)
-                Gxx = 2.0 * XX / self.fs / S2
-                Gyy = 2.0 * YY / self.fs / S2
-                Gxy = 2.0 * XY / self.fs / S2
                 coh = (abs(XY)**2) / (XX * YY)
                 ccoh = XY / math.sqrt(XX * YY)
-            except ZeroDivisionError:
-                XX = 0.0
+            else:
                 Hxy = 0.0
-                Gxx = 0.0
-                Gyy = 0.0
-                Gxy = 0.0
                 coh = 0.0
                 ccoh = 0.0
-
-            ENBW = self.fs * S2 / S12
 
             Hxy_dev = 1.0
             Gxy_dev = 1.0
@@ -761,7 +692,6 @@ class LTFObject:
             cf_rad_error = 0.0
             cf_deg_error = 0.0
             coh_error = 1.0
-
             navg = self.navg[i]
 
             if (navg > 1) and (XX != 0):
@@ -790,9 +720,7 @@ class LTFObject:
                     pass
 
             then = time.time()
-
             compute_t = then-now
-
             r_block.append([i, XY, XX, YY, Gxy, Gxx, Gyy, Hxy, coh, ccoh,
                             Gxy_dev, Gxy_error, 
                             Hxy_dev, cf_mag_error, cf_rad_error, cf_deg_error,
