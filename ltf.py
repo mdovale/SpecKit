@@ -61,6 +61,9 @@ class LTFObject:
         self.df      = None  # DataFrame containing the results
         self.nx      = None  # Total length of the time series
         self.nf      = None  # Number of frequencies in spectrum
+        self.S12     = None  # Window function sum S_1^2 for calibration of the power spectrum
+        self.S2      = None  # Window function sum S_2 for calibration of the PSD/CSD
+        self.M2      = None  # Constant for Gxy_dev
         self.ENBW    = None  # Equivalent noise bandwidth
         self.rms     = None  # Root mean square of the signal computed from the integral of the ASD
 
@@ -516,11 +519,12 @@ class LTFObject:
         total_time = after - before
         if verbose: logging.info('Completed in {} seconds'.format(total_time))
 
-        self.df = pd.concat([pd.DataFrame(chunk, columns=['i', 'XY', 'XX', 'YY', 'Gxy', 'Gxx', 'Gyy', 'Hxy', 'coh', 'ccoh', 
-                                                          'Gxy_dev', 'Gxy_error', 'Hxy_dev', 'cf_mag_error', 'cf_rad_error', 'cf_deg_error', 
-                                                          'coh_dev', 'ccoh_dev', 'coh_error',
-                                                          'ENBW', 'navg', 'compute_t']) \
-                for chunk in r], axis=0, ignore_index=True)
+        self.df = pd.concat(
+            [pd.DataFrame(
+                chunk, 
+                columns=['i', 'XY', 'XX', 'YY', 'S12', 'S2', 'M2', 'compute_t']
+                ) for chunk in r],
+            axis=0, ignore_index=True)
 
         self.df = self.df.sort_values('i')
 
@@ -529,30 +533,93 @@ class LTFObject:
         self.XX = np.array(self.df.XX) # Spectrum
         self.YY = np.array(self.df.YY) # Spectrum
         self.XY = np.array(self.df.XY) # Cross spectrum
-        self.Gxx = np.array(self.df.Gxx) # Power spectral density
-        self.Gyy = np.array(self.df.Gyy) # Power spectral density
-        self.Gxy = np.array(self.df.Gxy) # Cross spectral density
-        self.Hxy = np.array(self.df.Hxy) # Transfer function estimate
-        self.coh = np.array(self.df.coh) # Coherence
-        self.ccoh = np.array(self.df.ccoh) # Complex coherence
-
-        self.Gxx_dev = np.array(self.df.Gxx/np.sqrt(self.df.navg))
-        self.Gxx_error = np.array(1/np.sqrt(self.df.navg))
-        self.Gyy_dev = np.array(self.df.Gyy/np.sqrt(self.df.navg))
-        self.Gyy_error = np.array(1/np.sqrt(self.df.navg))
-        self.Gxy_dev = np.array(self.df.Gxy_dev)
-        self.Gxy_error = np.array(self.df.Gxy_error)
-        self.Hxy_dev = np.array(self.df.Hxy_dev)
-        self.cf_mag_error = np.array(self.df.cf_mag_error)
-        self.cf_rad_error = np.array(self.df.cf_rad_error)
-        self.cf_deg_error = np.array(self.df.cf_deg_error)
-        self.coh_dev = np.array(self.df.coh_dev)
-        self.coh_error = np.array(self.df.coh_error)
-        self.ccoh_dev = np.array(self.df.ccoh_dev)
-        
-        self.ENBW = np.array(self.df.ENBW) # Equivalent noise bandwidth
-        self.navg = np.array(self.df.navg) # Number of averages
+        self.S12 = np.array(self.df.S12) # Window function sum S_1^2 for calibration of the power spectrum
+        self.S2 = np.array(self.df.S2) # Window function sum S_2 for calibration of the PSD/CSD
+        self.M2 = np.array(self.df.M2) # Constant for Gxy_dev
         self.compute_t = np.array(self.df.compute_t) # Compute time
+
+        self.Gxx = 2.0 * self.XX / self.fs / self.S2 # Power spectral density
+        self.Gyy = 2.0 * self.YY / self.fs / self.S2 # Power spectral density
+        self.Gxy = 2.0 * self.XY / self.fs / self.S2 # Cross spectral density
+        self.ENBW = self.fs * self.S2 / self.S12 # Equivalent noise bandwidth
+        self.Hxy = np.divide(np.conj(self.XY), self.XX, # Transfer function estimate
+                             out=np.zeros(self.nf, dtype=complex), where=self.XX != 0) 
+        # Coherence:
+        self.coh = np.divide(
+            np.abs(self.XY)**2,
+            self.XX * self.YY,
+            out=np.zeros(self.nf, dtype=float),
+            where=(self.XX != 0) & (self.YY != 0)
+        )
+        # Complex coherence:
+        self.ccoh = np.divide(
+            self.XY,
+            np.sqrt(self.XX * self.YY),
+            out=np.zeros(self.nf, dtype=complex),
+            where=(self.XX != 0) & (self.YY != 0)
+        )
+        
+        # Standard deviations:
+        self.Gxx_dev = self.Gxx/np.sqrt(self.navg)
+        self.Gyy_dev = self.Gyy/np.sqrt(self.navg)
+        self.Hxy_dev = np.where(
+            self.navg == 1, 1.0,
+            np.abs(self.Hxy) * np.sqrt(np.abs(1 - self.coh)) / np.sqrt(self.coh * 2*self.navg)
+            # Alternative definition:
+            # np.sqrt(
+            #     np.abs(
+            #         (self.navg / (self.navg - 1)**2) *
+            #         (self.YY / self.XX) *
+            #         (1 - (np.abs(self.XY)**2) / (self.XX * self.YY))
+            #     )
+            # )
+        )
+        self.Gxy_dev = np.where(
+            self.navg == 1, 1.0,
+            np.sqrt(np.abs(self.Gxy)**2 / self.coh / self.navg)
+            # Alternative definition:
+            # np.sqrt( 
+            #     np.abs(
+            #         4.0 * self.M2 / self.fs**2 / self.S2**2 / self.navg 
+            #     )
+            # )
+        )
+        self.coh_dev = np.where(
+            self.navg == 1, 1.0,
+            np.sqrt(
+                np.abs(
+                    (2 * self.coh / self.navg) * (1.0 - self.coh)**2
+                )
+            )
+        )
+        self.ccoh_dev = np.where(
+            self.navg == 1, 1.0,
+            np.sqrt(
+                np.abs(
+                    (2 * np.abs(self.ccoh) / self.navg) * (1.0 - np.abs(self.ccoh))**2
+                )
+            )
+        )
+
+        # Normalized random errors:
+        self.Gxx_error = 1/np.sqrt(self.navg)
+        self.Gyy_error = 1/np.sqrt(self.navg)
+        self.Gxy_error = np.where(
+            self.navg == 1, 1.0,
+            1.0 / np.sqrt(self.coh * self.navg)
+        )
+        self.cf_mag_error = np.where(
+            self.navg == 1, 1.0,
+            np.sqrt(np.abs(1 - self.coh)) / np.sqrt(self.coh * 2*self.navg)
+        )
+        # self.cf_rad_error = self.Hxy_dev / np.abs(self.Hxy)
+        self.cf_rad_error = np.arcsin(np.sqrt(np.abs(1-self.coh))) / np.sqrt(self.coh * 2*self.navg) # Alternative definition
+        # self.cf_rad_error = np.sqrt(1 - self.coh) / np.sqrt(self.coh * 2*self.navg) # Alternative definition
+        self.cf_deg_error = np.rad2deg(self.cf_rad_error)
+        self.coh_error = np.where(
+            self.navg == 1, 1.0,
+            np.sqrt(2.0) * (1.0 - self.coh) / (np.sqrt(self.coh) * np.sqrt(self.navg))
+        )
 
         if self.iscsd: # We are computing cross-spectra:
             self.csd = self.Gxy.copy() # Cross spectral density
@@ -669,63 +736,9 @@ class LTFObject:
             XX = Pxx
             YY = Pyy
             M2 = Vr
-            Gxy = 2.0 * XY / self.fs / S2
-            Gxx = 2.0 * XX / self.fs / S2
-            Gyy = 2.0 * YY / self.fs / S2
-            ENBW = self.fs * S2 / S12
-
-            if (XX > 0) and (YY > 0):
-                Hxy = XY.conjugate() / (XX)
-                coh = (abs(XY)**2) / (XX * YY)
-                ccoh = XY / math.sqrt(XX * YY)
-            else:
-                Hxy = 0.0
-                coh = 0.0
-                ccoh = 0.0
-
-            Hxy_dev = 1.0
-            Gxy_dev = 1.0
-            coh_dev = 1.0
-            ccoh_dev = 1.0
-            Gxy_error = 1.0
-            cf_mag_error = 1.0
-            cf_rad_error = 0.0
-            cf_deg_error = 0.0
-            coh_error = 1.0
-            navg = self.navg[i]
-
-            if (navg > 1) and (XX != 0):
-                Hxy_dev = math.sqrt(abs((navg / (navg - 1)**2) * (YY / XX) * (1 - (abs(XY)**2) / (XX * YY))))
-                Gxy_dev = math.sqrt(abs(4.0 * M2 / self.fs**2 / S2**2 / navg))
-                coh_dev = math.sqrt(abs((2 * coh / navg) * (1 - coh)**2))
-                ccoh_dev = math.sqrt(abs((2 * abs(ccoh) / navg) * (1 - abs(ccoh))**2))
-                try:
-                    Gxy_error = 1 / ( math.sqrt(coh) * math.sqrt(navg))
-                except ValueError:
-                    pass
-                try:
-                    cf_mag_error = math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg))
-                except ValueError:
-                    pass
-                try:
-                    # cf_rad_error = math.asin(math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg)))
-                    # cf_rad_error = math.sqrt(1 - coh) / ( math.sqrt(coh) * math.sqrt(2*navg))
-                    cf_rad_error = Hxy_dev/abs(Hxy)
-                    cf_deg_error = np.rad2deg(cf_rad_error)
-                except ValueError:
-                    pass
-                try:
-                    coh_error = math.sqrt(2) * (1 - coh) / (math.sqrt(coh) * math.sqrt(navg))
-                except ValueError:
-                    pass
-
             then = time.time()
             compute_t = then-now
-            r_block.append([i, XY, XX, YY, Gxy, Gxx, Gyy, Hxy, coh, ccoh,
-                            Gxy_dev, Gxy_error, 
-                            Hxy_dev, cf_mag_error, cf_rad_error, cf_deg_error,
-                            coh_dev, ccoh_dev, coh_error, 
-                            ENBW, navg, compute_t])
+            r_block.append([i, XY, XX, YY, S12, S2, M2, compute_t])
 
         after = time.time()
         block_time = after - before
