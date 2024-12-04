@@ -222,7 +222,10 @@ class LTFObject:
         """
         Uses the callable self.scheduler function to compute the frequency and time series segmentation plans.
         """
-        output = self.scheduler(self.nx, self.fs, self.olap, self.bmin, self.Lmin, self.Jdes, self.Kdes)
+        if self.scheduler == lpsd_plan:
+            output = self.scheduler(self.nx, self.fs, self.olap, self.Jdes, self.Kdes)
+        else:
+            output = self.scheduler(self.nx, self.fs, self.olap, self.bmin, self.Lmin, self.Jdes, self.Kdes)
         
         self.f = output["f"]
         self.r = output["r"]
@@ -269,15 +272,10 @@ class LTFObject:
         """
         Adjusts the Jdes parameter to achieve the desired number of bins.
         """
-        params = {"N": self.nx, 
-                  "fs": self.fs, 
-                  "olap": self.olap, 
-                  "bmin": self.bmin, 
-                  "Lmin": self.Lmin, 
-                  "Jdes": self.Jdes,
-                  "Kdes": self.Kdes}
-
-        self.Jdes = find_Jdes_binary_search(self.scheduler, params, target_nf, min_Jdes, max_Jdes)
+        if self.scheduler == lpsd_plan:
+            self.Jdes = find_Jdes_binary_search(self.scheduler, target_nf, min_Jdes, max_Jdes, self.nx, self.fs, self.olap, self.Kdes)
+        else:
+            self.Jdes = find_Jdes_binary_search(self.scheduler, target_nf, min_Jdes, max_Jdes, self.nx, self.fs, self.olap, self.bmin, self.Lmin, self.Kdes)
         self.calc_plan()
         
     def info(self):

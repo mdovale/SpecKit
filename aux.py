@@ -6,6 +6,7 @@ E-mail: spectools@pm.me
 import math
 import torch
 import numpy as np
+from spectools.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 
 def kaiser_alpha(psll):
     a0 = -0.0821377
@@ -50,12 +51,16 @@ def get_key_for_function(function_to_check, function_dict):
             return key
     return None  # Return None if the function is not found
 
-def find_Jdes_binary_search(scheduler, params, target_nf, min_Jdes=100, max_Jdes=5000):
-    while min_Jdes <= max_Jdes:
+def find_Jdes_binary_search(scheduler, target_nf, min_Jdes=100, max_Jdes=5000, *args):
+     while (min_Jdes <= max_Jdes):
         Jdes = (min_Jdes + max_Jdes) // 2
-        params["Jdes"] = Jdes
-        output = scheduler(params)
-        nf = output["nf"]
+        if scheduler == lpsd_plan:
+            output = scheduler(*args[:3], Jdes, *args[3:])
+        else:
+            output = scheduler(*args[:5], Jdes, *args[5:])
+        nf = output.get("nf")
+        if nf is None:
+            raise ValueError("Scheduler did not return 'nf' in output.")
         if nf == target_nf:
             return Jdes
         elif nf < target_nf:
