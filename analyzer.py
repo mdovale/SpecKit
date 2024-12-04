@@ -14,68 +14,37 @@ level=logging.INFO,
 datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-def SISO_optimal_spectral_analysis(input, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
+def SISO_optimal_spectral_analysis(input, output, fs, *args):
     """
-    Optimal spectral analysis on a Single-Input Single-Output system, using exact solution.
+    Performs optimal spectral analysis on a Single-Input Single-Output (SISO) system 
+    using an exact solution to estimate the amplitude spectral density (ASD) of the output, 
+    with the influence of the input subtracted.
 
     Parameters
     ----------
-    input: array-like
-        The input time series.
-
-    output: array-like
-        The output time series.
-
-    fs: float
+    input : array-like
+        The input time series signal.
+    
+    output : array-like
+        The output time series signal.
+    
+    fs : float
         The sampling frequency of the input and output time series.
-
-    band: iterable of two floats
-        Frequency band to restrict computations to.
-
-    olap: float or str, optional
-        Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-
-    bmin: int, optional
-        Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-
-    Lmin: int, optional
-        The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-
-    Jdes: int, optional
-        Desired number of Fourier frequencies. Default is None.
-
-    Kdes: int, optional
-        Desired number of segments to be averaged. Default is None.
-
-    order: int, optional
-        -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-
-    win: str, optional
-        Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-
-    psll: float, optional
-        Target peak side-lobe level supression.  Default is None.
-
-    pool: multiprocessing.Pool instance, optional
-        Allows performing parallel computations. Default is None.
-
-    scheduler: str or callable, optional
-        Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-
-    adjust_Jdes: bool, optional 
-        Whether to force the scheduler to produce the desired number of bins. Default is False.
+    
+    *args : tuple, optional
+        Additional arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
     np.ndarray
-        The spectrum of Fourier frequencies at which the output is calculated.
-
+        Fourier frequencies at which the analysis is performed.
+    
     np.ndarray
-        The amplitude spectral density of the output with the influence of the input subtracted
-        via the optimal spectral analysis method.
+        The amplitude spectral density of the output signal, calculated using the 
+        optimal spectral analysis method.
     """
 
-    csd = ltf([input, output], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+    csd = ltf([input, output], fs, *args)
 
     S11 = csd.Gxx
     S22 = csd.Gyy
@@ -86,69 +55,42 @@ def SISO_optimal_spectral_analysis(input, output, fs, band=None, olap=None, bmin
 
     return csd.f, optimal_asd
 
-def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
+def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, *args):
     """
-    Optimal spectral analysis on a Multiple-Input Single-Output system, solved analytically.
-    Reference: Section 8.1 "Multiple Input/Output Systems" in:
-    Bendat, Piersol - Engineering Applications of Correlation and Spectral Analysis ()
-    https://archive.org/details/engineeringappli0000bend
+    Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system 
+    using an exact analytic solution to the system of linear equations involving the
+    optimal transfer functions between the inputs and the output, and estimates the 
+    amplitude spectral density (ASD) of the output with the influence of the inputs subtracted.
+
+    Reference
+    ---------
+    Bendat, Piersol - "Engineering Applications of Correlation and Spectral Analysis"
+    Section 8.1: Multiple Input/Output Systems
     ISBN: 978-0-471-57055-4
+    https://archive.org/details/engineeringappli0000bend
     
     Parameters
     ----------
-    inputs: array-like
-        List containing the multiple input time series.
-
-    output: array-like
-        The output time series.
-
-    fs: float
-        The sampling frequency of the input and output time series.
-
-    band: iterable of two floats
-        Frequency band to restrict computations to.
-
-    olap: float or str, optional
-        Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-
-    bmin: int, optional
-        Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-
-    Lmin: int, optional
-        The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-
-    Jdes: int, optional
-        Desired number of Fourier frequencies. Default is None.
-
-    Kdes: int, optional
-        Desired number of segments to be averaged. Default is None.
-
-    order: int, optional
-        -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-
-    win: str, optional
-        Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-
-    psll: float, optional
-        Target peak side-lobe level supression.  Default is None.
-
-    pool: multiprocessing.Pool instance, optional
-        Allows performing parallel computations. Default is None.
-
-    scheduler: str or callable, optional
-        Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-
-    adjust_Jdes: bool, optional 
-        Whether to force the scheduler to produce the desired number of bins. Default is False.
+    inputs : array-like
+        List of multiple input time series signals.
+    
+    output : array-like
+        The output time series signal.
+    
+    fs : float
+        Sampling frequency of the input and output time series.
+    
+    *args : tuple, optional
+        Additional arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
     np.ndarray
-        The spectrum of Fourier frequencies at which the output is calculated.
-
+        Fourier frequencies at which the analysis is performed.
+    
     np.ndarray
-        The amplitude spectral density of the output with the influence of the input subtracted
-        via the optimal spectral analysis method.
+        Amplitude spectral density of the output signal, calculated using the 
+        optimal spectral analysis method.
     """
     q = len(inputs)
     if q > 5:
@@ -183,14 +125,14 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, band=None, olap=
     result = {}
     for i in range(q):
         for j in range(i+1,q):
-            obj = ltf([inputs[i], inputs[j]], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+            obj = ltf([inputs[i], inputs[j]], fs, *args)
             result.setdefault(f'T{i+1}{j+1}', obj.Gxy)
             result.setdefault(f'T{j+1}{i+1}', np.conj(obj.Gxy))
             result.setdefault(f'T{i+1}{i+1}', obj.Gxx)
             result.setdefault(f'T{j+1}{j+1}', obj.Gyy)
 
     for i in range(q):
-        obj = ltf([inputs[i], output], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes) 
+        obj = ltf([inputs[i], output], fs, *args) 
         result[f'S{i+1}0'] = obj.Gxy
         result[f'S0{i+1}'] = np.conj(obj.Gxy)
     
@@ -228,71 +170,45 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, band=None, olap=
 
     logging.info("Done.")
 
-    return result
+    # return result
+    return result['f'], result['optimal_asd']
 
 def MISO_numerical_optimal_spectral_analysis(inputs, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
     """
-    Optimal spectral analysis on a Multiple-Input Single-Output system, solved numerically.
-    Reference: Section 8.1 "Multiple Input/Output Systems" in:
-    Bendat, Piersol - Engineering Applications of Correlation and Spectral Analysis ()
-    https://archive.org/details/engineeringappli0000bend
+    Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system 
+    using by numerically solving the system of linear equations involving the
+    optimal transfer functions between the inputs and the output, and estimates the 
+    amplitude spectral density (ASD) of the output with the influence of the inputs subtracted.
+
+    Reference
+    ---------
+    Bendat, Piersol - "Engineering Applications of Correlation and Spectral Analysis"
+    Section 8.1: Multiple Input/Output Systems
     ISBN: 978-0-471-57055-4
+    https://archive.org/details/engineeringappli0000bend
     
     Parameters
     ----------
-    inputs: array-like
-        List containing the multiple input time series.
-
-    output: array-like
-        The output time series.
-
-    fs: float
-        The sampling frequency of the input and output time series.
-
-    band: iterable of two floats
-        Frequency band to restrict computations to.
-
-    olap: float or str, optional
-        Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-
-    bmin: int, optional
-        Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-
-    Lmin: int, optional
-        The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-
-    Jdes: int, optional
-        Desired number of Fourier frequencies. Default is None.
-
-    Kdes: int, optional
-        Desired number of segments to be averaged. Default is None.
-
-    order: int, optional
-        -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-
-    win: str, optional
-        Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-
-    psll: float, optional
-        Target peak side-lobe level supression.  Default is None.
-
-    pool: multiprocessing.Pool instance, optional
-        Allows performing parallel computations. Default is None.
-
-    scheduler: str or callable, optional
-        Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-
-    adjust_Jdes: bool, optional 
-        Whether to force the scheduler to produce the desired number of bins. Default is False.
+    inputs : array-like
+        List of multiple input time series signals.
+    
+    output : array-like
+        The output time series signal.
+    
+    fs : float
+        Sampling frequency of the input and output time series.
+    
+    *args : tuple, optional
+        Additional arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
     np.ndarray
-        The spectrum of Fourier frequencies at which the output is calculated.
-
+        Fourier frequencies at which the analysis is performed.
+    
     np.ndarray
-        The amplitude spectral density of the output with the influence of the input subtracted
-        via the optimal spectral analysis method.
+        Amplitude spectral density of the output signal, calculated using the 
+        optimal spectral analysis method.
     """
     q = len(inputs)
 
