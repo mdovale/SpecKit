@@ -5,7 +5,7 @@ E-mail: spectools@pm.me
 """
 import numpy as np
 import sympy as sp
-from spectools.lpsd import ltf, LTFObject
+from spectools.lpsd import lpsd, ltf, LTFObject
 
 import logging
 logging.basicConfig(
@@ -44,6 +44,8 @@ def SISO_optimal_spectral_analysis(input, output, fs, **kwargs):
         optimal spectral analysis method.
     """
 
+    logging.info("Computing all spectral estimates and optimal solution...")
+
     csd = ltf([input, output], fs, **kwargs)
 
     S11 = csd.Gxx
@@ -52,6 +54,8 @@ def SISO_optimal_spectral_analysis(input, output, fs, **kwargs):
     S21 = np.conj(csd.Gxy)
     H = S12 / S11
     optimal_asd = np.abs(np.sqrt(S22 + (H)*np.conj(H)*S11 - np.conj(H)*S12 - H*S21))
+    
+    logging.info("Done.")
 
     return csd.f, optimal_asd
 
@@ -121,7 +125,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     solution = sp.solve(eqns, Hvec)
 
     logging.info(f"Solution: {solution}")
-    logging.info("Computing spectral estimates...")
+    logging.info("Computing all spectral estimates...")
     result = {}
     for i in range(q):
         for j in range(i+1,q):
@@ -231,16 +235,9 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
             result[key] = obj
         return result[key]
 
-    # Compute the number of frequencies in the spectrum:
-    obj = LTFObject(N=N, fs=fs, **kwargs)
-    if 'adjust_Jdes' in kwargs:
-        logging.info(f"Forcing {obj.Jdes} frequencies...")
-        obj.adjust_Jdes_to_target_nf(obj.Jdes)
-    else:
-        obj.calc_plan()
-    if 'band' in kwargs:
-        logging.info(f"Restricting frequencies to the desired band.")
-        obj.filter_to_band(kwargs['band'])
+    logging.info("Computing the auto-spectrum of the output...")
+    obj = get_ltf_result("S00", output, fs, **kwargs)
+    S00 = obj.Gxx
     frequencies = obj.f
     nf = obj.nf
 
@@ -248,7 +245,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     Tmat = np.zeros((q, q, nf), dtype=complex)  # Coherence matrix of inputs
     Svec = np.zeros((q, nf), dtype=complex)  # Cross-spectral densities of inputs and output
 
-    logging.info("Computing spectral estimates...")
+    logging.info("Computing all other spectral estimates...")
     for i in range(q):
         for j in range(i+1, q):
             obj = get_ltf_result(f"T{i+1}{j+1}", [inputs[i], inputs[j]], fs, **kwargs)
@@ -277,9 +274,6 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     for i in range(q):
         for j in range(q):
             Sum3 += Hvec[j, :].conj() * Hvec[i, :] * Tmat[j, i, :]
-
-    obj = get_ltf_result("S00", [output, output], fs, **kwargs)
-    S00 = obj.Gxx
 
     # Compute optimal analysis (Equation 8.16, page 191):
     optimal_asd = np.abs(np.sqrt(S00 - Sum1 - Sum2 + Sum3))
