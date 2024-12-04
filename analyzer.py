@@ -14,7 +14,7 @@ level=logging.INFO,
 datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-def SISO_optimal_spectral_analysis(input, output, fs, *args):
+def SISO_optimal_spectral_analysis(input, output, fs, **kwargs):
     """
     Performs optimal spectral analysis on a Single-Input Single-Output (SISO) system 
     using an exact solution to estimate the amplitude spectral density (ASD) of the output, 
@@ -31,8 +31,8 @@ def SISO_optimal_spectral_analysis(input, output, fs, *args):
     fs : float
         The sampling frequency of the input and output time series.
     
-    *args : tuple, optional
-        Additional arguments passed to the `ltf` function for spectral analysis.
+    **kwargs : dict, optional
+        Additional keyword arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
@@ -44,7 +44,7 @@ def SISO_optimal_spectral_analysis(input, output, fs, *args):
         optimal spectral analysis method.
     """
 
-    csd = ltf([input, output], fs, *args)
+    csd = ltf([input, output], fs, **kwargs)
 
     S11 = csd.Gxx
     S22 = csd.Gyy
@@ -55,7 +55,7 @@ def SISO_optimal_spectral_analysis(input, output, fs, *args):
 
     return csd.f, optimal_asd
 
-def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, *args):
+def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     """
     Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system 
     using an exact analytic solution to the system of linear equations involving the
@@ -80,8 +80,8 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, *args):
     fs : float
         Sampling frequency of the input and output time series.
     
-    *args : tuple, optional
-        Additional arguments passed to the `ltf` function for spectral analysis.
+    **kwargs : dict, optional
+        Additional keyword arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
@@ -125,14 +125,14 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, *args):
     result = {}
     for i in range(q):
         for j in range(i+1,q):
-            obj = ltf([inputs[i], inputs[j]], fs, *args)
+            obj = ltf([inputs[i], inputs[j]], fs, **kwargs)
             result.setdefault(f'T{i+1}{j+1}', obj.Gxy)
             result.setdefault(f'T{j+1}{i+1}', np.conj(obj.Gxy))
             result.setdefault(f'T{i+1}{i+1}', obj.Gxx)
             result.setdefault(f'T{j+1}{j+1}', obj.Gyy)
 
     for i in range(q):
-        obj = ltf([inputs[i], output], fs, *args) 
+        obj = ltf([inputs[i], output], fs, **kwargs) 
         result[f'S{i+1}0'] = obj.Gxy
         result[f'S0{i+1}'] = np.conj(obj.Gxy)
     
@@ -173,7 +173,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, *args):
     # return result
     return result['f'], result['optimal_asd']
 
-def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
+def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     """
     Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system 
     using by numerically solving the system of linear equations involving the
@@ -198,8 +198,8 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, band=None, olap=N
     fs : float
         Sampling frequency of the input and output time series.
     
-    *args : tuple, optional
-        Additional arguments passed to the `ltf` function for spectral analysis.
+    **kwargs : tuple, optional
+        Additional keyword arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
@@ -224,23 +224,23 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, band=None, olap=N
     # Dictionary to cache results of ltf calls:
     result = {}
 
-    def get_ltf_result(key, *args):
+    def get_ltf_result(key, *args, **kwargs):
         """Helper function to retrieve or compute ltf result."""
         if key not in result:
-            obj = ltf(*args)
+            obj = ltf(*args, **kwargs)
             result[key] = obj
         return result[key]
 
     # Compute the number of frequencies in the spectrum:
-    obj = LTFObject(N=N, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Jdes=Jdes, Kdes=Kdes, order=order, win=win, psll=psll, scheduler=scheduler)
-    if adjust_Jdes:
+    obj = LTFObject(N=N, fs=fs, **kwargs)
+    if 'adjust_Jdes' in kwargs:
         logging.info(f"Forcing {obj.Jdes} frequencies...")
         obj.adjust_Jdes_to_target_nf(obj.Jdes)
     else:
         obj.calc_plan()
-    if band is not None:
+    if 'band' in kwargs:
         logging.info(f"Restricting frequencies to the desired band.")
-        obj.filter_to_band(band)
+        obj.filter_to_band(kwargs['band'])
     frequencies = obj.f
     nf = obj.nf
 
@@ -251,7 +251,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, band=None, olap=N
     logging.info("Computing spectral estimates...")
     for i in range(q):
         for j in range(i+1, q):
-            obj = get_ltf_result(f"T{i+1}{j+1}", [inputs[i], inputs[j]], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+            obj = get_ltf_result(f"T{i+1}{j+1}", [inputs[i], inputs[j]], fs, **kwargs)
             if not np.any(Tmat[i, j, :]):
                 Tmat[i, j, :] = obj.Gxy
             if not np.any(Tmat[j, i, :]):
@@ -261,15 +261,15 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, band=None, olap=N
             if not np.any(Tmat[j, j, :]):
                 Tmat[j, j, :] = obj.Gyy
 
-        obj = get_ltf_result(f"S{i+1}0", [inputs[i], output], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+        obj = get_ltf_result(f"S{i+1}0", [inputs[i], output], fs, **kwargs)
         Svec[i, :] = obj.Gxy
 
+    logging.info("Computing solution...")
     # Solve for the optimal transfer functions numerically:
     Hvec = np.zeros((q, nf), dtype=complex)
     for k in range(nf):
         Hvec[:, k] = np.linalg.solve(Tmat[:, :, k], Svec[:, k])
 
-    logging.info("Computing solution...")
     # Compute the optimal spectral density
     Sum1 = np.sum(Hvec * Svec.conj(), axis=0)
     Sum2 = np.sum(Hvec.conj() * Svec, axis=0)
@@ -278,7 +278,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, band=None, olap=N
         for j in range(q):
             Sum3 += Hvec[j, :].conj() * Hvec[i, :] * Tmat[j, i, :]
 
-    obj = get_ltf_result("S00", [output, output], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+    obj = get_ltf_result("S00", [output, output], fs, **kwargs)
     S00 = obj.Gxx
 
     # Compute optimal analysis (Equation 8.16, page 191):
