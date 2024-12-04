@@ -400,7 +400,7 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
       such as `#`, `%`, `!`, etc.
     """
     def count_header_rows(file):
-        header_symbols = ['#', '%', '!', '@', ';', '&', '*', '"', "'"]  # Add more symbols as needed
+        header_symbols = ['#', '%', '!', '@', ';', '&', '*', "/"]  # Add more symbols as needed
         header_count = 0
 
         def process_file(file_obj):
@@ -476,7 +476,7 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
         record_lengths.append(len(df)  / fs_list[i]) # Data stream duration in seconds
         df_list.append(df)
 
-    # Drop NaN columns with warning logging:
+    # Drop NaN columns and log warning:
     for i, df in enumerate(df_list):
         initial_columns = list(df.columns)  # Store initial column names
         df.dropna(axis=1, how='all', inplace=True)  # Drop columns with all NaN values

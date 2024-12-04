@@ -173,7 +173,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, *args):
     # return result
     return result['f'], result['optimal_asd']
 
-def MISO_numerical_optimal_spectral_analysis(inputs, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
+def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
     """
     Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system 
     using by numerically solving the system of linear equations involving the
