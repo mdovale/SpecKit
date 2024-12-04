@@ -619,7 +619,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         problematic_indices = np.where(np.abs(intervals - mean_interval) > tolerance)[0]
         problematic_intervals = [(idx, intervals[idx]) for idx in problematic_indices]
         if problematic_intervals:
-            logging.warning(f"DataFrame #{i+1}: found {len(problematic_intervals)} problematic intervals exceeding the provided tolerance:")
+            logging.warning(f"DataFrame #{i+1}: found {len(problematic_intervals)} problematic time intervals exceeding the tolerance:")
             for idx, interval in problematic_intervals:
                 logging.warning(f"    Interval at index {idx} = {interval:.6f} s")
 
@@ -635,8 +635,8 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
             logging.info(f"Columns: {list(_df_list[i].columns)}")
 
     # Downsampling and interpolation to the common grid:
-    logging.info("Resampling...")
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
+        logging.info(f"Resampling DataFrame #{i+1} based on column \'{t}\'...")
         df_interp = pd.DataFrame({'common_time': common_time})
         for col in df.columns:
             col_name = col + f'_{i+1}' if suffixes else col
@@ -650,7 +650,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
 
     return resampled_df
 
-def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], resample_fs: float, 
+def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], fs: float, 
                                     start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
                                     timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None,
                                     t_col_list: Optional[List[str]] = None, tolerance: Optional[float] = 0.1,
@@ -670,7 +670,7 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
         A list of sampling frequencies (in Hz) corresponding to each file in `file_list`. The length of `fs_list` must
         match the length of `file_list`, and each value must be positive.
     
-    resample_fs : float
+    fs : float
         Sampling frequency (Hz) for the common time grid. Must be positive.
     
     start_time : float, optional
@@ -708,7 +708,7 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
                                            timeshifts=timeshifts, delimiter_list=delimiter_list)
 
     # Resample the loaded data to a common time grid using the resampler function
-    resampled_df = resample_to_common_grid(df_list=df_list, fs=resample_fs, t_col_list=t_col_list, 
+    resampled_df = resample_to_common_grid(df_list=df_list, fs=fs, t_col_list=t_col_list, 
                                            tolerance=tolerance, preprocessors=preprocessors, suffixes=suffixes)
 
     return resampled_df
