@@ -78,7 +78,8 @@ def lpsd(x, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None
     else:
         return ltf_obj.legacy_return()
 
-def ltf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
+def ltf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None,\
+        pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
     """Main function to perform LPSD/LTF algorithm on data. Returns an LTFObject instance.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -109,8 +110,7 @@ def ltf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
     ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes,  verbose=verbose)
     return ltf_obj
 
-
-def lpsd_legacy(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None):
+def lpsd_legacy(data, fs, **kwargs):
     """Main function to perform LPSD/LTF algorithm on data. Returns the "traditional" output tuple.
 
     Computes power spectrum and power spectral density on 1-dimensional arrays. 
@@ -121,19 +121,7 @@ def lpsd_legacy(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None,
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
-        band (iterable of two floats): Frequency band to restrict computations to.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        bmin (int, optional): Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-        Lmin (int, optional): The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-        Jdes (int, optional): Desired number of Fourier frequencies. Default is None.
-        Kdes (int, optional): Desired number of segments to be averaged. Default is None.
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -142,29 +130,17 @@ def lpsd_legacy(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None,
         np.nan
         Gxx_dev or Gxy_dev (list): Array of standard deviation of power spectral density or cross spectral density.
     """
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler="ltf", verbose=False)
+    ltf_obj = ltf(data, fs, scheduler="ltf", verbose=False, **kwargs)
     
     return ltf_obj.legacy_return()
     
-def asd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
+def asd(data, fs, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the amplitude spectral density.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
-        band (iterable of two floats): Frequency band to restrict computations to.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        bmin (int, optional): Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-        Lmin (int, optional): The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-        Jdes (int, optional): Desired number of Fourier frequencies. Default is None.
-        Kdes (int, optional): Desired number of segments to be averaged. Default is None.
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -175,29 +151,17 @@ def asd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
+    ltf_obj = ltf(data, fs, **kwargs)
     
     return ltf_obj.f, np.sqrt(ltf_obj.Gxx)
 
-def psd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
+def psd(data, fs, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the power spectral density.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
-        band (iterable of two floats): Frequency band to restrict computations to.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        bmin (int, optional): Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-        Lmin (int, optional): The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-        Jdes (int, optional): Desired number of Fourier frequencies. Default is None.
-        Kdes (int, optional): Desired number of segments to be averaged. Default is None.
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -208,29 +172,17 @@ def psd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
+    ltf_obj = ltf(data, fs, **kwargs)
     
     return ltf_obj.f, ltf_obj.Gxx
 
-def ps(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
+def ps(data, fs, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the power spectrum.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
-        band (iterable of two floats): Frequency band to restrict computations to.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        bmin (int, optional): Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-        Lmin (int, optional): The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-        Jdes (int, optional): Desired number of Fourier frequencies. Default is None.
-        Kdes (int, optional): Desired number of segments to be averaged. Default is None.
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -241,29 +193,17 @@ def ps(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
+    ltf_obj = ltf(data, fs, **kwargs)
     
     return ltf_obj.f, ltf_obj.G
 
-def csd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
+def csd(data, fs, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the cross spectral density.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
-        band (iterable of two floats): Frequency band to restrict computations to.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        bmin (int, optional): Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-        Lmin (int, optional): The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-        Jdes (int, optional): Desired number of Fourier frequencies. Default is None.
-        Kdes (int, optional): Desired number of segments to be averaged. Default is None.
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -274,29 +214,17 @@ def csd(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
+    ltf_obj = ltf(data, fs, **kwargs)
     
     return ltf_obj.f, ltf_obj.Gxy
 
-def tf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
+def tf(data, fs, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the transfer function.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
-        band (iterable of two floats): Frequency band to restrict computations to.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        bmin (int, optional): Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-        Lmin (int, optional): The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-        Jdes (int, optional): Desired number of Fourier frequencies. Default is None.
-        Kdes (int, optional): Desired number of segments to be averaged. Default is None.
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -307,29 +235,17 @@ def tf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
+    ltf_obj = ltf(data, fs, **kwargs)
     
     return ltf_obj.f, ltf_obj.Hxy
 
-def cf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
+def cf(data, fs, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the coupling coefficient.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
-        band (iterable of two floats): Frequency band to restrict computations to.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        bmin (int, optional): Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-        Lmin (int, optional): The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-        Jdes (int, optional): Desired number of Fourier frequencies. Default is None.
-        Kdes (int, optional): Desired number of segments to be averaged. Default is None.
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -340,29 +256,17 @@ def cf(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=Non
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
+    ltf_obj = ltf(data, fs, **kwargs)
     
     return ltf_obj.f, np.abs(ltf_obj.Hxy)
 
-def coh(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
+def coh(data, fs, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the coherence or cross-correlation.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
-        band (iterable of two floats): Frequency band to restrict computations to.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        bmin (int, optional): Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
-        Lmin (int, optional): The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
-        Jdes (int, optional): Desired number of Fourier frequencies. Default is None.
-        Kdes (int, optional): Desired number of segments to be averaged. Default is None.
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        pool (multiprocessing.Pool instance, optional): Allows performing parallel computations. Default is None.
-        scheduler (str or callable, optional): Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
-        adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf.
 
     Returns:
         f (list): Array of Fourier frequencies.
@@ -373,7 +277,7 @@ def coh(data, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=No
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = lpsd(data, fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, object_return=True, pool=pool, scheduler=scheduler, adjust_Jdes=adjust_Jdes, verbose=verbose)
+    ltf_obj = ltf(data, fs, **kwargs)
     
     return ltf_obj.f, ltf_obj.coh
 
@@ -405,19 +309,14 @@ def ltf_single_bin(x, fs, freq, fres=None, L=None, olap=None, order=None, win=No
 
     return ltf_obj
 
-def asd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, verbose=False):
+def asd_single_bin(data, fs, freq, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the amplitude spectral density.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
         freq (float): Fourier frequency.
-        fres (float): Frequency resolution.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf_single_bin.
 
     Returns:
         asd (float): Amplitude spectral density.
@@ -427,23 +326,18 @@ def asd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
     
     return np.sqrt(ltf_obj.Gxx)
 
-def psd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
+def psd_single_bin(data, fs, freq, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the power spectral density.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
         freq (float): Fourier frequency.
-        fres (float): Frequency resolution.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf_single_bin.
 
     Returns:
         psd (float): Power spectral density.
@@ -453,23 +347,18 @@ def psd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
     
     return ltf_obj.Gxx
 
-def csd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
+def csd_single_bin(data, fs, freq, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the cross spectral density.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
         freq (float): Fourier frequency.
-        fres (float): Frequency resolution.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf_single_bin.
 
     Returns:
         csd (list): Cross spectral density.
@@ -479,23 +368,18 @@ def csd_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
     
     return ltf_obj.Gxy
 
-def tf_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
+def tf_single_bin(data, fs, freq, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the transfer function estimate.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
         freq (float): Fourier frequency.
-        fres (float): Frequency resolution.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf_single_bin.
 
     Returns:
         tf (list): Transfer function estimate.
@@ -505,23 +389,18 @@ def tf_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
     
     return ltf_obj.Hxy
 
-def cf_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
+def cf_single_bin(data, fs, freq, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the coupling coefficient.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
         freq (float): Fourier frequency.
-        fres (float): Frequency resolution.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf_single_bin.
 
     Returns:
         cf (list): Coupling coefficient.
@@ -531,23 +410,18 @@ def cf_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
     
     return np.abs(ltf_obj.Hxy)
 
-def coh_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win=None, psll=None, pool=None, verbose=False):
+def coh_single_bin(data, fs, freq, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the coherence or cross-correlation.
 
     Args:
         data (array-like): Input data.
         fs (float): Sampling frequency.
         freq (float): Fourier frequency.
-        fres (float): Frequency resolution.
-        olap (float or str, optional): Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
-        order (int, optional): -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
-        win (str, optional): Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
-        psll (float, optional): target peak side-lobe level supression.  Default is None.
-        verbose (bool, optional): Whether to print out some useful information. Default is False.
+        **kwargs (dict): Additional keyword arguments passed to ltf_single_bin.
 
     Returns:
         coh (list): Coherence.
@@ -557,6 +431,6 @@ def coh_single_bin(data, fs, freq, fres=None, L=None, olap=None, order=None, win
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, fres, L, olap, order, win, psll, verbose=verbose)
+    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
     
     return ltf_obj.coh
