@@ -128,8 +128,13 @@ class LTFObject:
             self.data = copy.deepcopy(x)
             self.nx = len(self.data)
         else:
-            self.nx = int(N)
-            self.data = np.zeros(N)
+            if N is not None:
+                self.nx = int(N)
+                self.data = np.random.rand(N)
+            else:
+                logging.error("No input data, I will generate it randomly...")
+                self.nx = int(1e6)
+                self.data = np.random.rand(self.nx)
 
         # Load parameters:
         if default:
