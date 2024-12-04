@@ -4,11 +4,19 @@ Miguel Dovale (Hannover, 2024)
 E-mail: spectools@pm.me
 """
 import numpy as np
-from spectools.lpsd import ltf
+import sympy as sp
+from spectools.lpsd import ltf, LTFObject
+
+import logging
+logging.basicConfig(
+format='%(asctime)s %(levelname)-8s %(message)s',
+level=logging.INFO,
+datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 def SISO_optimal_spectral_analysis(input, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
     """
-    Optimal spectral analysis on a Single-Input Single-Output system.
+    Optimal spectral analysis on a Single-Input Single-Output system, using exact solution.
 
     Parameters
     ----------
@@ -77,3 +85,289 @@ def SISO_optimal_spectral_analysis(input, output, fs, band=None, olap=None, bmin
     optimal_asd = np.abs(np.sqrt(S22 + (H)*np.conj(H)*S11 - np.conj(H)*S12 - H*S21))
 
     return csd.f, optimal_asd
+
+def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
+    """
+    Optimal spectral analysis on a Multiple-Input Single-Output system, solved analytically.
+    Reference: Section 8.1 "Multiple Input/Output Systems" in:
+    Bendat, Piersol - Engineering Applications of Correlation and Spectral Analysis ()
+    https://archive.org/details/engineeringappli0000bend
+    ISBN: 978-0-471-57055-4
+    
+    Parameters
+    ----------
+    inputs: array-like
+        List containing the multiple input time series.
+
+    output: array-like
+        The output time series.
+
+    fs: float
+        The sampling frequency of the input and output time series.
+
+    band: iterable of two floats
+        Frequency band to restrict computations to.
+
+    olap: float or str, optional
+        Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
+
+    bmin: int, optional
+        Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
+
+    Lmin: int, optional
+        The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
+
+    Jdes: int, optional
+        Desired number of Fourier frequencies. Default is None.
+
+    Kdes: int, optional
+        Desired number of segments to be averaged. Default is None.
+
+    order: int, optional
+        -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
+
+    win: str, optional
+        Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
+
+    psll: float, optional
+        Target peak side-lobe level supression.  Default is None.
+
+    pool: multiprocessing.Pool instance, optional
+        Allows performing parallel computations. Default is None.
+
+    scheduler: str or callable, optional
+        Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+
+    adjust_Jdes: bool, optional 
+        Whether to force the scheduler to produce the desired number of bins. Default is False.
+
+    Returns
+    -------
+    np.ndarray
+        The spectrum of Fourier frequencies at which the output is calculated.
+
+    np.ndarray
+        The amplitude spectral density of the output with the influence of the input subtracted
+        via the optimal spectral analysis method.
+    """
+    q = len(inputs)
+    if q > 5:
+        logging.warning(f"The problem dimension ({q}) is too large for the analytic solver, you may want to use MISO_numerical_optimal_spectral_analysis.")
+
+    N = len(inputs[0])
+    for input in inputs:
+        if len(input) != N:
+            raise ValueError("All input time series must be of equal length")
+    if len(output) != N:
+            raise ValueError("The output time series must have the same length as the inputs")
+
+    logging.info(f"Solving {q}-dimensional symbolic problem...")
+
+    # Automatically generate symbolic elements for the vector of CSDs between inputs and outout, Sj0:
+    Svec = sp.Matrix([sp.Symbol(f'S{i}0') for i in range(1, q+1)])
+
+    # Automatically generate symbolic elements for the matrix of input CSDs, Tij:
+    Tmat = sp.Matrix(q, q, lambda i, j: sp.symbols(f'T{i+1}{j+1}'))  # This creates Matrix([[T11, T12...], [T21, T22...], ...])
+
+    # Vector of unknown optimal transfer functions:
+    Hvec = sp.Matrix(sp.symbols(f'H1:{q+1}'))  # This creates (H1, H2...)
+
+    # Set up the system of equations:
+    eqns = [Svec[i] - sum(Tmat[i, j] * Hvec[j] for j in range(q)) for i in range(q)]
+
+    # Solve the system symbolically:
+    solution = sp.solve(eqns, Hvec)
+
+    logging.info(f"Solution: {solution}")
+    logging.info("Computing spectral estimates...")
+    result = {}
+    for i in range(q):
+        for j in range(i+1,q):
+            obj = ltf([inputs[i], inputs[j]], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+            result.setdefault(f'T{i+1}{j+1}', obj.Gxy)
+            result.setdefault(f'T{j+1}{i+1}', np.conj(obj.Gxy))
+            result.setdefault(f'T{i+1}{i+1}', obj.Gxx)
+            result.setdefault(f'T{j+1}{j+1}', obj.Gyy)
+
+    for i in range(q):
+        obj = ltf([inputs[i], output], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes) 
+        result[f'S{i+1}0'] = obj.Gxy
+        result[f'S0{i+1}'] = np.conj(obj.Gxy)
+    
+    result['S00'] = obj.Gyy
+    result['f'] = obj.f
+
+    logging.info("Computing solution...")
+    for Hi_symbol, Hi_expr in solution.items():
+        try:
+            # Convert the symbolic expression to a numerical lambda function
+            # Pass keys from `result` as symbols for substitution
+            Hi_numeric_func = sp.lambdify(list(result.keys()), Hi_expr, modules="numpy")
+            
+            # Evaluate the numerical function using the numpy arrays in `result`
+            Hi_numeric_value = Hi_numeric_func(*result.values())
+            
+            # Store the evaluated numerical value in the result dictionary
+            result[str(Hi_symbol)] = np.asarray(Hi_numeric_value, dtype=complex)
+
+        except Exception as e:
+            logging.error(f"Error during numerical computation for {Hi_symbol}: {e}")
+            raise
+
+    Sum1 = np.array([0]*len(result['f']), dtype=complex)
+    Sum2 = np.array([0]*len(result['f']), dtype=complex)
+    Sum3 = np.array([0]*len(result['f']), dtype=complex)
+    for i in range(q):
+        Sum1 += result[f'H{i+1}']*result[f'S0{i+1}']
+        Sum2 += np.conj(result[f'H{i+1}'])*result[f'S{i+1}0']
+        for j in range(q):
+            Sum3 += np.conj(result[f'H{j+1}'])*result[f'H{i+1}']*result[f'T{j+1}{i+1}']
+
+    # Compute optimal analysis (Equation 8.16, page 191):
+    result['optimal_asd'] = np.abs(np.sqrt(result['S00'] - Sum1 - Sum2 + Sum3))
+
+    logging.info("Done.")
+
+    return result
+
+def MISO_numerical_optimal_spectral_analysis(inputs, output, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None, pool=None, scheduler=None, adjust_Jdes=False):
+    """
+    Optimal spectral analysis on a Multiple-Input Single-Output system, solved numerically.
+    Reference: Section 8.1 "Multiple Input/Output Systems" in:
+    Bendat, Piersol - Engineering Applications of Correlation and Spectral Analysis ()
+    https://archive.org/details/engineeringappli0000bend
+    ISBN: 978-0-471-57055-4
+    
+    Parameters
+    ----------
+    inputs: array-like
+        List containing the multiple input time series.
+
+    output: array-like
+        The output time series.
+
+    fs: float
+        The sampling frequency of the input and output time series.
+
+    band: iterable of two floats
+        Frequency band to restrict computations to.
+
+    olap: float or str, optional
+        Overlap factor ("default" will use an optimal overlap based on the window function). Default is "default".
+
+    bmin: int, optional
+        Minimum bin number to be used. The optimal value depends on the chosen window function, with typical values between 1 and 8. Default is None.
+
+    Lmin: int, optional
+        The smallest allowable segment length to be processed. Of special use in multi-channel applications which have a delay between their signal contents. Default is None.
+
+    Jdes: int, optional
+        Desired number of Fourier frequencies. Default is None.
+
+    Kdes: int, optional
+        Desired number of segments to be averaged. Default is None.
+
+    order: int, optional
+        -1: no detrending, 0: remove mean, n >= 1: remove an n-th order polynomial fit. Default is None.
+
+    win: str, optional
+        Window function to be used (e.g., "Kaiser", "Hanning"). Default is None.
+
+    psll: float, optional
+        Target peak side-lobe level supression.  Default is None.
+
+    pool: multiprocessing.Pool instance, optional
+        Allows performing parallel computations. Default is None.
+
+    scheduler: str or callable, optional
+        Scheduler algorithm to use (e.g., 'lpsd', 'ltf', 'new_ltf'). Default is None.
+
+    adjust_Jdes: bool, optional 
+        Whether to force the scheduler to produce the desired number of bins. Default is False.
+
+    Returns
+    -------
+    np.ndarray
+        The spectrum of Fourier frequencies at which the output is calculated.
+
+    np.ndarray
+        The amplitude spectral density of the output with the influence of the input subtracted
+        via the optimal spectral analysis method.
+    """
+    q = len(inputs)
+
+    N = len(inputs[0])
+    for input in inputs:
+        if len(input) != N:
+            raise ValueError("All input time series must be of equal length")
+    if len(output) != N:
+        raise ValueError("The output time series must have the same length as the inputs")
+
+    logging.info(f"Solving {q}-dimensional problem...")
+
+    # Dictionary to cache results of ltf calls:
+    result = {}
+
+    def get_ltf_result(key, *args):
+        """Helper function to retrieve or compute ltf result."""
+        if key not in result:
+            obj = ltf(*args)
+            result[key] = obj
+        return result[key]
+
+    # Compute the number of frequencies in the spectrum:
+    obj = LTFObject(N=N, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Jdes=Jdes, Kdes=Kdes, order=order, win=win, psll=psll, scheduler=scheduler)
+    if adjust_Jdes:
+        logging.info(f"Forcing {obj.Jdes} frequencies...")
+        obj.adjust_Jdes_to_target_nf(obj.Jdes)
+    else:
+        obj.calc_plan()
+    if band is not None:
+        logging.info(f"Restricting frequencies to the desired band.")
+        obj.filter_to_band(band)
+    frequencies = obj.f
+    nf = obj.nf
+
+    # Prepare data for solving the linear system:
+    Tmat = np.zeros((q, q, nf), dtype=complex)  # Coherence matrix of inputs
+    Svec = np.zeros((q, nf), dtype=complex)  # Cross-spectral densities of inputs and output
+
+    logging.info("Computing spectral estimates...")
+    for i in range(q):
+        for j in range(i+1, q):
+            obj = get_ltf_result(f"T{i+1}{j+1}", [inputs[i], inputs[j]], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+            if not np.any(Tmat[i, j, :]):
+                Tmat[i, j, :] = obj.Gxy
+            if not np.any(Tmat[j, i, :]):
+                Tmat[j, i, :] = np.conj(obj.Gxy)
+            if not np.any(Tmat[i, i, :]):
+                Tmat[i, i, :] = obj.Gxx
+            if not np.any(Tmat[j, j, :]):
+                Tmat[j, j, :] = obj.Gyy
+
+        obj = get_ltf_result(f"S{i+1}0", [inputs[i], output], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+        Svec[i, :] = obj.Gxy
+
+    # Solve for the optimal transfer functions numerically:
+    Hvec = np.zeros((q, nf), dtype=complex)
+    for k in range(nf):
+        Hvec[:, k] = np.linalg.solve(Tmat[:, :, k], Svec[:, k])
+
+    logging.info("Computing solution...")
+    # Compute the optimal spectral density
+    Sum1 = np.sum(Hvec * Svec.conj(), axis=0)
+    Sum2 = np.sum(Hvec.conj() * Svec, axis=0)
+    Sum3 = np.zeros(nf, dtype=complex)
+    for i in range(q):
+        for j in range(q):
+            Sum3 += Hvec[j, :].conj() * Hvec[i, :] * Tmat[j, i, :]
+
+    obj = get_ltf_result("S00", [output, output], fs, band, olap, bmin, Lmin, Jdes, Kdes, order, win, psll, pool, scheduler, adjust_Jdes)
+    S00 = obj.Gxx
+
+    # Compute optimal analysis (Equation 8.16, page 191):
+    optimal_asd = np.abs(np.sqrt(S00 - Sum1 - Sum2 + Sum3))
+
+    logging.info("Done.")
+
+    return frequencies, optimal_asd
