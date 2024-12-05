@@ -39,45 +39,68 @@ The Spectools Library is a comprehensive Python package designed for advanced sp
 	•	Provides functions for spectral estimation using logarithmic time-frequency (LTF) and logarithmic power spectral density (LPSD) algorithms.
 	
 2. Spectral Analysis (`spectools.lpsd`)
+
 	•	Provides functions for spectral analysis using the LTFObject class.
+    
 	•	Key Functions:
-	•	`ltf`: Returns an LTFObject with all relevant spectral estimates in the full Fourier spectrum.
-	•	`ltf_single_bin`: Returns an LTFObject with all relevant spectral estimates for a single frequency bin.
+	
+    •	`ltf`: Returns an LTFObject with all relevant spectral estimates in the full Fourier spectrum.
+	
+    •	`ltf_single_bin`: Returns an LTFObject with all relevant spectral estimates for a single frequency bin.
 
 3. Schedulers (`spectools.schedulers`)
 
 	•	Scheduler algorithms for spectral analysis on approximately log-spaced Fourier frequencies.
+
 	•	Key Functions:
-	•	`lpsd_plan`: "Classic" `lpsd` scheduler (see Ref. Troebs, Heinzel 2006).
-	•	`ltf_plan`: New `ltf` scheduler implementing `bmin` and `Lmin` (see Ref. Heinzel 2008).
-	•	new_ltf_plan: Work in progress.
+	
+    •	`lpsd_plan`: "Classic" `lpsd` scheduler (see Ref. Troebs, Heinzel 2006).
+	
+    •	`ltf_plan`: New `ltf` scheduler implementing `bmin` and `Lmin` (see Ref. Heinzel 2008).
+	
+    •	new_ltf_plan: Work in progress.
 
 4. Windowing Functions (`spectools.flattop`)
 
 	•	A collection of flat-top window functions optimized for spectral analysis.
-	•	Fast Decaying Windows: `SFT3F`, `SFT4F`, `SFT5F`.
-	•	Minimum Sidelobe Windows: `SFT3M`, `SFT4M`, `SFT5M`.
-	•	Special Windows: `FTNI`, `FTHP`, `Matlab`, `HFT` family.
-	•	Key Features:
-	•	`win_dict`: A dictionary of supported window functions.
-	•	`olap_dict`: Optimized overlap values for each window type.
+	
+    •	Fast Decaying Windows: `SFT3F`, `SFT4F`, `SFT5F`.
+	
+    •	Minimum Sidelobe Windows: `SFT3M`, `SFT4M`, `SFT5M`.
+	
+    •	Special Windows: `FTNI`, `FTHP`, `Matlab`, `HFT` family.
+	
+    •	Key Features:
+	
+    •	`win_dict`: A dictionary of supported window functions.
+	
+    •	`olap_dict`: Optimized overlap values for each window type.
 
 5. System Analysis (`spectools.analyzer`)
 
 	•	Tools for SISO and MISO system spectral analysis.
-	•	Key Functions:
-	•	`SISO_optimal_spectral_analysis`: Estimates the ASD of a SISO system’s output with input influence subtracted.
-	•	`MISO_analytic_optimal_spectral_analysis`: Analytic solution for MISO systems.
-	•	`MISO_numeric_optimal_spectral_analysis`: Numeric solver for MISO systems with large dimensions.
+	
+    •	Key Functions:
+	
+    •	`SISO_optimal_spectral_analysis`: Estimates the ASD of a SISO system’s output with input influence subtracted.
+	
+    •	`MISO_analytic_optimal_spectral_analysis`: Analytic solution for MISO systems.
+	
+    •	`MISO_numeric_optimal_spectral_analysis`: Numeric solver for MISO systems with large dimensions.
 
 6. Digital Signal Processing Tools (`spectools.dsp`)
 
 	•	Utility functions for handling time-series data and managing spectral analysis workflows.
-	•	Key Functions:
-	•	`numpy_detrend`: Very fast polynomial detrending with numpy.
-	•	`crop_data`: Crops data to a specified range.
-	•	`df_timeshift`: Time-shifts columns in a DataFrame.
-	•	`multi_file_timeseries_resampler`: Aligns and resamples time series data across multiple files.
+	
+    •	Key Functions:
+	
+    •	`numpy_detrend`: Very fast polynomial detrending with numpy.
+	
+    •	`crop_data`: Crops data to a specified range.
+	
+    •	`df_timeshift`: Time-shifts columns in a DataFrame.
+	
+    •	`multi_file_timeseries_resampler`: Aligns and resamples time series data across multiple files.
 
 ***
 
