@@ -1,4 +1,5 @@
-""" This module contains spectral analysis functions.
+""" This module contains functions for spectral analysis in
+Single-Input Single-Output (SISO) and Multiple-Input Single-Output (MISO) systems.
 
 Miguel Dovale (Hannover, 2024)
 E-mail: spectools@pm.me
@@ -98,7 +99,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     """
     q = len(inputs)
     if q > 5:
-        logging.warning(f"The problem dimension ({q}) is too large for the analytic solver, you may want to use MISO_numerical_optimal_spectral_analysis.")
+        logging.warning(f"The problem dimension ({q}) is too large for the analytic solver, you may want to use MISO_numeric_optimal_spectral_analysis.")
 
     N = len(inputs[0])
     for input in inputs:

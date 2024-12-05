@@ -16,6 +16,7 @@ datefmt='%Y-%m-%d %H:%M:%S'
 )
 
 version = 1.0
+__version__ = version
 
 def lpsd(x, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None, order=None, win=None, psll=None,\
          return_type='object', pool=None, scheduler=None, adjust_Jdes=False, verbose=False):
@@ -26,7 +27,8 @@ def lpsd(x, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None
     It also computes an estimate of the variance of the spectrum based on the Welford algorithm.
     Takes in an optional multiprocessing.Pool argument to enable parallel computations.
 
-    Args:
+    Parameters
+    ----------
         data (array-like): Input data.
         fs (float): Sampling frequency.
         band (iterable of two floats): Frequency band to restrict computations to.
@@ -44,15 +46,25 @@ def lpsd(x, fs, band=None, olap=None, bmin=None, Lmin=None, Jdes=None, Kdes=None
         adjust_Jdes (bool, optional): Whether to force the scheduler to produce the desired number of bins. Default is False.
         verbose (bool, optional): Whether to print out some useful information. Default is False.
 
-    Returns:
-    if object_return is True:
+    Returns
+    -------
+    if return_type == "plan":
+        f (np.ndarray): Frequency vector in Hz (array of floats).
+        r (np.ndarray): For each frequency, resolution bandwidth in Hz (array of floats).
+        b (np.ndarray): For each frequency, fractional bin number (array of floats).
+        L (np.ndarray): For each frequency, length of the segments to be processed (array of ints).
+        K (np.ndarray): For each frequency, number of segments to be processed (array of ints).
+        D (list): A list that, for each frequency, contains a list with the starting indices (int) of each segment to be processed.
+        O (np.ndarray): For each frequency, actual fractional overlap between segments (array of floats).
+        nf (int): Total number of frequencies produced.
+    elif return_type == "object":
         LTFObject: Instance of LTFObject.
     else:
-        f (list): Array of Fourier frequencies.
-        XX or XY (list): Array of power spectrum or cross spectrum.
-        Gxx or Gxy (list): Array of power spectral density or cross spectral density.
+        f (np.ndarray): Array of Fourier frequencies.
+        XX or XY (np.ndarray): Array of power spectrum or cross spectrum.
+        Gxx or Gxy (np.ndarray): Array of power spectral density or cross spectral density.
         np.nan
-        Gxx_dev or Gxy_dev (list): Array of standard deviation of power spectral density or cross spectral density.
+        Gxx_dev or Gxy_dev (np.ndarray): Array of standard deviation of power spectral density or cross spectral density.
     """
     ltf_obj = LTFObject(data=x, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Jdes=Jdes, Kdes=Kdes, order=order, win=win, psll=psll, scheduler=scheduler, verbose=verbose)
 
@@ -89,11 +101,13 @@ def ltf(*args, **kwargs):
     It also computes an estimate of the variance of the spectrum based on the Welford algorithm.
     Takes in an optional multiprocessing.Pool argument to enable parallel computations.
 
-    Args:
+    Parameters
+    ----------
         *args (tuple): Positional arguments passed to lpsd.
         **kwargs (dict, optional): Additional keyword arguments passed to lpsd.
 
-    Returns:
+    Returns
+    -------
         LTFObject: Instance of LTFObject.
     """
     ltf_obj = lpsd(*args, **kwargs, return_type='object')
@@ -107,166 +121,174 @@ def lpsd_legacy(*args, **kwargs):
     It also computes an estimate of the variance of the spectrum based on the Welford algorithm.
     Takes in an optional multiprocessing.Pool argument to enable parallel computations.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        **kwargs (dict): Additional keyword arguments passed to ltf.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf.
+        **kwargs (dict, optional): Additional keyword arguments passed to ltf.
 
-    Returns:
-        f (list): Array of Fourier frequencies.
-        XX or XY (list): Array of power spectrum or cross spectrum.
-        Gxx or Gxy (list): Array of power spectral density or cross spectral density.
+    Returns
+    -------
+        f (np.ndarray): Array of Fourier frequencies.
+        XX or XY (np.ndarray): Array of power spectrum or cross spectrum.
+        Gxx or Gxy (np.ndarray): Array of power spectral density or cross spectral density.
         np.nan
-        Gxx_dev or Gxy_dev (list): Array of standard deviation of power spectral density or cross spectral density.
+        Gxx_dev or Gxy_dev (np.ndarray): Array of standard deviation of power spectral density or cross spectral density.
     """
     ltf_obj = ltf(*args, **kwargs, scheduler="ltf", verbose=False)
     
     return ltf_obj.legacy_return()
     
-def asd(data, fs, **kwargs):
+def asd(*args, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the amplitude spectral density.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        **kwargs (dict, optional): Additional keyword arguments passed to lpsd.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf.
+        **kwargs (dict, optional): Additional keyword arguments passed to ltf.
 
-    Returns:
-        f (list): Array of Fourier frequencies.
-        asd (list): Array of amplitude spectral density.
+    Returns
+    -------
+        f (np.ndarray): Array of Fourier frequencies.
+        asd (np.ndarray): Array of amplitude spectral density.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if len(x.shape) != 1:
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf(data, fs, **kwargs)
+    ltf_obj = ltf(*args, **kwargs)
     
     return ltf_obj.f, np.sqrt(ltf_obj.Gxx)
 
-def psd(data, fs, **kwargs):
+def psd(*args, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the power spectral density.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        **kwargs (dict, optional): Additional keyword arguments passed to lpsd.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf.
+        **kwargs (dict, optional): Additional keyword arguments passed to ltf.
 
-    Returns:
-        f (list): Array of Fourier frequencies.
-        psd (list): Array of power spectral density.
+    Returns
+    -------
+        f (np.ndarray): Array of Fourier frequencies.
+        psd (np.ndarray): Array of power spectral density.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if len(x.shape) != 1:
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf(data, fs, **kwargs)
+    ltf_obj = ltf(*args, **kwargs)
     
     return ltf_obj.f, ltf_obj.Gxx
 
-def ps(data, fs, **kwargs):
+def ps(*args, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the power spectrum.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        **kwargs (dict, optional): Additional keyword arguments passed to lpsd.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf.
+        **kwargs (dict, optional): Additional keyword arguments passed to ltf.
 
-    Returns:
-        f (list): Array of Fourier frequencies.
-        psd (list): Array of power spectral density.
+    Returns
+    -------
+        f (np.ndarray): Array of Fourier frequencies.
+        psd (np.ndarray): Array of power spectral density.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if len(x.shape) != 1:
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf(data, fs, **kwargs)
+    ltf_obj = ltf(*args, **kwargs)
     
     return ltf_obj.f, ltf_obj.G
 
-def csd(data, fs, **kwargs):
+def csd(*args, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the cross spectral density.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        **kwargs (dict, optional): Additional keyword arguments passed to lpsd.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf.
+        **kwargs (dict, optional): Additional keyword arguments passed to ltf.
 
-    Returns:
-        f (list): Array of Fourier frequencies.
-        csd (list): Array of cross spectral density.
+    Returns
+    -------
+        f (np.ndarray): Array of Fourier frequencies.
+        csd (np.ndarray): Array of cross spectral density.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if not(len(x.shape) == 2 and ((x.shape[0] == 2) or (x.shape[1] == 2))):
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf(data, fs, **kwargs)
+    ltf_obj = ltf(*args, **kwargs)
     
     return ltf_obj.f, ltf_obj.Gxy
 
-def tf(data, fs, **kwargs):
+def tf(*args, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the transfer function.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        **kwargs (dict, optional): Additional keyword arguments passed to lpsd.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf.
+        **kwargs (dict, optional): Additional keyword arguments passed to ltf.
 
-    Returns:
-        f (list): Array of Fourier frequencies.
-        tf (list): Array of transfer function estimate.
+    Returns
+    -------
+        f (np.ndarray): Array of Fourier frequencies.
+        tf (np.ndarray): Array of transfer function estimate.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if not(len(x.shape) == 2 and ((x.shape[0] == 2) or (x.shape[1] == 2))):
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf(data, fs, **kwargs)
+    ltf_obj = ltf(*args, **kwargs)
     
     return ltf_obj.f, ltf_obj.Hxy
 
-def cf(data, fs, **kwargs):
+def cf(*args, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the coupling coefficient.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        **kwargs (dict, optional): Additional keyword arguments passed to lpsd.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf.
+        **kwargs (dict, optional): Additional keyword arguments passed to ltf.
 
-    Returns:
-        f (list): Array of Fourier frequencies.
-        cf (list): Array of coupling coefficient.
+    Returns
+    -------
+        f (np.ndarray): Array of Fourier frequencies.
+        cf (np.ndarray): Array of coupling coefficient.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if not(len(x.shape) == 2 and ((x.shape[0] == 2) or (x.shape[1] == 2))):
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf(data, fs, **kwargs)
+    ltf_obj = ltf(*args, **kwargs)
     
     return ltf_obj.f, np.abs(ltf_obj.Hxy)
 
-def coh(data, fs, **kwargs):
+def coh(*args, **kwargs):
     """Perform the LPSD/LTF algorithm on data and return the coherence or cross-correlation.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        **kwargs (dict, optional): Additional keyword arguments passed to lpsd.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf.
+        **kwargs (dict, optional): Additional keyword arguments passed to ltf.
 
-    Returns:
-        f (list): Array of Fourier frequencies.
-        coh (list): Array of coherence.
+    Returns
+    -------
+        f (np.ndarray): Array of Fourier frequencies.
+        coh (np.ndarray): Array of coherence.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if not(len(x.shape) == 2 and ((x.shape[0] == 2) or (x.shape[1] == 2))):
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf(data, fs, **kwargs)
+    ltf_obj = ltf(*args, **kwargs)
     
     return ltf_obj.f, ltf_obj.coh
 
@@ -278,7 +300,8 @@ def ltf_single_bin(x, fs, freq, fres=None, L=None, olap=None, order=None, win=No
     It also computes an estimate of the variance of the spectrum based on the Welford algorithm.
     Takes in an optional multiprocessing.Pool argument to enable parallel computations.
 
-    Args:
+    Parameters
+    ----------
         data (array-like): Input data.
         fs (float): Sampling frequency.
         freq (float): Fourier frequency.
@@ -289,7 +312,8 @@ def ltf_single_bin(x, fs, freq, fres=None, L=None, olap=None, order=None, win=No
         psll (float, optional): target peak side-lobe level supression.  Default is None.
         verbose (bool, optional): Whether to print out some useful information. Default is False.
 
-    Returns:
+    Returns
+    -------
         LTFObject: Instance of LTFObject.
     """
     ltf_obj = LTFObject(data=x, fs=fs, olap=olap, order=order, win=win, psll=psll, verbose=verbose)
@@ -298,128 +322,128 @@ def ltf_single_bin(x, fs, freq, fres=None, L=None, olap=None, order=None, win=No
 
     return ltf_obj
 
-def asd_single_bin(data, fs, freq, **kwargs):
+def asd_single_bin(*args, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the amplitude spectral density.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        freq (float): Fourier frequency.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf_single_bin.
         **kwargs (dict, optional): Additional keyword arguments passed to ltf_single_bin.
 
-    Returns:
+    Returns
+    -------
         asd (float): Amplitude spectral density.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if len(x.shape) != 1:
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
+    ltf_obj = ltf_single_bin(*args, **kwargs)
     
     return np.sqrt(ltf_obj.Gxx)
 
-def psd_single_bin(data, fs, freq, **kwargs):
+def psd_single_bin(*args, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the power spectral density.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        freq (float): Fourier frequency.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf_single_bin.
         **kwargs (dict, optional): Additional keyword arguments passed to ltf_single_bin.
 
-    Returns:
+    Returns
+    -------
         psd (float): Power spectral density.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if len(x.shape) != 1:
         logging.error("Input array size must be 1xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
+    ltf_obj = ltf_single_bin(*args, **kwargs)
     
     return ltf_obj.Gxx
 
-def csd_single_bin(data, fs, freq, **kwargs):
+def csd_single_bin(*args, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the cross spectral density.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        freq (float): Fourier frequency.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf_single_bin.
         **kwargs (dict, optional): Additional keyword arguments passed to ltf_single_bin.
 
-    Returns:
-        csd (list): Cross spectral density.
+    Returns
+    -------
+        csd (float): Cross spectral density.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if not(len(x.shape) == 2 and ((x.shape[0] == 2) or (x.shape[1] == 2))):
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
+    ltf_obj = ltf_single_bin(*args, **kwargs)
     
     return ltf_obj.Gxy
 
-def tf_single_bin(data, fs, freq, **kwargs):
+def tf_single_bin(*args, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the transfer function estimate.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        freq (float): Fourier frequency.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf_single_bin.
         **kwargs (dict, optional): Additional keyword arguments passed to ltf_single_bin.
 
-    Returns:
-        tf (list): Transfer function estimate.
+    Returns
+    -------
+        tf (float): Transfer function estimate.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if not(len(x.shape) == 2 and ((x.shape[0] == 2) or (x.shape[1] == 2))):
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
+    ltf_obj = ltf_single_bin(*args, **kwargs)
     
     return ltf_obj.Hxy
 
-def cf_single_bin(data, fs, freq, **kwargs):
+def cf_single_bin(*args, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the coupling coefficient.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        freq (float): Fourier frequency.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf_single_bin.
         **kwargs (dict, optional): Additional keyword arguments passed to ltf_single_bin.
 
-    Returns:
-        cf (list): Coupling coefficient.
+    Returns
+    -------
+        cf (float): Coupling coefficient.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if not(len(x.shape) == 2 and ((x.shape[0] == 2) or (x.shape[1] == 2))):
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
+    ltf_obj = ltf_single_bin(*args, **kwargs)
     
     return np.abs(ltf_obj.Hxy)
 
-def coh_single_bin(data, fs, freq, **kwargs):
+def coh_single_bin(*args, **kwargs):
     """Perform the LPSD algorithm on a single frequency bin and return the coherence or cross-correlation.
 
-    Args:
-        data (array-like): Input data.
-        fs (float): Sampling frequency.
-        freq (float): Fourier frequency.
+    Parameters
+    ----------
+        *args (tuple): Positional arguments passed to ltf_single_bin.
         **kwargs (dict, optional): Additional keyword arguments passed to ltf_single_bin.
 
-    Returns:
-        coh (list): Coherence.
+    Returns
+    -------
+        coh (float): Coherence.
     """
-    x = np.asarray(data)
+    x = np.asarray(args[0])
     if not(len(x.shape) == 2 and ((x.shape[0] == 2) or (x.shape[1] == 2))):
         logging.error("Input array size must be 2xN")
         sys.exit(-1)
 
-    ltf_obj = ltf_single_bin(data, fs, freq, **kwargs)
+    ltf_obj = ltf_single_bin(*args, **kwargs)
     
     return ltf_obj.coh

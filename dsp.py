@@ -35,7 +35,8 @@ def numpy_detrend(x, order=1):
         x (numpy.ndarray): The input signal to be detrended.
         order (int): The order of the polynomial fit.
 
-    Returns:
+    Returns
+    -------
         numpy.ndarray: The detrended signal.
     """
     t = np.arange(len(x))
