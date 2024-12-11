@@ -48,17 +48,10 @@ def SISO_optimal_spectral_analysis(input, output, fs, **kwargs):
     logging.info("Computing all spectral estimates and optimal solution...")
 
     csd = ltf([input, output], fs, **kwargs)
-
-    S11 = csd.Gxx
-    S22 = csd.Gyy
-    S12 = csd.Gxy
-    S21 = np.conj(csd.Gxy)
-    H = S12 / S11
-    optimal_asd = np.abs(np.sqrt(S22 + (H)*np.conj(H)*S11 - np.conj(H)*S12 - H*S21))
     
     logging.info("Done.")
 
-    return csd.f, optimal_asd
+    return csd.f, np.sqrt(csd.GyySx)
 
 def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     """

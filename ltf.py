@@ -68,7 +68,7 @@ class LTFObject:
         self.ENBW    = None  # Equivalent noise bandwidth
         self.rms     = None  # Root mean square of the signal computed from the integral of the ASD
 
-        # Spectral estimates
+        # Spectral estimates (all quantities are one-sided)
         self.XX      = None  # Spectrum (S)
         self.YY      = None  # Spectrum (S)
         self.G       = None  # Power spectrum (PS)
@@ -80,10 +80,12 @@ class LTFObject:
         self.XY      = None  # Cross spectrum (CS)
         self.cs      = None  # Cross power spectrum (CPS)
         self.Gxy     = None  # Cross spectral density (CSD)
+        self.Gyx     = None  # Cross spectral density (CSD)
         self.csd     = None  # Cross spectral density (CSD)
         self.cpsd    = None  # Cross power spectral density (CPSD)
-        self.Hxy     = None  # Transfer function (TF)
-        self.tf      = None  # Transfer function (TF)
+        self.Hxy     = None  # Transfer function (TF input -> output)
+        self.Hyx     = None  # Transfer function (TF output -> input)
+        self.tf      = None  # Transfer function (TF input -> output)
         self.cf      = None  # Magnitude of the transfer function
         self.cf_db   = None  # Magnitude of the transfer function in dB
         self.cf_deg  = None  # Argument of the transfer function in degrees
@@ -92,6 +94,13 @@ class LTFObject:
         self.cf_rad_unwrapped = None # Argument of the transfer function in degrees, unwrapped
         self.coh     = None  # Coherence
         self.ccoh    = None  # Complex coherence
+
+        # Optimal and conditional spectral estimates (all quantities are one-sided)
+        self.Lxy     = None  # Optimal transfer function from input to output
+        self.Lyx     = None  # Optimal transfer function from output to input
+        self.GyyCx   = None  # Coherent output power spectral density (aka, coherent output spectrum)
+        self.GyyRx   = None  # Noise output power spectral density (aka, residual output spectrum)
+        self.GyySx   = None  # Output spectrum with influence of input substracted
 
         # For uncertainty estimations, see Bendat, Piersol - ISBN10:0471058874, Chapter 11
         # Standard deviations of estimates:
@@ -409,6 +418,9 @@ class LTFObject:
         self.Gxx = 2.0 * self.XX / self.fs / S2
         self.Gyy = 2.0 * self.YY / self.fs / S2
         self.Gxy = 2.0 * self.XY / self.fs / S2
+        self.Gyx = np.conj(self.Gxy)
+        self.Lxy = self.Gxy / self.Gxx
+        self.Lyx = np.conj(self.Lxy)
         self.ENBW = self.fs * S2 / S12
         if (self.XX > 0) and (self.YY) > 0:
             self.Hxy = self.XY.conjugate() / (self.XX)
@@ -418,6 +430,10 @@ class LTFObject:
             self.Hxy = 0.0
             self.coh = 0.0
             self.ccoh = 0.0
+        self.Hyx = np.conj(self.Hxy)
+        self.GyyCx = self.coh * self.Gyy
+        self.GyyRx = (1 - self.coh) * self.Gyy
+        self.GyySx = np.abs(self.Gyy + self.Lxy*self.Lyx*self.Gxx - self.Lyx*self.Gxy - self.Lxy*self.Gyx)
         self.Hxy_dev = 1.0
         self.Gxy_dev = 1.0
         self.coh_dev = 1.0
@@ -537,9 +553,11 @@ class LTFObject:
         self.Gxx = 2.0 * self.XX / self.fs / self.S2 # Power spectral density
         self.Gyy = 2.0 * self.YY / self.fs / self.S2 # Power spectral density
         self.Gxy = 2.0 * self.XY / self.fs / self.S2 # Cross spectral density
+        self.Gyx = np.conj(self.Gxy) # Cross spectral density
         self.ENBW = self.fs * self.S2 / self.S12 # Equivalent noise bandwidth
-        self.Hxy = np.divide(np.conj(self.XY), self.XX, # Transfer function estimate
-                             out=np.zeros(self.nf, dtype=complex), where=self.XX != 0) 
+        self.Hxy = np.divide(np.conj(self.XY), self.XX, # Transfer function estimate (input -> output)
+                             out=np.zeros(self.nf, dtype=complex), where=self.XX != 0)
+        self.Hyx = np.conj(self.Hxy) # Transfer function estimate (output -> input)
         # Coherence:
         self.coh = np.divide(
             np.abs(self.XY)**2,
@@ -554,6 +572,13 @@ class LTFObject:
             out=np.zeros(self.nf, dtype=complex),
             where=(self.XX != 0) & (self.YY != 0)
         )
+        self.GyyCx = self.coh * self.Gyy # Coherent output spectrum
+        self.GyyRx = (1 - self.coh) * self.Gyy # Residual output spectrum
+        # Optimal spectral analysis (SISO):
+        self.GyySx = np.abs(self.Gyy + self.Hxy*self.Hyx*self.Gxx - self.Hyx*self.Gxy - self.Hxy*self.Gyx)
+        # self.Lxy = self.Gxy / self.Gxx # Optimal transfer function from input to output
+        # self.Lyx = np.conj(self.Lxy) # Optimal transfer function from output to input
+        # self.GyySx = np.abs(self.Gyy + self.Lxy*self.Lyx*self.Gxx - self.Lyx*self.Gxy - self.Lxy*self.Gyx)
         
         # Standard deviations:
         self.Gxx_dev = self.Gxx/np.sqrt(self.navg)
