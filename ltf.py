@@ -23,6 +23,7 @@ from spectools.aux import kaiser_alpha, kaiser_rov, round_half_up, chunker
 from spectools.aux import is_function_in_dict, get_key_for_function, find_Jdes_binary_search
 from spectools.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 import matplotlib.pyplot as plt
+import multiprocessing as mp
 
 import logging
 logging.basicConfig(
@@ -225,7 +226,7 @@ class LTFObject:
         self.order = 0
         self.psll = 200
         self.win = np.kaiser
-        self.scheduler = ltf_plan
+        self.scheduler = 'ltf'
 
     def calc_plan(self):
         """
@@ -892,12 +893,12 @@ class LTFObject:
                         ax2.fill_between(f,
                             cf_dB_lower,
                             cf_dB_upper,
-                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                            color='pink', label=r'$\pm' + str(sigma) + r'\sigma$')
                     else:
                         ax2.fill_between(f,
                             cf*(1 - sigma*error[0]),
                             cf*(1 + sigma*error[0]),
-                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                            color='pink', label=r'$\pm' + str(sigma) + r'\sigma$')
                     ax2.legend()
                     # Phase plot:
                     cf_rad_lower = sigma*error[1]
@@ -905,17 +906,17 @@ class LTFObject:
                     if deg:
                         if unwrap:
                             ax1.fill_between(f, np.rad2deg(np.unwrap(cf_rad) - cf_rad_lower), np.rad2deg(np.unwrap(cf_rad) + cf_rad_upper), 
-                                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                                            color='pink', label=r'$\pm' + str(sigma) + r'\sigma$')
                         else:
                             ax1.fill_between(f, np.rad2deg(cf_rad - cf_rad_lower), np.rad2deg(cf_rad + cf_rad_upper), 
-                                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                                            color='pink', label=r'$\pm' + str(sigma) + r'\sigma$')
                     else:
                         if unwrap:
                             ax1.fill_between(f, np.unwrap(cf_rad) - cf_rad_lower, np.unwrap(cf_rad) + cf_rad_upper, 
-                                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                                            color='pink', label=r'$\pm' + str(sigma) + r'\sigma$')
                         else:
                             ax1.fill_between(f, cf_rad - cf_rad_lower, cf_rad + cf_rad_upper, 
-                                            color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                                            color='pink', label=r'$\pm' + str(sigma) + r'\sigma$')
                 ax1.set_xlim([f[0], f[-1]])
                 ax2.set_xlim([f[0], f[-1]])
                 fig.align_ylabels()
@@ -934,7 +935,7 @@ class LTFObject:
                     ax1.fill_between(f,
                         y_data - sigma*error,
                         y_data + sigma*error,
-                        color='pink', label=r'$\pm' + str(sigma) + '\sigma$')
+                        color='pink', label=r'$\pm' + str(sigma) + r'\sigma$')
                     ax1.legend()
                 ax1.set_xlim([f[0], f[-1]])
 
@@ -1015,3 +1016,21 @@ class LTFObject:
                 
         pycbc_psd = pycbc.psd.read.from_numpy_arrays(self.f, self.Gxx, int(self.f[-1]/self.f[0]), self.f[0], self.f[0])
         return pycbc.noise.noise_from_psd(int(size), 1/fs, pycbc_psd).data
+    
+if __name__ == "__main__":
+
+    ltf_obj = LTFObject(default=True, N=int(1e4))
+    ltf_obj.calc_plan()
+    cpus = [1, 2]
+    times = []
+
+    for cpu in cpus:
+        print(f"Computing with CPU = {cpu}...")
+        pool = mp.Pool(cpu)
+        start_time = time.time()
+        ltf_obj.calc_lpsd(pool=pool, verbose=False)
+        times.append(time.time() - start_time)
+
+    print("CPU#\tTIME(s)")
+    for cpu, t in zip(cpus, times):
+        print(f"{cpu:d}\t{t:.2f}")
