@@ -9,10 +9,9 @@ import pandas as pd
 import zipfile
 import tarfile
 import gzip
-import torch
 from py7zr import SevenZipFile
 from copy import deepcopy
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 from scipy.optimize import curve_fit, minimize
 from pytdi.dsp import timeshift
 from tqdm import tqdm
@@ -94,7 +93,7 @@ def integral_rms(fourier_freq, asd, pass_band=None):
     integral_range_min = max(np.min(fourier_freq), pass_band[0])
     integral_range_max = min(np.max(fourier_freq), pass_band[1])
     f_tmp, asd_tmp = crop_data(fourier_freq, asd, integral_range_min, integral_range_max)
-    integral_rms2 = cumtrapz(asd_tmp**2, f_tmp, initial=0)
+    integral_rms2 = cumulative_trapezoid(asd_tmp**2, f_tmp, initial=0)
     return np.sqrt(integral_rms2[-1])
 
 def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=1e-2):
