@@ -9,6 +9,7 @@ https://doi.org/10.1016/j.measurement.2005.10.010
 Miguel Dovale (Hannover, 2024)
 E-mail: spectools@pm.me
 """
+from ._config import *
 import sys
 import copy
 import numpy as np

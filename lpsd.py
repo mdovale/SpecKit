@@ -4,6 +4,7 @@ data using the LTFObject class.
 Miguel Dovale (Hannover, 2024)
 E-mail: spectools@pm.me
 """
+from ._config import *
 import sys
 import numpy as np
 from spectools.ltf import LTFObject
