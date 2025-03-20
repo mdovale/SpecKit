@@ -635,31 +635,47 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
     if start_time >= end_time:
         logging.warning("No overlapping time range between DataFrames; output DataFrame is empty.")
         return pd.DataFrame(columns=["common_time"])
-    
+
+    # Time grid consistency checks:
+    for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
+        monotonic = np.all(np.diff(df[t]) > 0)
+        if not monotonic:
+            logging.warning(f"Time array is not monotonically increasing in DataFrame #{i+1}.")
+
+        # Report intervals exceeding tolerance:
+        intervals = np.diff(df[t])
+        mean_interval = np.mean(intervals)
+        problematic_indices = np.where(np.abs(intervals - mean_interval) > tolerance)[0]
+        problematic_intervals = [(idx, intervals[idx]) for idx in problematic_indices]
+        if problematic_intervals:
+            logging.warning(f"DataFrame #{i+1}: found {len(problematic_intervals)} problematic time intervals exceeding the tolerance:")
+            for idx, interval in problematic_intervals:
+                logging.warning(f"    Interval at index {idx} = {interval:.6f} s")
+
     # Generate the common time grid
     common_time = np.arange(start_time, end_time, 1/fs)
     logging.info(f"New common time grid created: {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s")
 
-    # Apply preprocessors
+    # Application of preprocessors:
     for i, (df, proc) in enumerate(zip(_df_list, preprocessors)):
         if proc is not None:
             logging.info(f"Applying pre-processor {proc} to DataFrame #{i+1}")
             _df_list[i] = proc(df)
+            logging.info(f"Columns: {list(_df_list[i].columns)}")
 
-    # Resample and interpolate each DataFrame
+    # Downsampling and interpolation to the common grid:
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
-        logging.info(f"Resampling DataFrame #{i+1} based on column '{t}'...")
+        logging.info(f"Resampling DataFrame #{i+1} based on column \'{t}\'...")
         df_interp = pd.DataFrame({'common_time': common_time})
         for col in df.columns:
-            if col == t:
-                continue
-            col_name = f'{i+1}_' + col if suffixes else col
+            col_name = col + f'_{i+1}' if suffixes else col
             df_interp[col_name] = np.interp(common_time, df[t], df[col])
         df_interp_list.append(df_interp)
 
-    # Merge all data streams into a single DataFrame
-    logging.info("Merging resampled data...")
-    resampled_df = pd.concat(df_interp_list, axis=1).loc[:, ~pd.concat(df_interp_list, axis=1).columns.duplicated()]
+    # Merging all data streams to single DataFrame:
+    logging.info("Merging...")
+    resampled_df = pd.concat(df_interp_list, axis=1).loc[:,~pd.concat(df_interp_list, axis=1).columns.duplicated()]
+    logging.info("Done.")
     
     return resampled_df
 
