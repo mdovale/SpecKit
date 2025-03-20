@@ -314,7 +314,7 @@ def adaptive_linear_combination(df, inputs, output, method='TNC', tol=1e-9):
     return x, y
 
 def df_timeshift(df, fs, seconds, columns=None, truncate=None):
-    """ Timeshift columns of a DataFrame or the entire DataFrame.
+    """ Timeshift columns of a pandas DataFrame or the entire DataFrame.
 
     Parameters
     ----------
@@ -349,6 +349,30 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
             df_shifted = df_shifted.iloc[n_trunc:-n_trunc]
 
     return df_shifted
+
+def df_detrend(df, columns=None, order=1):
+    """
+    Detrend all or specified columns of a pandas DataFrame using numpy_detrend.
+
+    Parameters
+    ----------
+        df (pd.DataFrame): The input DataFrame.
+        columns (list, optional): List of column names to detrend. If None, all columns are detrended.
+        order (int): The order of the polynomial fit.
+
+    Returns
+    -------
+        pd.DataFrame: A DataFrame with detrended data.
+    """
+    df_detrended = df.copy()
+    if columns is None:
+        columns = df.columns
+    
+    for col in columns:
+        if df[col].dtype.kind in 'biufc':  # Check if the column is numeric
+            df_detrended[col] = numpy_detrend(df[col].values, order=order)
+    
+    return df_detrended
 
 def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
                                  timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None) -> List[pd.DataFrame]:
@@ -471,7 +495,11 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
     # Data ingestion:
     logging.info(f"Loading data and calculating maximum time series overlap...")
     for i, file in enumerate(file_list):
-        df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='c')
+        try:
+            df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='c')
+        except:
+            logging.warning("Reading {file} with Python engine")
+            df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='python')
         logging.info(f"Loaded data from file \'{file_names[i]}\' with length {len(df)}")
         record_lengths.append(len(df)  / fs_list[i]) # Data stream duration in seconds
         df_list.append(df)
