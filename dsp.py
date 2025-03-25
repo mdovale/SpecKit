@@ -25,6 +25,20 @@ level=logging.INFO,
 datefmt='%Y-%m-%d %H:%M:%S'
 )
 
+def frequency2phase(f, fs):
+    """
+    Integrate frequency in Hz to find phase in radians.
+
+    Parameters
+    ----------
+        f (numpy.ndarray): The input signal frequency in Hz.
+
+    Returns
+    -------
+        numpy.ndarray: The phase in radians.
+    """
+    return (2*np.pi/fs)*np.cumsum(np.array(f-np.mean(f)))
+
 def numpy_detrend(x, order=1):
     """
     Detrend an input signal using a fast polynomial fit.
@@ -350,7 +364,7 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
 
     return df_shifted
 
-def df_detrend(df, columns=None, order=1):
+def df_detrend(df, columns=None, order=1, inplace=False, suffix='_detrended'):
     """
     Detrend all or specified columns of a pandas DataFrame using numpy_detrend.
 
@@ -359,6 +373,8 @@ def df_detrend(df, columns=None, order=1):
         df (pd.DataFrame): The input DataFrame.
         columns (list, optional): List of column names to detrend. If None, all columns are detrended.
         order (int): The order of the polynomial fit.
+        inplace (bool): If True, overwrite the original columns. If False, create new columns with suffix.
+        suffix (str): Suffix to add to column names when inplace is False.
 
     Returns
     -------
@@ -367,19 +383,22 @@ def df_detrend(df, columns=None, order=1):
     df_detrended = df.copy()
     if columns is None:
         columns = df.columns
-    
+
     for col in columns:
         if df[col].dtype.kind in 'biufc':  # Check if the column is numeric
-            df_detrended[col] = numpy_detrend(df[col].values, order=order)
-    
+            detrended_data = numpy_detrend(df[col].values, order=order)
+            if inplace:
+                df_detrended[col] = detrended_data
+            else:
+                df_detrended[f"{col}{suffix}"] = detrended_data
+
     return df_detrended
 
-def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
+def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], names_list: Optional[List[str]],
+                                 start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
                                  timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None) -> List[pd.DataFrame]:
     """
     Loads time-series data from multiple files, restricting the output to the maximum overlapping time window across the datasets. 
-    The function assumes that the first non-commented row in each file contains the column names, and rows with comment symbols
-    (e.g., '#', '%', etc.) are ignored.
 
     Parameters
     ----------
@@ -391,6 +410,9 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
         A list of sampling frequencies (in Hz) corresponding to each file in `file_list`. The length of `fs_list` must
         match the length of `file_list`, and each value must be positive.
     
+    names_list: Optional[List[str]]
+        A list of the column names corresponding to each file.
+
     start_time : float, optional
         The starting time (in seconds) from which the data will be extracted in each file. The function will extract data
         starting at this time in each file, adjusting for the sampling frequency. Default is 0.0 seconds.
@@ -468,6 +490,8 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
     # Ensure matching lengths of input lists
     if len(file_list) != len(fs_list):
         raise ValueError("The length of `fs_list` must match the length of `file_list`.")
+    if names_list is not None and len(file_list) != len(names_list):
+        raise ValueError("The length of `names_list` must match the length of `file_list`.")
     if delimiter_list is not None and len(file_list) != len(delimiter_list):
         raise ValueError("The length of `delimiter_list` must match the length of `file_list`.")
     if timeshifts is not None and len(file_list) != len(timeshifts):
@@ -496,10 +520,16 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], sta
     logging.info(f"Loading data and calculating maximum time series overlap...")
     for i, file in enumerate(file_list):
         try:
-            df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='c')
+            if names_list is not None and names_list[i] is not None:
+                df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], names=names_list[i], engine='c')
+            else:
+                df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='c')
         except:
-            logging.warning("Reading {file} with Python engine")
-            df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='python')
+            logging.warning(f"Reading {file} with Python engine")
+            if names_list is not None and names_list[i] is not None:
+                df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], names=names_list[i], engine='python')
+            else:
+                df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='python')       
         logging.info(f"Loaded data from file \'{file_names[i]}\' with length {len(df)}")
         record_lengths.append(len(df)  / fs_list[i]) # Data stream duration in seconds
         df_list.append(df)
