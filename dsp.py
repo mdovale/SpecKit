@@ -327,8 +327,9 @@ def adaptive_linear_combination(df, inputs, output, method='TNC', tol=1e-9):
 
     return x, y
 
-def df_timeshift(df, fs, seconds, columns=None, truncate=None):
-    """ Timeshift columns of a pandas DataFrame or the entire DataFrame.
+def df_timeshift(df, fs, seconds, columns=None, truncate=None, inplace=False, suffix='_shifted'):
+    """ 
+    Timeshift columns of a pandas DataFrame or the entire DataFrame.
 
     Parameters
     ----------
@@ -338,11 +339,14 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
         columns (list or None): List of columns to shift. If None, all columns are shifted.
         truncate (bool or int or None): If True, truncate the resulting DataFrame based on the shift. 
                                         If int, specify the exact number of rows to truncate at both ends.
+        inplace (bool): If True, overwrite the original columns. If False, add shifted columns with suffix.
+        suffix (str): Suffix to add to column names when inplace is False.
 
-    Returns:
+    Returns
+    -------
         pd.DataFrame: The timeshifted DataFrame.
     """
-    
+
     if seconds == 0.0:
         return df
 
@@ -352,11 +356,15 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None):
         columns = df.columns
 
     for c in columns:
-        df_shifted[c] = timeshift(df[c].to_numpy(), seconds*fs)
+        shifted = timeshift(df[c].to_numpy(), seconds * fs)
+        if inplace:
+            df_shifted[c] = shifted
+        else:
+            df_shifted[f"{c}{suffix}"] = shifted
 
     if truncate is not None:
         if isinstance(truncate, bool):
-            n_trunc = int(2*abs(seconds*fs))
+            n_trunc = int(2 * abs(seconds * fs))
         else:
             n_trunc = int(truncate)
         if n_trunc > 0:
