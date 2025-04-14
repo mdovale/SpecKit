@@ -4,7 +4,6 @@ Miguel Dovale (Hannover, 2024)
 E-mail: spectools@pm.me
 """
 import math
-import torch
 import numpy as np
 from spectools.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 
@@ -69,6 +68,7 @@ def find_Jdes_binary_search(scheduler, target_nf, min_Jdes=100, max_Jdes=5000, *
             max_Jdes = Jdes - 1
 
 def check_gpu_availability():
+    import torch
     """
     Check if GPU-accelerated devices (MPS, CUDA, or others) are available.
 
