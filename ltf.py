@@ -20,8 +20,8 @@ import math
 import time
 from spectools.flattop import olap_dict, win_dict
 from spectools.dsp import integral_rms, numpy_detrend
-from spectools.aux import kaiser_alpha, kaiser_rov, round_half_up, chunker
-from spectools.aux import is_function_in_dict, get_key_for_function, find_Jdes_binary_search
+from spectools.utils import kaiser_alpha, kaiser_rov, round_half_up, chunker
+from spectools.utils import is_function_in_dict, get_key_for_function, find_Jdes_binary_search
 from spectools.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 import matplotlib.pyplot as plt
 import multiprocessing as mp
