@@ -770,7 +770,7 @@ class LTFObject:
 
         return r_block
 
-    def plot(self, which=None, ylabel=None, dB=False, deg=True, unwrap=True, errors=False, sigma=1, *args, **kwargs):
+    def plot(self, which=None, ax=None, ylabel=None, dB=False, deg=True, unwrap=True, errors=False, sigma=1, *args, **kwargs):
         # Dictionary to map 'which' to appropriate data and y-label
         plot_options = {
             'ps': (self.f, self.G, r"PS") if not self.iscsd else None,
@@ -922,7 +922,11 @@ class LTFObject:
                 ax2.set_xlim([f[0], f[-1]])
                 fig.align_ylabels()
             else:
-                fig, ax1 = plt.subplots()
+                if ax is None:
+                    fig, ax1 = plt.subplots()
+                else:
+                    ax1 = ax
+                    fig = ax1.figure
                 f, y_data, y_label = plot_data        
                 if ylabel is not None:
                     y_label = ylabel
