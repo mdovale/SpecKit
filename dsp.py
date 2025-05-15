@@ -13,6 +13,7 @@ from py7zr import SevenZipFile
 from copy import deepcopy
 from scipy.integrate import cumulative_trapezoid
 from scipy.optimize import curve_fit, minimize
+from scipy.signal import welch
 from pytdi.dsp import timeshift
 from tqdm import tqdm
 from typing import List, Optional, Callable
@@ -204,7 +205,7 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     
     return peak_frequencies, peak_measurements
 
-def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=False, method='TNC', tol=1e-9):
+def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=False,  domain='time', method='TNC', tol=1e-9, *args, **kwargs):
     """
     Computes the coefficients of a linear combination of optionally timeshifted "input" signals 
     that minimize noise when added to the "output" signal.
@@ -218,12 +219,13 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=Fa
         output (str): Label of the output signal column in the input DataFrame.
         timeshifts (bool, optional): Whether the input signals should be timeshifted. Default is False.
         gradient (bool, optional): Whether to minimize rms in the time series or on its derivative.
+        domain (str, optional): Whether to compute RMS in the time domain or in the frequency domain
         method (str, optional): The minimizer method.
         tol (float, optional): The minimizer tolerance parameter.
 
     Returns:
         OptimizeResult: The optimization result object.
-        np.ndarray: The output with 
+        np.ndarray: The output with optimal combination of inputs subtracted
     """
     def print_optimization_result(res):
         logging.info("Optimization Results:")
@@ -252,7 +254,13 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=Fa
         if gradient:
             y = np.gradient(y)
 
-        rms_value = np.sqrt(np.mean(np.square(y-np.mean(y))))
+        if domain == 'time':
+            rms_value = np.sqrt(np.mean(np.square(y-np.mean(y))))
+        elif domain == 'frequency':
+            f, Sxx = welch(y, scaling='density', *args, **kwargs)
+            rms_value = np.sqrt(np.trapezoid(Sxx, f))
+        else:
+            raise ValueError('The `domain` parameter must be set to \'time\' or \'frequency\'')
         
         return rms_value
 
