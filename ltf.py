@@ -1010,7 +1010,7 @@ class LTFObject:
         self.rms = integral_rms(self.f, self.asd)
         return self.rms
     
-    def get_timeseries(self, fs, size):
+    def get_timeseries(self, fs, size, low_frequency_cutoff=None):
         import warnings
         warnings.filterwarnings("ignore", "Wswiglal-redir-stdio")
         import pycbc.psd
@@ -1019,7 +1019,10 @@ class LTFObject:
         if self.iscsd:
             return
                 
-        pycbc_psd = pycbc.psd.read.from_numpy_arrays(self.f, self.Gxx, int(self.f[-1]/self.f[0]), self.f[0], self.f[0])
+        if low_frequency_cutoff is None:
+            low_frequency_cutoff = self.f[0]
+
+        pycbc_psd = pycbc.psd.read.from_numpy_arrays(self.f, self.Gxx, int(self.f[-1]/self.f[0]), self.f[0], low_frequency_cutoff)
         return pycbc.noise.noise_from_psd(int(size), 1/fs, pycbc_psd).data
     
 if __name__ == "__main__":
