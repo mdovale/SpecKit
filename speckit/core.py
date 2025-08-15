@@ -178,6 +178,10 @@ class SpectrumAnalyzer:
                 raise ValueError(f"Window function '{win_param}' not recognized.")
         elif callable(win_param):
             self.config['win_func'] = win_param
+            if win_param == np.kaiser:
+                if psll is None:
+                    raise ValueError("PSLL must be specified for the Kaiser window.")
+                self.config['alpha'] = kaiser_alpha(psll)
             if is_function_in_dict(win_param, win_dict):
                 win_str_name = get_key_for_function(win_param, win_dict)
         else:
@@ -751,7 +755,7 @@ class SpectrumResult:
             'psd': ('loglog', self.f, self.psd, 'Power Spectral Density'),
             'asd': ('loglog', self.f, self.asd, 'Amplitude Spectral Density'),
             'coh': ('semilogx', self.f, self.coh, 'Coherence'),
-            'csd': ('loglog', self.f, np.abs(self.csd) if self.csd else None, '|Cross Spectral Density|'),
+            'csd': ('loglog', self.f, np.abs(self.csd) if self.csd is not None else None, '|Cross Spectral Density|'),
             'cf': ('loglog', self.f, self.cf, 'Coupling Factor Magnitude'),
             'bode': 'bode'
         }
@@ -804,7 +808,7 @@ class SpectrumResult:
             ax1.set_ylabel(ylabel if ylabel is not None else default_label)
 
             if errors:
-                error_map = {'asd': self.asd * self.Gxx_error / 2, 'psd': self.Gxx_dev, 'coh': self.coh_dev, 'csd': self.Gxy_dev, 'cf': self.Hxy_dev}
+                error_map = {'asd': self.Gxx_dev / 2 / np.sqrt(self.Gxx), 'psd': self.Gxx_dev, 'coh': self.coh_dev, 'csd': self.Gxy_dev, 'cf': self.Hxy_dev}
                 error_data = error_map.get(which)
                 if error_data is not None:
                     ax1.fill_between(x, y - sigma * error_data, y + sigma * error_data, alpha=0.3, label=f'±{sigma}σ', color=kwargs.get('color'))

@@ -60,8 +60,12 @@ S. PLASZCZYNSKI
 Fluctuation and Noise Letters 2007 07:01, R1-R13
 https://doi.org/10.1142/S0219477507003635
 """
-
+from __future__ import annotations
 from typing import Optional, Tuple
+
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
+from scipy.signal import butter, lfilter
 
 import numba
 import numpy as np
@@ -476,3 +480,254 @@ class pink_noise(alpha_noise):
             init_filter=init_filter,
             seed=seed,
         )
+
+
+
+
+
+def fftnoise(
+    f: np.ndarray,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """
+    Generate a real-valued time series with a prescribed magnitude spectrum by
+    assigning random phases to the positive-frequency bins and enforcing
+    Hermitian symmetry before inverse FFT.
+
+    Parameters
+    ----------
+    f : ndarray
+        Complex-valued spectrum of length ``N`` for a standard complex FFT
+        (i.e., as returned by :func:`numpy.fft.fft`). Only the magnitudes
+        are used; phases for bins ``1..Np`` (see Notes) are replaced with
+        random phases. DC (index 0) and the Nyquist bin (if present) are
+        kept real.
+    rng : numpy.random.Generator or None, optional
+        Random number generator to use for phase draws. If ``None``,
+        ``numpy.random.default_rng()`` is used.
+
+    Returns
+    -------
+    x : ndarray
+        Real-valued time series of length ``N`` obtained via
+        :func:`numpy.fft.ifft`, with shape ``(N,)`` and dtype ``float64`` (or
+        the real dtype corresponding to the input).
+
+    Notes
+    -----
+    Let ``N = len(f)`` and ``Np = (N - 1) // 2``. Random phases are applied
+    to bins ``1..Np`` (inclusive). For even ``N``, the Nyquist bin is at
+    index ``N/2`` and is left unchanged (must be real). Hermitian symmetry
+    is enforced by setting ``f[-1:-1-Np:-1] = conj(f[1:Np+1])`` so that the
+    inverse FFT is purely real.
+
+    Examples
+    --------
+    Create a white spectrum and synthesize a noise waveform:
+
+    >>> import numpy as np
+    >>> N = 1024
+    >>> f = np.ones(N, dtype=complex)
+    >>> x = fftnoise(f)  # real-valued length-N noise
+    """
+    if f.ndim != 1:
+        raise ValueError("`f` must be a 1D array representing an FFT spectrum.")
+    N = f.size
+    if N < 2:
+        raise ValueError("`f` must have length >= 2.")
+    rng = np.random.default_rng() if rng is None else rng
+
+    # Work on a complex copy to avoid mutating the caller's array
+    F = np.array(f, dtype=complex, copy=True)
+
+    # Number of strictly positive-frequency bins below Nyquist
+    Np = (N - 1) // 2
+    if Np > 0:
+        phases = rng.random(Np) * 2.0 * np.pi
+        rot = np.cos(phases) + 1j * np.sin(phases)
+        # Apply random phases to positive frequencies (exclude DC and Nyquist)
+        F[1 : Np + 1] *= rot
+        # Enforce Hermitian symmetry for a real IFFT
+        F[-1 : -1 - Np : -1] = np.conj(F[1 : Np + 1])
+
+    # Ensure DC and Nyquist (if present) are real-valued
+    F[0] = np.real(F[0])
+    if N % 2 == 0:  # even length -> Nyquist bin exists
+        F[N // 2] = np.real(F[N // 2])
+
+    # Return the real part of the inverse FFT
+    x = np.fft.ifft(F).real
+    return x
+
+
+def band_limited_noise(
+    min_freq: float,
+    max_freq: float,
+    samples: int = 1024,
+    samplerate: float = 1.0,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """
+    Synthesize band-limited white noise using randomized phases in the
+    frequency domain.
+
+    Parameters
+    ----------
+    min_freq : float
+        Lower cutoff frequency in Hz (inclusive). Must satisfy
+        ``0 <= min_freq <= max_freq``.
+    max_freq : float
+        Upper cutoff frequency in Hz (inclusive). Must not exceed the
+        Nyquist frequency ``samplerate / 2``.
+    samples : int, optional
+        Number of time-domain samples ``N``. Default is ``1024``.
+    samplerate : float, optional
+        Sampling rate in Hz. Default is ``1.0``.
+    rng : numpy.random.Generator or None, optional
+        Random number generator to use for phase draws. If ``None``,
+        ``numpy.random.default_rng()`` is used.
+
+    Returns
+    -------
+    x : ndarray
+        Real-valued band-limited noise of shape ``(samples,)``.
+
+    Notes
+    -----
+    The method constructs a flat (unit-magnitude) spectrum on the frequency
+    bins whose absolute frequency falls within ``[min_freq, max_freq]``, assigns
+    random phases to the positive-frequency bins (excluding DC and Nyquist),
+    mirrors them to enforce Hermitian symmetry, and takes an inverse FFT.
+
+    Examples
+    --------
+    Generate noise between 10 Hz and 50 Hz at 1 kHz sample rate:
+
+    >>> x = band_limited_noise(10.0, 50.0, samples=4096, samplerate=1000.0)
+    """
+    if samples <= 1:
+        raise ValueError("`samples` must be an integer >= 2.")
+    if samplerate <= 0:
+        raise ValueError("`samplerate` must be positive.")
+    if min_freq < 0:
+        raise ValueError("`min_freq` must be >= 0.")
+    if max_freq < min_freq:
+        raise ValueError("`max_freq` must be >= `min_freq`.")
+    nyq = samplerate / 2.0
+    if max_freq > nyq + 1e-12:
+        raise ValueError(f"`max_freq` must be <= Nyquist ({nyq}).")
+
+    # Construct a magnitude spectrum mask over the two-sided FFT grid
+    freqs = np.abs(np.fft.fftfreq(samples, d=1.0 / samplerate))
+    F = np.zeros(samples, dtype=complex)
+    band = (freqs >= min_freq) & (freqs <= max_freq)
+    F[band] = 1.0  # unit magnitude within the passband
+
+    # Randomize phases and synthesize the waveform
+    x = fftnoise(F, rng=rng)
+    return x
+
+
+def butter_lowpass(
+    cutoff: float,
+    fs: float,
+    order: int = 5,
+) -> Tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """
+    Design a digital IIR low-pass Butterworth filter.
+
+    Parameters
+    ----------
+    cutoff : float
+        Cutoff frequency in Hz. Must satisfy ``0 < cutoff < fs/2``.
+    fs : float
+        Sampling frequency in Hz. Must be positive.
+    order : int, optional
+        Filter order (>= 1). Default is ``5``.
+
+    Returns
+    -------
+    b : ndarray
+        Numerator (feed-forward) filter coefficients of shape ``(order + 1,)``.
+    a : ndarray
+        Denominator (feedback) filter coefficients of shape ``(order + 1,)``.
+
+    Raises
+    ------
+    ValueError
+        If any of the input parameters are invalid (e.g., non-positive ``fs``,
+        ``order < 1``, or ``cutoff`` not in the open interval ``(0, fs/2)``).
+
+    Notes
+    -----
+    The filter is designed in the digital (discrete-time) domain using
+    :func:`scipy.signal.butter` with normalized cutoff ``cutoff / (fs/2)`` and
+    ``btype='low'``.
+    """
+    if fs <= 0:
+        raise ValueError("`fs` must be positive.")
+    if order < 1:
+        raise ValueError("`order` must be an integer >= 1.")
+    nyq = 0.5 * fs
+    if not (0 < cutoff < nyq):
+        raise ValueError(f"`cutoff` must satisfy 0 < cutoff < fs/2 (= {nyq}).")
+
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype="low", analog=False)
+    return b.astype(float, copy=False), a.astype(float, copy=False)
+
+
+def butter_lowpass_filter(
+    data: ArrayLike,
+    cutoff: float,
+    fs: float,
+    order: int = 5,
+    axis: int = -1,
+) -> NDArray[np.floating]:
+    """
+    Apply a digital IIR low-pass Butterworth filter to data using causal filtering.
+
+    Parameters
+    ----------
+    data : array_like
+        Input signal array. Can be 1-D or N-D. Filtering is applied along
+        ``axis``.
+    cutoff : float
+        Cutoff frequency in Hz. Must satisfy ``0 < cutoff < fs/2``.
+    fs : float
+        Sampling frequency in Hz. Must be positive.
+    order : int, optional
+        Filter order (>= 1). Default is ``5``.
+    axis : int, optional
+        Axis along which to filter. Default is ``-1``.
+
+    Returns
+    -------
+    y : ndarray
+        Filtered signal with the same shape as ``data`` and a floating dtype.
+
+    Raises
+    ------
+    ValueError
+        If any of the filter design parameters are invalid.
+
+    Notes
+    -----
+    This function uses :func:`scipy.signal.lfilter`, which is *causal* and
+    introduces phase delay. For zero-phase filtering, consider using
+    :func:`scipy.signal.filtfilt` instead.
+
+    Examples
+    --------
+    Low-pass filter a 1 kHz-sampled signal at 50 Hz:
+
+    >>> import numpy as np
+    >>> fs = 1000.0
+    >>> t = np.arange(0, 1, 1/fs)
+    >>> x = np.sin(2*np.pi*10*t) + 0.5*np.sin(2*np.pi*200*t)
+    >>> y = butter_lowpass_filter(x, cutoff=50.0, fs=fs, order=4)
+    """
+    x = np.asarray(data)
+    b, a = butter_lowpass(cutoff=cutoff, fs=fs, order=order)
+    y = lfilter(b, a, x, axis=axis)
+    return y.astype(float, copy=False)

@@ -40,6 +40,16 @@ import multiprocessing as mp
 
 from .core import SpectrumAnalyzer, SpectrumResult
 
+def lpsd(
+    data: np.ndarray,
+    fs: float, *,
+    pool: Optional[mp.Pool] = None,
+    **kwargs
+) -> SpectrumResult:
+    """ Same as compute_spectrum.
+    """
+    return compute_spectrum(data, fs, pool, **kwargs)
+
 def compute_spectrum(
     data: np.ndarray,
     fs: float, *,

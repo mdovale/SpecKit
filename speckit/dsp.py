@@ -44,17 +44,14 @@ from copy import deepcopy
 from scipy.integrate import cumulative_trapezoid
 from scipy.optimize import curve_fit, minimize
 from scipy.signal import welch
-from pytdi.dsp import timeshift
 from tqdm import tqdm
 from typing import List, Optional, Callable
 import warnings
 
 import logging
-logging.basicConfig(
-format='%(asctime)s %(levelname)-8s %(message)s',
-level=logging.INFO,
-datefmt='%Y-%m-%d %H:%M:%S'
-)
+
+logger = logging.getLogger(__name__)
+
 
 def frequency2phase(f, fs):
     """
@@ -111,17 +108,31 @@ def crop_data(x, y, xmin, xmax):
     # Apply the mask to both x and y arrays and return
     return x[mask], y[mask]
 
-def truncation(x, n_trunc):
-    """ Truncate both ends of time-series data.
+def truncation(x: np.ndarray, n_trunc: int) -> np.ndarray:
+    """Truncate both ends of a time-series array.
 
     Args:
-        x: data to truncate
-        n_trunc: number of points to be truncated at each end of array
+        x: Array of data to truncate.
+        n_trunc: Number of points to remove from each end of the array.
+                 Must be a non-negative integer. If zero or negative, the
+                 array is returned unchanged.
+
+    Returns:
+        Truncated array.
+
+    Raises:
+        ValueError: If n_trunc is not an integer or is too large.
     """
-    if n_trunc > 0:
-        return x[n_trunc:-n_trunc]
-    else:
-        return x
+    if not isinstance(n_trunc, int):
+        raise ValueError(f"n_trunc must be an integer, got {n_trunc}")
+    if n_trunc < 0:
+        raise ValueError(f"n_trunc must be non-negative, got {n_trunc}")
+    if n_trunc * 2 > len(x):
+        raise ValueError(
+            f"Cannot truncate {n_trunc} elements from each side of array with length {len(x)}"
+        )
+
+    return x[n_trunc:-n_trunc] if n_trunc > 0 else x
 
 def integral_rms(fourier_freq, asd, pass_band=None):
     """ Compute the RMS as integral of an ASD.
@@ -258,14 +269,14 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=Fa
         np.ndarray: The output with optimal combination of inputs subtracted
     """
     def print_optimization_result(res):
-        logging.info("Optimization Results:")
-        logging.info("=====================")
-        logging.info(f"Success: {res.success}")
-        logging.info(f"Message: {res.message}")
-        logging.info(f"Function value at minimum: {res.fun}")
-        logging.info("Solution:")
+        logger.info("Optimization Results:")
+        logger.info("=====================")
+        logger.info(f"Success: {res.success}")
+        logger.info(f"Message: {res.message}")
+        logger.info(f"Function value at minimum: {res.fun}")
+        logger.info("Solution:")
         for idx, val in enumerate(res.x, start=1):
-            logging.info(f"Variable {idx}: {val}")
+            logger.info(f"Variable {idx}: {val}")
 
     def fun(x):
         y = np.array(df[output] - np.mean(df[output]))        
@@ -299,7 +310,7 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=Fa
     else:
         x_initial = np.zeros(len(inputs))
 
-    logging.info(f"Solving {len(x_initial)}-dimensional problem...")
+    logger.info(f"Solving {len(x_initial)}-dimensional problem...")
 
     res = minimize(fun, x_initial, method=method, tol=tol)
 
@@ -353,7 +364,7 @@ def adaptive_linear_combination(df, inputs, output, method='TNC', tol=1e-9):
         res = minimize(fun, x_initial, (t), method=method, tol=tol)
         
         # if not res.success:
-            # logging.warning(f"Potential minimizer failure at t={t}")
+            # logger.warning(f"Potential minimizer failure at t={t}")
         
         S = 0.0
         for i, input in enumerate(df[inputs]):
@@ -439,6 +450,7 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix='_detrended'):
                 df_detrended[f"{col}{suffix}"] = detrended_data
 
     return df_detrended
+
 
 def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], names_list: Optional[List[str]] = None,
                                  start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
@@ -560,10 +572,10 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
         file_names.append(os.path.basename(file))
         rows = count_header_rows(file)
         header_rows.append(rows)
-        logging.info(f"File \'{file_names[i]}\' contains {header_rows[i]} header rows.")
+        logger.info(f"File \'{file_names[i]}\' contains {header_rows[i]} header rows.")
 
     # Data ingestion:
-    logging.info(f"Loading data and calculating maximum time series overlap...")
+    logger.info(f"Loading data and calculating maximum time series overlap...")
     for i, file in enumerate(file_list):
         try:
             if names_list is not None and names_list[i] is not None:
@@ -571,12 +583,12 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
             else:
                 df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='c')
         except:
-            logging.warning(f"Reading {file} with Python engine")
+            logger.warning(f"Reading {file} with Python engine")
             if names_list is not None and names_list[i] is not None:
                 df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], names=names_list[i], engine='python')
             else:
                 df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='python')       
-        logging.info(f"Loaded data from file \'{file_names[i]}\' with length {len(df)}")
+        logger.info(f"Loaded data from file \'{file_names[i]}\' with length {len(df)}")
         record_lengths.append(len(df)  / fs_list[i]) # Data stream duration in seconds
         df_list.append(df)
 
@@ -587,17 +599,17 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
         dropped_columns = set(initial_columns) - set(df.columns)  # Find dropped columns
         # Log a warning if columns were dropped:
         if dropped_columns:
-            logging.warning(f"File '{file_names[i]}' had columns dropped due to NaN values: {dropped_columns}")
+            logger.warning(f"File '{file_names[i]}' had columns dropped due to NaN values: {dropped_columns}")
 
     # Determine the maximum overlap between datasets:
     max_duration = min(record_lengths) - start_time  # Maximum overlapping time between datasets in seconds
-    logging.info(f"Maximum overlap: {max_duration:.2f} seconds ({max_duration/3600.0:.2f} hours)")
+    logger.info(f"Maximum overlap: {max_duration:.2f} seconds ({max_duration/3600.0:.2f} hours)")
 
     # Apply optional timeshifts:
     samples_shifted = []
     for i, df in enumerate(df_list):
         if (timeshifts[i] is not None) and (timeshifts[i] != 0.0):
-            logging.info(f"Applying {timeshifts[i]} seconds timeshift to the \'{file_names[i]}\' data stream")
+            logger.info(f"Applying {timeshifts[i]} seconds timeshift to the \'{file_names[i]}\' data stream")
             df_list[i] = df_timeshift(df, seconds=timeshifts[i], fs=fs_list[i], columns=df.select_dtypes(include=['number']).columns)
             samples_shifted.append(timeshifts[i]*fs_list[i])
         else:
@@ -610,13 +622,13 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
                 start_time = int(2*abs(samples_shifted[i]))
             if (samples_shifted[i] > 0.0) and (abs(samples_shifted[i]) > len(df) - (int(start_time * fs_list[i]) + int(max_duration * fs_list[i]))):
                 max_duration = (len(df) - int(start_time * fs_list[i]) - int(2*abs(samples_shifted[i]))) / fs_list[i]
-        logging.info(f"Maximum overlap after timeshift and truncation: {max_duration:.2f} seconds")
+        logger.info(f"Maximum overlap after timeshift and truncation: {max_duration:.2f} seconds")
 
     # Adjust duration according to user input:
     total_time = max_duration # Total measurement time in seconds
     if duration_hours is not None:
         if (duration_hours*3600.0 > max_duration) or (duration_hours <= 0.0):
-            logging.warning(f"Specified duration of {duration_hours:.2f} hours is not possible, setting to {max_duration/3600.0:.2f} hours")
+            logger.warning(f"Specified duration of {duration_hours:.2f} hours is not possible, setting to {max_duration/3600.0:.2f} hours")
         else:
             total_time = duration_hours*3600.0
 
@@ -632,7 +644,7 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
         if time_column_name in new_df:
             time_column_name = 'new_time'
         new_df[time_column_name] = np.linspace(start_row/fs_list[i], end_row/fs_list[i], len(new_df))
-        logging.info(f"""File \'{file_names[i]}\':
+        logger.info(f"""File \'{file_names[i]}\':
                                         Start row: {start_row}; Start time: {new_df[time_column_name].iloc[0]:.2f} seconds
                                         End row: {end_row}; End time: {new_df[time_column_name].iloc[-1]:.2f} seconds
                                         Total time: {(new_df[time_column_name].iloc[-1] - new_df[time_column_name].iloc[0]):.2f} seconds.""")
@@ -706,11 +718,11 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         start_time, end_time = df[t_col].min(), df[t_col].max()
         common_time = np.arange(start_time, end_time, 1/fs)
         
-        logging.info(f"Single DataFrame provided: Resampling to {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s")
+        logger.info(f"Single DataFrame provided: Resampling to {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s")
 
         # Apply preprocessing if specified
         if preprocessors[0] is not None:
-            logging.info(f"Applying preprocessor to DataFrame")
+            logger.info(f"Applying preprocessor to DataFrame")
             df = preprocessors[0](df)
 
         # Interpolation
@@ -732,19 +744,19 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
             raise ValueError(f"DataFrame #{i+1} does not contain the time column '{t}'")
         start_time = max(start_time, df[t].min())
         end_time = min(end_time, df[t].max())
-        logging.info(f"""DataFrame #{i+1}:
+        logger.info(f"""DataFrame #{i+1}:
                                         Start time: {df[t].iloc[0]:.2f} seconds
                                         End time: {df[t].iloc[-1]:.2f} seconds
                                         Samples: {len(df)}""")
     if start_time >= end_time:
-        logging.warning("No overlapping time range between DataFrames; output DataFrame is empty.")
+        logger.warning("No overlapping time range between DataFrames; output DataFrame is empty.")
         return pd.DataFrame(columns=["common_time"])
 
     # Time grid consistency checks:
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
         monotonic = np.all(np.diff(df[t]) > 0)
         if not monotonic:
-            logging.warning(f"Time array is not monotonically increasing in DataFrame #{i+1}.")
+            logger.warning(f"Time array is not monotonically increasing in DataFrame #{i+1}.")
 
         # Report intervals exceeding tolerance:
         intervals = np.diff(df[t])
@@ -752,24 +764,24 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         problematic_indices = np.where(np.abs(intervals - mean_interval) > tolerance)[0]
         problematic_intervals = [(idx, intervals[idx]) for idx in problematic_indices]
         if problematic_intervals:
-            logging.warning(f"DataFrame #{i+1}: found {len(problematic_intervals)} problematic time intervals exceeding the tolerance:")
+            logger.warning(f"DataFrame #{i+1}: found {len(problematic_intervals)} problematic time intervals exceeding the tolerance:")
             for idx, interval in problematic_intervals:
-                logging.warning(f"    Interval at index {idx} = {interval:.6f} s")
+                logger.warning(f"    Interval at index {idx} = {interval:.6f} s")
 
     # Generate the common time grid
     common_time = np.arange(start_time, end_time, 1/fs)
-    logging.info(f"New common time grid created: {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s")
+    logger.info(f"New common time grid created: {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s")
 
     # Application of preprocessors:
     for i, (df, proc) in enumerate(zip(_df_list, preprocessors)):
         if proc is not None:
-            logging.info(f"Applying pre-processor {proc} to DataFrame #{i+1}")
+            logger.info(f"Applying pre-processor {proc} to DataFrame #{i+1}")
             _df_list[i] = proc(df)
-            logging.info(f"Columns: {list(_df_list[i].columns)}")
+            logger.info(f"Columns: {list(_df_list[i].columns)}")
 
     # Downsampling and interpolation to the common grid:
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
-        logging.info(f"Resampling DataFrame #{i+1} based on column \'{t}\'...")
+        logger.info(f"Resampling DataFrame #{i+1} based on column \'{t}\'...")
         df_interp = pd.DataFrame({'common_time': common_time})
         for col in df.columns:
             col_name = col + f'_{i+1}' if suffixes else col
@@ -777,9 +789,9 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         df_interp_list.append(df_interp)
 
     # Merging all data streams to single DataFrame:
-    logging.info("Merging...")
+    logger.info("Merging...")
     resampled_df = pd.concat(df_interp_list, axis=1).loc[:,~pd.concat(df_interp_list, axis=1).columns.duplicated()]
-    logging.info("Done.")
+    logger.info("Done.")
     
     return resampled_df
 
@@ -845,3 +857,208 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
                                            tolerance=tolerance, preprocessors=preprocessors, suffixes=suffixes)
 
     return resampled_df
+
+
+# BSD 3-Clause License
+#
+# Copyright (c) 2022, California Institute of Technology and
+# Max Planck Institute for Gravitational Physics (Albert Einstein Institute)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# This software may be subject to U.S. export control laws. By accepting this
+# software, the user agrees to comply with all applicable U.S. export laws and
+# regulations. User has the responsibility to obtain export licenses, or other
+# export authority as may be required before exporting such information to
+# foreign countries or providing access to foreign persons.
+#
+def lagrange_taps(shift_fracs, halfp):
+    """Computes the coefficients for a Lagrange fractional delay filter.
+
+    This function calculates the FIR filter tap coefficients for a centered
+    Lagrange interpolating polynomial of order `2 * halfp - 1`. It uses an
+    efficient, vectorized formulation to compute coefficients for multiple
+    fractional delays simultaneously.
+
+    This is a core utility function used by `timeshift`.
+
+    Parameters
+    ----------
+    shift_fracs : np.ndarray
+        An array of fractional time shifts, with each value typically in the
+        range [0, 1). Each value corresponds to the sub-sample shift for
+        which a set of filter coefficients is required.
+    halfp : int
+        The number of filter taps on each side of the interpolation center.
+        This is related to the filter order `p` by `halfp = (p + 1) // 2`.
+        The total number of taps will be `2 * halfp`.
+
+    Returns
+    -------
+    np.ndarray
+        A 2D array of the calculated Lagrange coefficients. The shape of the
+        array is `(N, 2 * halfp)`, where `N` is the number of fractional
+        shifts in `shift_fracs`. Each row contains the `2 * halfp` filter
+        taps for the corresponding shift in `shift_fracs`.
+    """
+    num_taps = 2 * halfp
+    taps = np.zeros((num_taps, shift_fracs.size), dtype=np.float64)
+
+    # --- Case 1: Linear Interpolation (order=1, halfp=1) ---
+    if halfp == 1:
+        taps[0] = 1 - shift_fracs
+        taps[1] = shift_fracs
+        return taps.T
+
+    # --- Case 2: Higher-Order Interpolation (halfp > 1) ---
+    # The algorithm is structured to build parts of the formula and then apply
+    # common factors to all taps at the end.
+
+    # This running 'factor' is used to set the initial values for the outer taps.
+    # These values are NOT final until the last two multiplications are applied.
+    factor = np.ones(shift_fracs.size, dtype=np.float64)
+    factor *= shift_fracs * (1 - shift_fracs)
+
+    for j in range(1, halfp):
+        # Iteratively build the product term for the outer taps
+        factor *= (-1) * (1 - j / halfp) / (1 + j / halfp)
+        taps[halfp - 1 - j] = factor / (j + shift_fracs)
+        taps[halfp + j] = factor / (j + 1 - shift_fracs)
+
+    # Set the initial values for the two central taps.
+    taps[halfp - 1] = 1 - shift_fracs
+    taps[halfp] = shift_fracs
+
+    # Now, apply the remaining common factors to ALL taps to finalize them.
+    # First common factor: product over (1 - (d/j)^2)
+    for j in range(2, halfp):
+        taps *= 1 - (shift_fracs / j) ** 2
+
+    # Second common factor: final normalization term.
+    taps *= (1 + shift_fracs) * (1 - shift_fracs / halfp)
+
+    return taps.T
+
+
+def timeshift(data, shifts, order=31):
+    """Time-shift data using high-order Lagrange interpolation.
+
+    This function applies a fractional time delay or advancement to a signal
+    by convolving it with a time-varying finite-impulse response (FIR)
+    Lagrange interpolation filter.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The 1D input signal to be shifted.
+    shifts : Union[float, np.ndarray]
+        The desired time shift(s) in units of samples. A positive value
+        delays the signal (shifts it to the right), while a negative value
+        advances it. Can be a single float for a constant shift or an array
+        of the same size as `data` for a time-varying shift.
+    order : int, optional
+        The order of the Lagrange interpolator, which must be an odd integer.
+        Higher orders provide better accuracy but have higher computational
+        cost and longer filter ringing. Defaults to 31.
+
+    Returns
+    -------
+    Union[float, np.ndarray]
+        The time-shifted signal.
+
+    Raises
+    ------
+    ValueError
+        If `order` is not an odd integer or if `data` and `shifts` have
+        mismatched shapes for a time-varying shift.
+
+    Notes
+    -----
+    The implementation is fully vectorized using NumPy for high performance,
+    avoiding slow Python loops even for time-varying shifts.
+    """
+    if order % 2 == 0:
+        raise ValueError(f"`order` must be an odd integer (got {order})")
+
+    data = np.asarray(data)
+    shifts = np.asarray(shifts)
+
+    # --- Handle trivial cases ---
+    if data.size <= 1:
+        logger.debug("Input data is scalar or empty, returning as is.")
+        return data.item() if data.size == 1 else data
+    if np.all(shifts == 0):
+        logger.debug("Time shifts are all zero, returning original data.")
+        return data
+
+    logger.debug("Time shifting data samples (order=%d)", order)
+
+    halfp = (order + 1) // 2
+    # num_taps = 2 * halfp
+
+    shift_ints = np.floor(shifts).astype(int)
+    shift_fracs = shifts - shift_ints
+
+    logger.debug("Computing Lagrange coefficients")
+    taps = lagrange_taps(shift_fracs, halfp)
+
+    # --- Constant Shift Path (Optimized for a single shift value) ---
+    if shifts.size == 1:
+        logger.debug("Constant shifts, using correlation method")
+        shift_int = shift_ints.item()
+
+        i_min = shift_int - (halfp - 1)
+        i_max = shift_int + halfp + data.size
+
+        if i_max - 1 < 0:
+            return np.repeat(data[0], data.size)
+        if i_min > data.size - 1:
+            return np.repeat(data[-1], data.size)
+
+        pad_left = max(0, -i_min)
+        pad_right = max(0, i_max - data.size)
+        logger.debug("Padding data (left=%d, right=%d)", pad_left, pad_right)
+        data_trimmed = data[max(0, i_min) : min(data.size, i_max)]
+        data_padded = np.pad(data_trimmed, (pad_left, pad_right), mode="edge")
+
+        logger.debug("Computing correlation product")
+        return np.correlate(data_padded, taps[0], mode="valid")
+
+    # --- Time-Varying Shift Path ---
+    if data.size != shifts.size:
+        raise ValueError(
+            f"`data` and `shift` must be of the same size (got {data.size}, {shifts.size})"
+        )
+
+    logger.debug("Time-varying shifts, using sliding window view")
+    indices = np.clip(
+        np.arange(data.size) + shift_ints, -(halfp + 1), data.size + (halfp - 1)
+    )
+    padded = np.pad(data, 2 * halfp)
+    slices = np.lib.stride_tricks.sliding_window_view(padded, 2 * halfp)
+    slices = slices[indices + 2 * halfp - (halfp - 1)]
+    logger.debug("Computing matrix-vector product")
+    return np.einsum("ij,ij->i", taps, slices)
