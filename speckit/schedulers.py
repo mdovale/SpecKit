@@ -248,7 +248,7 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
         logging.error("Error: frequency scheduler returned zero frequencies")
         sys.exit(-1)
 
-    output = {"f": f, "r": r, "b": b, "L": L, "K": K, "navg": navg, "D": D, "O": O, "nf": nf}
+    output = {"f": f, "r": r, "b": b, "m": b, "L": L, "K": K, "navg": navg, "D": D, "O": O, "nf": nf}
 
     return output
 
@@ -437,6 +437,6 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
         logging.error("Error: frequency scheduler returned zero frequencies")
         sys.exit(-1)
 
-    output = {"f": f, "r": r, "b": b, "L": L, "K": K, "navg": navg, "D": D, "O": O, "nf": nf}
+    output = {"f": f, "r": r, "b": b, "m": b, "L": L, "K": K, "navg": navg, "D": D, "O": O, "nf": nf}
 
     return output
