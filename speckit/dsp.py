@@ -410,7 +410,7 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix='_detrended'):
 
     return df_detrended
 
-def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], names_list: Optional[List[str]],
+def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], names_list: Optional[List[str]] = None,
                                  start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
                                  timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None) -> List[pd.DataFrame]:
     """

@@ -1,11 +1,7 @@
-"""This module contains auxiliary functions.
 
-Miguel Dovale (Hannover, 2024)
-E-mail: spectools@pm.me
-"""
 import math
 import numpy as np
-from spectools.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
+from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 
 def kaiser_alpha(psll):
     a0 = -0.0821377

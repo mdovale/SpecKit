@@ -1,12 +1,7 @@
-""" This module contains functions for spectral analysis in
-Single-Input Single-Output (SISO) and Multiple-Input Single-Output (MISO) systems.
 
-Miguel Dovale (Hannover, 2024)
-E-mail: spectools@pm.me
-"""
 import numpy as np
 import sympy as sp
-from spectools.lpsd import lpsd, ltf, LTFObject
+from speckit.lpsd import lpsd, ltf, LTFObject
 
 import logging
 logging.basicConfig(

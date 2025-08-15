@@ -1,0 +1,20 @@
+# Include top-level metadata
+include LICENSE
+include README.md
+include AUTHORS
+include pyproject.toml
+
+# Ship library source
+graft speckit
+
+# Ship tests and examples in sdist
+graft examples
+graft tests
+include tests/*.gz
+
+# Exclusions
+prune **/__pycache__
+prune tests/__pycache__
+
+# Global ignores
+global-exclude *.py[cod] *.so *.dylib *.dll *.DS_Store

@@ -1,9 +1,4 @@
-""" This module contains the LPSD and LTF schedulers for spectral analysis
-on an approximately log-spaced frequency axis.
 
-Miguel Dovale (Hannover, 2024)
-E-mail: spectools@pm.me
-"""
 import sys
 import math
 import numpy as np

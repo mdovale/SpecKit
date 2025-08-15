@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speckit"
+version = "0.0.1"
+description = "A Python toolkit for Spectral Analysis."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Miguel Dovale", email = "mikedovale@pm.me" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = ["numpy", "scipy", "pandas", "matplotlib", "numba", "tqdm"]
+
+[project.optional-dependencies]
+dev = ["pytest", "build", "twine", "ruff"]
+
+[project.urls]
+Homepage = "https://github.com/mdovale/spectools"
+Repository = "https://github.com/mdovale/spectools"
+Issues = "https://github.com/mdovale/spectools/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["speckit*"]
+exclude = ["tests*", "notebooks*"]
+ 
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint.isort]
+known-first-party = ["speckit"]
+
+[tool.ruff.format]
+quote-style = "double"

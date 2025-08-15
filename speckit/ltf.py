@@ -1,14 +1,4 @@
-""" This module contains the LTFObject class with methods for spectral analysis
-of digitized time series.
 
-This class implements a very fast pure-Python implementation of the LPSD/LTF algorithm.
-
-Reference: LPSD algorithm by Gerhard Heinzel and Michael Troebs.
-https://doi.org/10.1016/j.measurement.2005.10.010
-
-Miguel Dovale (Hannover, 2024)
-E-mail: spectools@pm.me
-"""
 from ._config import *
 import sys
 import copy
@@ -18,11 +8,11 @@ import scipy.signal.windows as windows
 import pandas as pd
 import math
 import time
-from spectools.flattop import olap_dict, win_dict
-from spectools.dsp import integral_rms, numpy_detrend
-from spectools.utils import kaiser_alpha, kaiser_rov, round_half_up, chunker
-from spectools.utils import is_function_in_dict, get_key_for_function, find_Jdes_binary_search
-from spectools.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
+from speckit.flattop import olap_dict, win_dict
+from speckit.dsp import integral_rms, numpy_detrend
+from speckit.utils import kaiser_alpha, kaiser_rov, round_half_up, chunker
+from speckit.utils import is_function_in_dict, get_key_for_function, find_Jdes_binary_search
+from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 import matplotlib.pyplot as plt
 import multiprocessing as mp
 
