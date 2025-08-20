@@ -94,7 +94,7 @@ The Spectools Library is a comprehensive Python package designed for advanced sp
 	
     •	Key Functions:
 	
-    •	`numpy_detrend`: Very fast polynomial detrending with numpy.
+    •	`polynomial_detrend`: Very fast polynomial detrending with numpy.
 	
     •	`crop_data`: Crops data to a specified range.
 	

@@ -67,7 +67,7 @@ def frequency2phase(f, fs):
     """
     return (2*np.pi/fs)*np.cumsum(np.array(f-np.mean(f)))
 
-def numpy_detrend(x, order=1):
+def polynomial_detrend(x, order=1):
     """
     Detrend an input signal using a fast polynomial fit.
 
@@ -182,14 +182,6 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     -----
     The function first applies an optional frequency band filter and then manually detects peaks by identifying points that are higher than their immediate neighbors.
     Peaks that do not meet the specified carrier-to-noise density ratio are discarded. The function returns the frequencies and measurements of the detected peaks.
-
-    Example
-    -------
-    >>> frequency = np.linspace(0, 100, 1000)
-    >>> measurement = np.sin(frequency) + 0.5 * np.random.randn(1000)
-    >>> peaks_freq, peaks_meas = peak_finder(frequency, measurement, cnr=5, edge=True, freq_band=(10, 90))
-    >>> print("Peak Frequencies:", peaks_freq)
-    >>> print("Peak Measurements:", peaks_meas)
     """
     def noise_model(x, a, b, alpha):
         return a + b * x**alpha
@@ -331,51 +323,6 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=Fa
 
     return res, y
 
-def adaptive_linear_combination(df, inputs, output, method='TNC', tol=1e-9):
-    """
-    Work in progress.
-    """
-    def fun(x, t):
-        y = df[output].iloc[t]
-        S = 0.0
-
-        for i, input in enumerate(df[inputs]):
-            Si = df[input].iloc[t]  
-            S += x[i]*Si
-
-        obj = (y - S)**2
-        
-        return obj
-
-    for input in inputs:
-        df[input] = df[input] - np.mean(df[input])
-
-    y = []
-    x = {}
-    for input in df[inputs]:
-        x[input] = []
-
-    for t in tqdm(range(len(df))):
-        if t == 0:
-            x_initial = np.zeros(len(inputs))
-        else:
-            x_initial = res.x
-
-        res = minimize(fun, x_initial, (t), method=method, tol=tol)
-        
-        # if not res.success:
-            # logger.warning(f"Potential minimizer failure at t={t}")
-        
-        S = 0.0
-        for i, input in enumerate(df[inputs]):
-            x[input].append(res.x[i])
-            Si = df[input].iloc[t]  
-            S += res.x[i]*Si
-        
-        y.append(df[output].iloc[t] - S)
-
-    return x, y
-
 def df_timeshift(df, fs, seconds, columns=None, truncate=None, inplace=False, suffix='_shifted'):
     """ 
     Timeshift columns of a pandas DataFrame or the entire DataFrame.
@@ -423,7 +370,7 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None, inplace=False, su
 
 def df_detrend(df, columns=None, order=1, inplace=False, suffix='_detrended'):
     """
-    Detrend all or specified columns of a pandas DataFrame using numpy_detrend.
+    Detrend all or specified columns of a pandas DataFrame using polynomial_detrend.
 
     Parameters
     ----------
@@ -443,7 +390,7 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix='_detrended'):
 
     for col in columns:
         if df[col].dtype.kind in 'biufc':  # Check if the column is numeric
-            detrended_data = numpy_detrend(df[col].values, order=order)
+            detrended_data = polynomial_detrend(df[col].values, order=order)
             if inplace:
                 df_detrended[col] = detrended_data
             else:

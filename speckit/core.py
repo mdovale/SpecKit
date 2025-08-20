@@ -48,7 +48,7 @@ from matplotlib.axes import Axes
 import multiprocessing as mp
 
 from speckit.flattop import olap_dict, win_dict
-from speckit.dsp import integral_rms, numpy_detrend
+from speckit.dsp import integral_rms, polynomial_detrend
 from speckit.utils import (kaiser_alpha, kaiser_rov, round_half_up, chunker,
                     is_function_in_dict, get_key_for_function, find_Jdes_binary_search)
 from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
@@ -383,10 +383,10 @@ class SpectrumAnalyzer:
                 x2s_all = segments[:, :, 1]
                 x2s_all -= np.mean(x2s_all, axis=1, keepdims=True)
         elif order > 0:
-            x1s_all = np.apply_along_axis(numpy_detrend, 1, x1s_all, order)
+            x1s_all = np.apply_along_axis(polynomial_detrend, 1, x1s_all, order)
             if self.iscsd:
                 x2s_all = segments[:, :, 1]
-                x2s_all = np.apply_along_axis(numpy_detrend, 1, x2s_all, order)
+                x2s_all = np.apply_along_axis(polynomial_detrend, 1, x2s_all, order)
         
         if self.iscsd and order != -1: # Re-assign detrended data if needed
             segments[:, :, 0] = x1s_all
@@ -462,8 +462,8 @@ class SpectrumAnalyzer:
                 x1s_all -= np.mean(x1s_all, axis=1, keepdims=True)
                 if self.iscsd: x2s_all -= np.mean(x2s_all, axis=1, keepdims=True)
             elif order > 0:  # Polynomial detrending
-                x1s_all = np.apply_along_axis(numpy_detrend, 1, x1s_all, order)
-                if self.iscsd: x2s_all = np.apply_along_axis(numpy_detrend, 1, x2s_all, order)
+                x1s_all = np.apply_along_axis(polynomial_detrend, 1, x1s_all, order)
+                if self.iscsd: x2s_all = np.apply_along_axis(polynomial_detrend, 1, x2s_all, order)
 
             # --- DFT and Averaging ---
             rxsums = np.dot(x1s_all, np.real(C))
