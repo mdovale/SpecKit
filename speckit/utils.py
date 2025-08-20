@@ -34,10 +34,111 @@
 # foreign countries or providing access to foreign persons.
 #
 import math
-import numpy as np
-from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
+from speckit.schedulers import lpsd_plan
+
+MIN_JDES = 100
+MAX_JDES = 1000000
+
+def find_Jdes_binary_search(scheduler, target_nf, *args):
+    """Performs a binary search to find the `Jdes` for a scheduler.
+
+    This utility function iteratively calls a given scheduler to find the
+    integer `Jdes` (desired number of frequencies) that results in a plan
+    with exactly `target_nf` frequency bins. It is designed to support the
+    `force_target_nf` functionality in the `SpectrumAnalyzer`.
+
+    The search is performed within a predefined range defined by `MIN_JDES`
+    and `MAX_JDES`.
+
+    Parameters
+    ----------
+    scheduler : callable
+        The scheduler function to be evaluated, e.g., `lpsd_plan` or `ltf_plan`.
+    target_nf : int
+        The target number of frequencies (`nf`) that the scheduler should generate.
+    *args : tuple
+        A tuple of the other arguments required by the scheduler, passed in a
+        specific, fixed order: `(N, fs, olap, bmin, Lmin, Kdes)`. The function
+        internally selects the correct arguments from this tuple based on
+        which scheduler is provided.
+
+    Returns
+    -------
+    int or None
+        The integer value of `Jdes` that produces exactly `target_nf`
+        frequencies. Returns `None` if the binary search completes without
+        finding an exact match.
+
+    Raises
+    ------
+    ValueError
+        If the provided scheduler function does not return a dictionary
+        containing the key 'nf'.
+
+    Notes
+    -----
+    - This function requires an **exact match**. If no integer `Jdes` within
+      the search range produces `nf == target_nf`, the function will return `None`.
+    - The `*args` parameter has a rigid structure and must contain the scheduler
+      parameters in the order `(N, fs, olap, bmin, Lmin, Kdes)`, even if a
+      specific scheduler (like `lpsd_plan`) does not use all of them.
+
+    """
+    lower = MIN_JDES
+    upper = MAX_JDES
+
+    while (lower <= upper):
+        Jdes = (lower + upper) // 2
+
+        # Explicitly build the argument list for each scheduler.
+        # The incoming `args` tuple is (N, fs, olap, bmin, Lmin, Kdes).
+        if scheduler == lpsd_plan:
+            # lpsd_plan(N, fs, olap, Jdes, Kdes)
+            # We need args[0], args[1], args[2], Jdes, and args[5]
+            output = scheduler(args[0], args[1], args[2], Jdes, args[5])
+        else:
+            # ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes)
+            # We need all args, with Jdes inserted at the correct position.
+            output = scheduler(args[0], args[1], args[2], args[3], args[4], Jdes, args[5])
+
+        nf = output.get("nf")
+        if nf is None:
+            raise ValueError("Scheduler did not return 'nf' in output.")
+
+        if nf == target_nf:
+            return Jdes
+        elif nf < target_nf:
+            lower = Jdes + 1
+        else:
+            upper = Jdes - 1
 
 def kaiser_alpha(psll):
+    """Calculates Kaiser window shape parameter (alpha/beta) from PSLL.
+
+    This function provides a polynomial approximation to determine the required
+    shape parameter (`alpha`, often denoted as `β`) for a Kaiser window to
+    achieve a desired Peak Side-Lobe Level (PSLL). This is useful because
+    engineers often specify window performance in terms of sidelobe
+    attenuation in decibels, whereas window generation functions require the
+    `β` parameter.
+
+    Parameters
+    ----------
+    psll : float
+        The desired Peak Side-Lobe Level in positive decibels (dB). For example,
+        a value of 200 corresponds to extremely high sidelobe attenuation.
+
+    Returns
+    -------
+    float
+        The calculated shape parameter `alpha` (or `β`) for use in a Kaiser
+        window function like `numpy.kaiser`.
+
+    See Also
+    --------
+    kaiser_rov : Calculates the recommended overlap from this alpha value.
+    numpy.kaiser : The NumPy function that uses this shape parameter.
+    """
     a0 = -0.0821377
     a1 = 4.71469
     a2 = -0.493285
@@ -47,6 +148,31 @@ def kaiser_alpha(psll):
     return (((((a3 * x) + a2) * x) + a1) * x + a0)
 
 def kaiser_rov(alpha):
+    """Calculates the recommended fractional overlap for a Kaiser window.
+
+    Based on the window's shape parameter (`alpha` or `β`), this function
+    provides an empirically derived recommendation for the fractional overlap
+    between segments in a Short-Time Fourier Transform (STFT) or Welch's
+    method analysis. Windows with higher sidelobe suppression (larger `alpha`)
+    have a wider main lobe and thus require more overlap to avoid scalloping
+    loss and ensure signal conservation.
+
+    Parameters
+    ----------
+    alpha : float
+        The shape parameter `alpha` (or `β`) of the Kaiser window, which is
+        typically the output from the `kaiser_alpha` function.
+
+    Returns
+    -------
+    float
+        The recommended fractional overlap, as a value between 0.0 and 1.0
+        (e.g., 0.5 for 50% overlap).
+
+    See Also
+    --------
+    kaiser_alpha : The function used to generate the `alpha` parameter.
+    """
     a0 = 0.0061076
     a1 = 0.00912223
     a2 = -0.000925946
@@ -55,6 +181,23 @@ def kaiser_rov(alpha):
     return (100 - 1 / (((((a3 * x) + a2) * x) + a1) * x + a0)) / 100
 
 def round_half_up(val):
+    """Rounds a number to the nearest integer, with halves rounded up.
+
+    This function implements the "round half up" strategy, which differs from
+    Python's built-in `round()` function that uses "round half to even"
+    (also known as banker's rounding). This is often the rounding behavior
+    expected in traditional contexts.
+
+    Parameters
+    ----------
+    val : float or int
+        The number to be rounded.
+
+    Returns
+    -------
+    int
+        The value rounded to the nearest integer.
+    """
     if (float(val) % 1) >= 0.5:
         x = math.ceil(val)
     else:
@@ -62,6 +205,30 @@ def round_half_up(val):
     return x
 
 def chunker(iter, chunk_size):
+    """Splits an iterable into smaller lists of a fixed size.
+
+    This function takes a sequence (like a list or tuple) and divides it
+    into a list of sub-lists, where each sub-list has a maximum length of
+    `chunk_size`. The final chunk may be smaller if the total number of
+    elements is not evenly divisible by `chunk_size`.
+
+    Parameters
+    ----------
+    iter : Iterable
+        The iterable (e.g., a list or tuple) to be chunked.
+    chunk_size : int
+        The desired maximum size of each chunk.
+
+    Returns
+    -------
+    list of lists
+        A list containing the smaller chunked lists.
+
+    Raises
+    ------
+    ValueError
+        If `chunk_size` is less than 1.
+    """
     chunks = []
     if chunk_size < 1:
         raise ValueError('Chunk size must be greater than 0.')
@@ -69,68 +236,22 @@ def chunker(iter, chunk_size):
         chunks.append(iter[i:(i+chunk_size)])
     return chunks
 
-# Function to check if a function is contained in the dictionary
 def is_function_in_dict(function_to_check, function_dict):
+    """Checks if a function object exists as a value in a dictionary.
+
+    This is useful for verifying if a provided callable is one of a set of
+    pre-defined, named functions.
+    """
     return function_to_check in function_dict.values()
 
-# Function to get the key corresponding to a function
 def get_key_for_function(function_to_check, function_dict):
+    """Performs a reverse lookup to find the key for a given function value.
+
+    Iterates through a dictionary to find which key corresponds to the given
+    function object. This is useful for retrieving the string name of a
+    callable from a mapping.
+    """
     for key, func in function_dict.items():
         if func == function_to_check:
             return key
     return None  # Return None if the function is not found
-
-def find_Jdes_binary_search(scheduler, target_nf, min_Jdes=100, max_Jdes=5000, *args):
-     while (min_Jdes <= max_Jdes):
-        Jdes = (min_Jdes + max_Jdes) // 2
-        if scheduler == lpsd_plan:
-            output = scheduler(*args[:3], Jdes, *args[3:])
-        else:
-            output = scheduler(*args[:5], Jdes, *args[5:])
-        nf = output.get("nf")
-        if nf is None:
-            raise ValueError("Scheduler did not return 'nf' in output.")
-        if nf == target_nf:
-            return Jdes
-        elif nf < target_nf:
-            min_Jdes = Jdes + 1
-        else:
-            max_Jdes = Jdes - 1
-
-def check_gpu_availability():
-    import torch
-    """
-    Check if GPU-accelerated devices (MPS, CUDA, or others) are available.
-
-    Returns
-    -------
-    dict: A dictionary containing the status of MPS, CUDA, and other GPU devices.
-    """
-    availability = {
-        "CUDA": torch.cuda.is_available(),
-        "MPS": torch.backends.mps.is_available() if hasattr(torch.backends, "mps") else False,
-        "GPU Devices": [],
-    }
-
-    if availability["CUDA"]:
-        num_cuda_devices = torch.cuda.device_count()
-        availability["GPU Devices"].extend(
-            [torch.cuda.get_device_name(i) for i in range(num_cuda_devices)]
-        )
-    elif availability["MPS"]:
-        availability["GPU Devices"].append("Metal Performance Shaders (MPS)")
-
-    return availability
-
-
-# Print the results
-if __name__ == "__main__":
-    availability = check_gpu_availability()
-    print("CUDA Available:", availability["CUDA"])
-    print("MPS Available:", availability["MPS"])
-    if availability["GPU Devices"]:
-        print("Available GPU Devices:")
-        for device in availability["GPU Devices"]:
-            print(f"- {device}")
-    else:
-        print("No GPU-accelerated devices detected.")
