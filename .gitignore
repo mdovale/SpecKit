@@ -1,0 +1,122 @@
+# ==============================
+# Python cache / build artifacts
+# ==============================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dylib
+*.dll
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+.Python
+env/
+venv/
+ENV/
+.venv/
+pip-wheel-metadata/
+share/python-wheels/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos.
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+junit/
+
+# ==============================
+# Jupyter Notebook checkpoints
+# ==============================
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# ==============================
+# Data / experiment outputs
+# ==============================
+*.pkl
+*.npz
+*.npy
+*.h5
+*.hdf5
+*.dat
+*.data
+*.log
+
+# Generated benchmark results
+tests/*.data
+tests/*.pkl
+
+# ==============================
+# OS / editor junk files
+# ==============================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+Desktop.ini
+
+# ==============================
+# IDE / editor settings
+# ==============================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.bak
+
+# ==============================
+# Local configs
+# ==============================
+*.env
+*.ini
+!pytest.ini
+
+# ==============================
+# Profiling / debug
+# ==============================
+*.prof
+*.lprof
+*.out
+*.log
+
+# ==============================
+# Project-specific ignores
+# ==============================
+# Ignore local experiment notebooks but keep tutorial ones
+notebooks/__playground.ipynb
