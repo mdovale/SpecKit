@@ -35,14 +35,10 @@
 #
 import numpy as np
 import sympy as sp
-from speckit.lpsd import lpsd, ltf, LTFObject
-
+from speckit import compute_spectrum as ltf
 import logging
-logging.basicConfig(
-format='%(asctime)s %(levelname)-8s %(message)s',
-level=logging.INFO,
-datefmt='%Y-%m-%d %H:%M:%S'
-)
+
+logger = logging.getLogger(__name__)
 
 def SISO_optimal_spectral_analysis(input, output, fs, **kwargs):
     """
@@ -74,11 +70,11 @@ def SISO_optimal_spectral_analysis(input, output, fs, **kwargs):
         optimal spectral analysis method.
     """
 
-    logging.info("Computing all spectral estimates and optimal solution...")
+    logger.info("Computing all spectral estimates and optimal solution...")
 
     csd = ltf([input, output], fs, **kwargs)
     
-    logging.info("Done.")
+    logger.info("Done.")
 
     return csd.f, np.sqrt(csd.GyySx)
 
@@ -121,7 +117,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     """
     q = len(inputs)
     if q > 5:
-        logging.warning(f"The problem dimension ({q}) is too large for the analytic solver, you may want to use MISO_numeric_optimal_spectral_analysis.")
+        logger.warning(f"The problem dimension ({q}) is too large for the analytic solver, you may want to use MISO_numeric_optimal_spectral_analysis.")
 
     N = len(inputs[0])
     for input in inputs:
@@ -130,7 +126,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     if len(output) != N:
             raise ValueError("The output time series must have the same length as the inputs")
 
-    logging.info(f"Solving {q}-dimensional symbolic problem...")
+    logger.info(f"Solving {q}-dimensional symbolic problem...")
 
     # Automatically generate symbolic elements for the vector of CSDs between inputs and outout, Sj0:
     Svec = sp.Matrix([sp.Symbol(f'S{i}0') for i in range(1, q+1)])
@@ -147,8 +143,8 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     # Solve the system symbolically:
     solution = sp.solve(eqns, Hvec)
 
-    logging.info(f"Solution: {solution}")
-    logging.info("Computing all spectral estimates...")
+    logger.info(f"Solution: {solution}")
+    logger.info("Computing all spectral estimates...")
     result = {}
     for i in range(q):
         for j in range(i+1,q):
@@ -166,7 +162,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     result['S00'] = obj.Gyy
     result['f'] = obj.f
 
-    logging.info("Computing solution...")
+    logger.info("Computing solution...")
     for Hi_symbol, Hi_expr in solution.items():
         try:
             # Convert the symbolic expression to a numerical lambda function
@@ -180,7 +176,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
             result[str(Hi_symbol)] = np.asarray(Hi_numeric_value, dtype=complex)
 
         except Exception as e:
-            logging.error(f"Error during numerical computation for {Hi_symbol}: {e}")
+            logger.error(f"Error during numerical computation for {Hi_symbol}: {e}")
             raise
 
     Sum1 = np.array([0]*len(result['f']), dtype=complex)
@@ -195,7 +191,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     # Compute optimal analysis (Equation 8.16, page 191):
     result['optimal_asd'] = np.abs(np.sqrt(result['S00'] - Sum1 - Sum2 + Sum3))
 
-    logging.info("Done.")
+    logger.info("Done.")
 
     # return result
     return result['f'], result['optimal_asd']
@@ -246,7 +242,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     if len(output) != N:
         raise ValueError("The output time series must have the same length as the inputs")
 
-    logging.info(f"Solving {q}-dimensional problem...")
+    logger.info(f"Solving {q}-dimensional problem...")
 
     # Dictionary to cache results of ltf calls:
     result = {}
@@ -258,7 +254,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
             result[key] = obj
         return result[key]
 
-    logging.info("Computing the auto-spectrum of the output...")
+    logger.info("Computing the auto-spectrum of the output...")
     obj = get_ltf_result("S00", output, fs, **kwargs)
     S00 = obj.Gxx
     frequencies = obj.f
@@ -268,7 +264,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     Tmat = np.zeros((q, q, nf), dtype=complex)  # Coherence matrix of inputs
     Svec = np.zeros((q, nf), dtype=complex)  # Cross-spectral densities of inputs and output
 
-    logging.info("Computing all other spectral estimates...")
+    logger.info("Computing all other spectral estimates...")
     for i in range(q):
         for j in range(i+1, q):
             obj = get_ltf_result(f"T{i+1}{j+1}", [inputs[i], inputs[j]], fs, **kwargs)
@@ -284,7 +280,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
         obj = get_ltf_result(f"S{i+1}0", [inputs[i], output], fs, **kwargs)
         Svec[i, :] = obj.Gxy
 
-    logging.info("Computing solution...")
+    logger.info("Computing solution...")
     # Solve for the optimal transfer functions numerically:
     Hvec = np.zeros((q, nf), dtype=complex)
     for k in range(nf):
@@ -301,6 +297,6 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     # Compute optimal analysis (Equation 8.16, page 191):
     optimal_asd = np.abs(np.sqrt(S00 - Sum1 - Sum2 + Sum3))
 
-    logging.info("Done.")
+    logger.info("Done.")
 
     return frequencies, optimal_asd

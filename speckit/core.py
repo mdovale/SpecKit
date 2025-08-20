@@ -33,27 +33,25 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import sys
-import copy
 import time
-import math
 import logging
 from typing import List, Dict, Any, Union, Callable, Optional, Tuple
 
 import numpy as np
+from numpy import kaiser as np_kaiser
+from scipy.signal.windows import kaiser as sp_kaiser
 import pandas as pd
 import control as ct
-import scipy.signal.windows as windows
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 import multiprocessing as mp
 
-from .flattop import olap_dict, win_dict
-from .dsp import integral_rms, numpy_detrend
-from .utils import (kaiser_alpha, kaiser_rov, round_half_up, chunker,
+from speckit.flattop import olap_dict, win_dict
+from speckit.dsp import integral_rms, numpy_detrend
+from speckit.utils import (kaiser_alpha, kaiser_rov, round_half_up, chunker,
                     is_function_in_dict, get_key_for_function, find_Jdes_binary_search)
-from .schedulers import lpsd_plan, ltf_plan, new_ltf_plan
+from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +75,10 @@ class SpectrumAnalyzer:
                  Kdes: int = 100,
                  order: int = 0,
                  psll: Optional[float] = 200,
-                 win: Union[str, Callable] = np.kaiser,
+                 win: Union[str, Callable] = np_kaiser,
                  scheduler: Union[str, Callable] = 'ltf',
                  band: Optional[Tuple[float, float]] = None,
+                 force_target_nf: Optional[bool] = False,
                  verbose: bool = False):
         """
         Initializes the spectral analyzer.
@@ -122,6 +121,10 @@ class SpectrumAnalyzer:
         band : tuple of (float, float), optional
             Frequency band `(f_min, f_max)` to restrict the analysis to.
             Defaults to None (full band).
+        force_target_nf : bool, optional
+            If True, performs a search to find the `Jdes` value that
+            produces a plan with this target number of frequency bins.
+            Defaults to False.
         verbose : bool, optional
             If True, prints progress and diagnostic information. Defaults to False.
         """
@@ -131,7 +134,7 @@ class SpectrumAnalyzer:
         self.config = {
             'olap': olap, 'bmin': bmin, 'Lmin': Lmin, 'Jdes': Jdes, 'Kdes': Kdes,
             'order': order, 'psll': psll, 'win': win, 'scheduler': scheduler,
-            'band': band
+            'band': band, 'force_target_nf': force_target_nf,
         }
 
         # --- Process and validate input data ---
@@ -166,7 +169,7 @@ class SpectrumAnalyzer:
         if isinstance(win_param, str):
             win_str_name = win_param
             if win_param.lower() in ['kaiser']:
-                self.config['win_func'] = np.kaiser
+                self.config['win_func'] = np_kaiser
                 if psll is None:
                     raise ValueError("PSLL must be specified for the Kaiser window.")
                 self.config['alpha'] = kaiser_alpha(psll)
@@ -178,7 +181,8 @@ class SpectrumAnalyzer:
                 raise ValueError(f"Window function '{win_param}' not recognized.")
         elif callable(win_param):
             self.config['win_func'] = win_param
-            if win_param == np.kaiser:
+            if win_param in [np_kaiser, sp_kaiser]:
+                self.config['win_func'] = np_kaiser
                 if psll is None:
                     raise ValueError("PSLL must be specified for the Kaiser window.")
                 self.config['alpha'] = kaiser_alpha(psll)
@@ -189,7 +193,7 @@ class SpectrumAnalyzer:
 
         # Resolve automatic overlap based on the selected window
         if self.config['olap'] == "default":
-            if self.config['win_func'] == np.kaiser:
+            if self.config['win_func'] == np_kaiser:
                 self.config['final_olap'] = kaiser_rov(self.config['alpha'])
             elif win_str_name in olap_dict:
                 self.config['final_olap'] = olap_dict[win_str_name]
@@ -214,7 +218,7 @@ class SpectrumAnalyzer:
         else:
             raise TypeError("Scheduler must be a recognized string or a callable function.")
 
-    def plan(self, adjust_Jdes_to_target: Optional[int] = None) -> Dict[str, Any]:
+    def plan(self) -> Dict[str, Any]:
         """
         Generates, caches, and returns the computation plan.
 
@@ -222,30 +226,23 @@ class SpectrumAnalyzer:
         and frequency bins for the analysis. It is generated on the first call
         and cached for subsequent calls unless parameters are changed.
 
-        Parameters
-        ----------
-        adjust_Jdes_to_target : int, optional
-            If specified, performs a search to find the `Jdes` value that
-            produces a plan with this target number of frequency bins.
-            Defaults to None.
-
         Returns
         -------
         dict
             A dictionary containing the full computation plan, including arrays
             for frequencies (`f`), segment lengths (`L`), number of averages (`K`), etc.
         """
-        if self._plan_cache is not None and adjust_Jdes_to_target is None:
+        if self._plan_cache is not None:
             return self._plan_cache
 
         scheduler_func = self.config['scheduler_func']
 
-        if adjust_Jdes_to_target is not None:
+        if self.config['force_target_nf']:
             if self.verbose:
-                logging.info(f"Adjusting Jdes to target {adjust_Jdes_to_target} frequencies...")
+                logging.info(f"Adjusting plan to target {self.config['Jdes']} frequencies...")
             args = (self.nx, self.fs, self.config['final_olap'], self.config['bmin'], self.config['Lmin'], self.config['Kdes'])
-            # Note: find_Jdes_binary_search assumes ltf_plan signature; lpsd_plan is a wrapper.
-            self.config['Jdes'] = find_Jdes_binary_search(ltf_plan, adjust_Jdes_to_target, *args)
+            self.config['Jdes'] = find_Jdes_binary_search(scheduler_func, self.config['Jdes'], *args)
+            assert self.config['Jdes'] is not None, "Failed to generate plan with forced number of frequencies"
 
         # Generate plan using the selected scheduler
         if scheduler_func == lpsd_plan:
@@ -356,7 +353,7 @@ class SpectrumAnalyzer:
         m = freq / final_fres  # Fractional bin number
 
         # --- DFT Kernel Generation ---
-        if self.config['win_func'] == np.kaiser:
+        if self.config['win_func'] in [np_kaiser, sp_kaiser]:
             window = self.config['win_func'](l + 1, self.config['alpha'] * np.pi)[:-1]
         else:
             window = self.config['win_func'](l)
@@ -444,7 +441,7 @@ class SpectrumAnalyzer:
             l, m, num_averages = plan['L'][i], plan['m'][i], plan['navg'][i]
 
             # --- Window and DFT Kernel Generation ---
-            if self.config['win_func'] == np.kaiser:
+            if self.config['win_func'] in [np_kaiser, sp_kaiser]:
                 window = self.config['win_func'](l + 1, self.config['alpha'] * np.pi)[:-1]
             else:
                 window = self.config['win_func'](l)

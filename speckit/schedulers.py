@@ -37,11 +37,8 @@ import sys
 import math
 import numpy as np
 import logging
-logging.basicConfig(
-format='%(asctime)s %(levelname)-8s %(message)s',
-level=logging.INFO,
-datefmt='%Y-%m-%d %H:%M:%S'
-)
+
+logger = logging.getLogger(__name__)
 
 def lpsd_plan(N, fs, olap, Jdes, Kdes):
     """
@@ -233,19 +230,19 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
     navg = np.array(navg)
 
     # Constraint verification (note that some constraints are "soft"):
-    if not np.isclose(f[-1], fmax, rtol=0.05): logging.warning(f"ltf::ltf_plan: f[-1]={f[-1]} and fmax={fmax}")
-    if not np.allclose(f, r * b): logging.warning(f"ltf::ltf_plan: f[j] != r[j]*b[j]")
-    if not np.allclose(r * L, np.full(len(r), fs)): logging.warning(f"ltf::ltf_plan: r[j]*L[j] != fs")
-    if not np.allclose(r[:-1], np.diff(f), rtol=0.05): logging.warning(f"ltf::ltf_plan: r[j] != f[j+1] - f[j]")
-    if not np.all(L < N+1): logging.warning(f"ltf::ltf_plan: L[j] >= N+1")
-    if not np.all(L >= Lmin): logging.warning(f"ltf::ltf_plan: L[j] < Lmin")
-    if not np.all(b >= bmin * (1 - 0.05)): logging.warning(f"ltf::ltf_plan: b[j] < bmin")
-    if not np.all(L[K == 1] == N): logging.warning(f"ltf::ltf_plan: L[K==1] != N")
+    if not np.isclose(f[-1], fmax, rtol=0.05): logger.warning(f"ltf::ltf_plan: f[-1]={f[-1]} and fmax={fmax}")
+    if not np.allclose(f, r * b): logger.warning(f"ltf::ltf_plan: f[j] != r[j]*b[j]")
+    if not np.allclose(r * L, np.full(len(r), fs)): logger.warning(f"ltf::ltf_plan: r[j]*L[j] != fs")
+    if not np.allclose(r[:-1], np.diff(f), rtol=0.05): logger.warning(f"ltf::ltf_plan: r[j] != f[j+1] - f[j]")
+    if not np.all(L < N+1): logger.warning(f"ltf::ltf_plan: L[j] >= N+1")
+    if not np.all(L >= Lmin): logger.warning(f"ltf::ltf_plan: L[j] < Lmin")
+    if not np.all(b >= bmin * (1 - 0.05)): logger.warning(f"ltf::ltf_plan: b[j] < bmin")
+    if not np.all(L[K == 1] == N): logger.warning(f"ltf::ltf_plan: L[K==1] != N")
 
     # Final number of frequencies:
     nf = len(f)
     if nf == 0:
-        logging.error("Error: frequency scheduler returned zero frequencies")
+        logger.error("Error: frequency scheduler returned zero frequencies")
         sys.exit(-1)
 
     output = {"f": f, "r": r, "b": b, "m": b, "L": L, "K": K, "navg": navg, "D": D, "O": O, "nf": nf}
@@ -422,19 +419,19 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
     navg = np.array(navg)
 
     # Constraint verification (note that some constraints are "soft"):
-    if not np.isclose(f[-1], fmax, rtol=0.05): logging.warning(f"ltf::ltf_plan: f[-1]={f[-1]} and fmax={fmax}")
-    if not np.allclose(f, r * b): logging.warning(f"ltf::ltf_plan: f[j] != r[j]*b[j]")
-    if not np.allclose(r * L, np.full(len(r), fs), rtol=0.05): logging.warning(f"ltf::ltf_plan: r[j]*L[j] != fs")
-    if not np.allclose(r[:-1], np.diff(f), rtol=0.05): logging.warning(f"ltf::ltf_plan: r[j] != f[j+1] - f[j]")
-    if not np.all(L < N+1): logging.warning(f"ltf::ltf_plan: L[j] >= N+1")
-    if not np.all(L >= Lmin): logging.warning(f"ltf::ltf_plan: L[j] < Lmin")
-    if not np.all(b >= bmin * (1 - 0.05)): logging.warning(f"ltf::ltf_plan: b[j] < bmin")
-    if not np.all(L[K == 1] == N): logging.warning(f"ltf::ltf_plan: L[K==1] != N")
+    if not np.isclose(f[-1], fmax, rtol=0.05): logger.warning(f"ltf::ltf_plan: f[-1]={f[-1]} and fmax={fmax}")
+    if not np.allclose(f, r * b): logger.warning(f"ltf::ltf_plan: f[j] != r[j]*b[j]")
+    if not np.allclose(r * L, np.full(len(r), fs), rtol=0.05): logger.warning(f"ltf::ltf_plan: r[j]*L[j] != fs")
+    if not np.allclose(r[:-1], np.diff(f), rtol=0.05): logger.warning(f"ltf::ltf_plan: r[j] != f[j+1] - f[j]")
+    if not np.all(L < N+1): logger.warning(f"ltf::ltf_plan: L[j] >= N+1")
+    if not np.all(L >= Lmin): logger.warning(f"ltf::ltf_plan: L[j] < Lmin")
+    if not np.all(b >= bmin * (1 - 0.05)): logger.warning(f"ltf::ltf_plan: b[j] < bmin")
+    if not np.all(L[K == 1] == N): logger.warning(f"ltf::ltf_plan: L[K==1] != N")
 
     # Final number of frequencies:
     nf = len(f)
     if nf == 0:
-        logging.error("Error: frequency scheduler returned zero frequencies")
+        logger.error("Error: frequency scheduler returned zero frequencies")
         sys.exit(-1)
 
     output = {"f": f, "r": r, "b": b, "m": b, "L": L, "K": K, "navg": navg, "D": D, "O": O, "nf": nf}

@@ -33,7 +33,7 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-from typing import Union, Callable, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import multiprocessing as mp
