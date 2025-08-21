@@ -342,11 +342,11 @@ class SpectrumAnalyzer:
             All result attributes will be scalar values instead of arrays.
         """
         if L is not None:
-            l = int(L)
-            final_fres = self.fs / l
+            len = int(L)
+            final_fres = self.fs / len
         elif fres is not None:
             final_fres = fres
-            l = int(self.fs / fres)
+            len = int(self.fs / fres)
         else:
             raise ValueError("Either `fres` (frequency resolution) or `L` (segment length) must be provided.")
 
@@ -354,23 +354,23 @@ class SpectrumAnalyzer:
 
         # --- DFT Kernel Generation ---
         if self.config['win_func'] in [np_kaiser, sp_kaiser]:
-            window = self.config['win_func'](l + 1, self.config['alpha'] * np.pi)[:-1]
+            window = self.config['win_func'](len + 1, self.config['alpha'] * np.pi)[:-1]
         else:
-            window = self.config['win_func'](l)
+            window = self.config['win_func'](len)
         
-        p = 1j * 2 * np.pi * m / l * np.arange(l)
+        p = 1j * 2 * np.pi * m / len * np.arange(len)
         C = window * np.exp(p)  # Complex DFT kernel
 
         # --- Segmentation ---
-        navg = int(round_half_up(((self.nx - l) / (1 - self.config['final_olap'])) / l + 1))
+        navg = int(round_half_up(((self.nx - len) / (1 - self.config['final_olap'])) / len + 1))
         if navg == 1:
             shift = 0.0
             starts = [0]
         else:
-            shift = (self.nx - l) / (navg - 1)
+            shift = (self.nx - len) / (navg - 1)
             starts = np.round(np.arange(navg) * shift).astype(int)
 
-        segments = np.array([self.data[d_start: d_start + l] for d_start in starts])
+        segments = np.array([self.data[d_start: d_start + len] for d_start in starts])
 
         # --- Detrending ---
         x1s_all = segments[:, :, 0] if self.iscsd else segments
@@ -421,7 +421,7 @@ class SpectrumAnalyzer:
         # can process them just like a multi-bin result.
         single_bin_results = {
             'f': np.array([freq]), 'r': np.array([final_fres]), 'b': np.array([m]),
-            'L': np.array([l]), 'K': np.array([navg]), 'navg': np.array([navg]),
+            'L': np.array([len]), 'K': np.array([navg]), 'navg': np.array([navg]),
             'D': np.array([starts], dtype=object), 'O': np.array([self.config['final_olap']]),
             'i': np.array([0]), 'XX': np.array([MXX]), 'YY': np.array([MYY]),
             'XY': np.array([XY]), 'S12': np.array([S1**2]), 'S2': np.array([S2]),
@@ -438,19 +438,19 @@ class SpectrumAnalyzer:
         for i in f_indices:
             start_time = time.time()
             # Unpack plan for current frequency bin
-            l, m, num_averages = plan['L'][i], plan['m'][i], plan['navg'][i]
+            len, m, num_averages = plan['L'][i], plan['m'][i], plan['navg'][i]
 
             # --- Window and DFT Kernel Generation ---
             if self.config['win_func'] in [np_kaiser, sp_kaiser]:
-                window = self.config['win_func'](l + 1, self.config['alpha'] * np.pi)[:-1]
+                window = self.config['win_func'](len + 1, self.config['alpha'] * np.pi)[:-1]
             else:
-                window = self.config['win_func'](l)
+                window = self.config['win_func'](len)
 
-            p = 1j * 2 * np.pi * m / l * np.arange(l)
+            p = 1j * 2 * np.pi * m / len * np.arange(len)
             C = window * np.exp(p)  # Complex DFT kernel
 
             # --- Data Segmentation and Detrending ---
-            segments = np.array([self.data[d_start: d_start + l] for d_start in plan['D'][i]])
+            segments = np.array([self.data[d_start: d_start + len] for d_start in plan['D'][i]])
 
             x1s_all = segments[:, :, 0] if self.iscsd else segments
             x2s_all = segments[:, :, 1] if self.iscsd else None
@@ -460,10 +460,12 @@ class SpectrumAnalyzer:
                 pass
             elif order == 0:  # Mean removal
                 x1s_all -= np.mean(x1s_all, axis=1, keepdims=True)
-                if self.iscsd: x2s_all -= np.mean(x2s_all, axis=1, keepdims=True)
+                if self.iscsd: 
+                    x2s_all -= np.mean(x2s_all, axis=1, keepdims=True)
             elif order > 0:  # Polynomial detrending
                 x1s_all = np.apply_along_axis(polynomial_detrend, 1, x1s_all, order)
-                if self.iscsd: x2s_all = np.apply_along_axis(polynomial_detrend, 1, x2s_all, order)
+                if self.iscsd: 
+                    x2s_all = np.apply_along_axis(polynomial_detrend, 1, x2s_all, order)
 
             # --- DFT and Averaging ---
             rxsums = np.dot(x1s_all, np.real(C))
@@ -569,38 +571,61 @@ class SpectrumResult:
 
         # --- Derived Auto-Spectral Quantities ---
         elif name in ['psd', 'G', 'asd', 'ps']:
-            if self.iscsd: val = None
+            if self.iscsd: 
+                val = None
             else:
-                if name in ['psd', 'G']: val = self.Gxx
-                elif name == 'asd': val = np.sqrt(self.psd)
-                elif name == 'ps': val = self.psd * self.ENBW
+                if name in ['psd', 'G']: 
+                    val = self.Gxx
+                elif name == 'asd': 
+                    val = np.sqrt(self.psd)
+                elif name == 'ps': 
+                    val = self.psd * self.ENBW
 
         # --- Derived Cross-Spectral Quantities ---
         elif name in ['csd', 'Gyx', 'Hxy', 'Hyx', 'coh', 'ccoh', 'cs', 'tf', 'cf', 'cf_db', 'cf_rad', 'cf_deg', 'cf_rad_unwrapped', 'cf_deg_unwrapped']:
-            if not self.iscsd: val = None
+            if not self.iscsd: 
+                val = None
             else:
-                if name == 'csd': val = self.Gxy
-                elif name == 'Gyx': val = np.conj(self.Gxy)
-                elif name == 'Hxy': val = np.divide(np.conj(self._data['XY']), self._data['XX'], out=np.zeros_like(self._data['XX'], dtype=complex), where=self._data['XX'] != 0)
-                elif name == 'Hyx': val = np.conj(self.Hxy)
-                elif name == 'coh': val = np.divide(np.abs(self._data['XY'])**2, self._data['XX'] * self._data['YY'], out=np.zeros_like(self._data['XX']), where=(self._data['XX'] != 0) & (self._data['YY'] != 0))
-                elif name == 'ccoh': val = np.divide(self._data['XY'], np.sqrt(self._data['XX'] * self._data['YY']), out=np.zeros_like(self._data['XX'], dtype=complex), where=(self._data['XX'] != 0) & (self._data['YY'] != 0))
-                elif name == 'cs': val = self.csd * self.ENBW
-                elif name == 'tf': val = self.Hxy
-                elif name == 'cf': val = np.abs(self.Hxy)
-                elif name == 'cf_db': val = ct.mag2db(self.cf)
-                elif name == 'cf_rad': val = np.angle(self.Hxy)
-                elif name == 'cf_deg': val = np.angle(self.Hxy, deg=True)
-                elif name == 'cf_rad_unwrapped': val = np.unwrap(self.cf_rad)
-                elif name == 'cf_deg_unwrapped': val = np.rad2deg(self.cf_rad_unwrapped)
+                if name == 'csd': 
+                    val = self.Gxy
+                elif name == 'Gyx': 
+                    val = np.conj(self.Gxy)
+                elif name == 'Hxy': 
+                    val = np.divide(np.conj(self._data['XY']), self._data['XX'], out=np.zeros_like(self._data['XX'], dtype=complex), where=self._data['XX'] != 0)
+                elif name == 'Hyx': 
+                    val = np.conj(self.Hxy)
+                elif name == 'coh': 
+                    val = np.divide(np.abs(self._data['XY'])**2, self._data['XX'] * self._data['YY'], out=np.zeros_like(self._data['XX']), where=(self._data['XX'] != 0) & (self._data['YY'] != 0))
+                elif name == 'ccoh': 
+                    val = np.divide(self._data['XY'], np.sqrt(self._data['XX'] * self._data['YY']), out=np.zeros_like(self._data['XX'], dtype=complex), where=(self._data['XX'] != 0) & (self._data['YY'] != 0))
+                elif name == 'cs': 
+                    val = self.csd * self.ENBW
+                elif name == 'tf': 
+                    val = self.Hxy
+                elif name == 'cf': 
+                    val = np.abs(self.Hxy)
+                elif name == 'cf_db': 
+                    val = ct.mag2db(self.cf)
+                elif name == 'cf_rad': 
+                    val = np.angle(self.Hxy)
+                elif name == 'cf_deg': 
+                    val = np.angle(self.Hxy, deg=True)
+                elif name == 'cf_rad_unwrapped': 
+                    val = np.unwrap(self.cf_rad)
+                elif name == 'cf_deg_unwrapped': 
+                    val = np.rad2deg(self.cf_rad_unwrapped)
 
         # --- Conditional Spectra ---
         elif name in ['GyyCx', 'GyyRx', 'GyySx']:
-            if not self.iscsd: val = None
+            if not self.iscsd: 
+                val = None
             else:
-                if name == 'GyyCx': val = self.coh * self.Gyy
-                elif name == 'GyyRx': val = (1 - self.coh) * self.Gyy
-                elif name == 'GyySx': val = np.abs(self.Gyy + self.Hxy * self.Hyx * self.Gxx - self.Hyx * self.Gxy - self.Hxy * self.Gyx)
+                if name == 'GyyCx': 
+                    val = self.coh * self.Gyy
+                elif name == 'GyyRx': 
+                    val = (1 - self.coh) * self.Gyy
+                elif name == 'GyySx': 
+                    val = np.abs(self.Gyy + self.Hxy * self.Hyx * self.Gxx - self.Hyx * self.Gxy - self.Hxy * self.Gyx)
 
         # --- Errors and Deviations ---
         elif name.endswith(('_dev', '_error')):
@@ -608,20 +633,32 @@ class SpectrumResult:
             coh = self.coh if self.iscsd else np.ones_like(navg)
             
             # Standard Deviations
-            if name == 'Gxx_dev': val = self.Gxx / np.sqrt(navg)
-            elif name == 'Gyy_dev': val = self.Gyy / np.sqrt(navg) if self.iscsd else self.Gxx_dev
-            elif name == 'Hxy_dev': val = np.abs(self.Hxy) * np.sqrt(np.abs(1 - coh)) / np.sqrt(coh * 2 * navg) if self.iscsd else None
-            elif name == 'Gxy_dev': val = np.sqrt(np.abs(self.Gxy)**2 / coh / navg) if self.iscsd else None
-            elif name == 'coh_dev': val = np.sqrt(np.abs((2 * coh / navg) * (1 - coh)**2)) if self.iscsd else None
+            if name == 'Gxx_dev': 
+                val = self.Gxx / np.sqrt(navg)
+            elif name == 'Gyy_dev': 
+                val = self.Gyy / np.sqrt(navg) if self.iscsd else self.Gxx_dev
+            elif name == 'Hxy_dev': 
+                val = np.abs(self.Hxy) * np.sqrt(np.abs(1 - coh)) / np.sqrt(coh * 2 * navg) if self.iscsd else None
+            elif name == 'Gxy_dev': 
+                val = np.sqrt(np.abs(self.Gxy)**2 / coh / navg) if self.iscsd else None
+            elif name == 'coh_dev': 
+                val = np.sqrt(np.abs((2 * coh / navg) * (1 - coh)**2)) if self.iscsd else None
             
             # Normalized Random Errors
-            elif name == 'Gxx_error': val = 1 / np.sqrt(navg)
-            elif name == 'Gyy_error': val = 1 / np.sqrt(navg) if self.iscsd else self.Gxx_error
-            elif name == 'Gxy_error': val = 1 / np.sqrt(coh * navg) if self.iscsd else None
-            elif name == 'Hxy_mag_error': val = np.sqrt(np.abs(1 - coh)) / (np.sqrt(coh * 2 * navg)) if self.iscsd else None
-            elif name == 'Hxy_rad_error': val = np.arcsin(np.sqrt(np.abs(1 - coh))) / np.sqrt(coh * 2 * navg) if self.iscsd else None
-            elif name == 'Hxy_deg_error': val = np.rad2deg(self.Hxy_rad_error) if self.iscsd else None
-            elif name == 'coh_error': val = np.sqrt(2) * (1 - coh) / (np.sqrt(coh) * np.sqrt(navg)) if self.iscsd else None
+            elif name == 'Gxx_error': 
+                val = 1 / np.sqrt(navg)
+            elif name == 'Gyy_error': 
+                val = 1 / np.sqrt(navg) if self.iscsd else self.Gxx_error
+            elif name == 'Gxy_error': 
+                val = 1 / np.sqrt(coh * navg) if self.iscsd else None
+            elif name == 'Hxy_mag_error': 
+                val = np.sqrt(np.abs(1 - coh)) / (np.sqrt(coh * 2 * navg)) if self.iscsd else None
+            elif name == 'Hxy_rad_error': 
+                val = np.arcsin(np.sqrt(np.abs(1 - coh))) / np.sqrt(coh * 2 * navg) if self.iscsd else None
+            elif name == 'Hxy_deg_error': 
+                val = np.rad2deg(self.Hxy_rad_error) if self.iscsd else None
+            elif name == 'coh_error': 
+                val = np.sqrt(2) * (1 - coh) / (np.sqrt(coh) * np.sqrt(navg)) if self.iscsd else None
         
         elif name in self._data:
             val = self._data[name]
@@ -765,7 +802,8 @@ class SpectrumResult:
 
         # --- Bode Plot Logic ---
         if which == 'bode':
-            if not self.iscsd: raise ValueError("Bode plot is only available for cross-spectra.")
+            if not self.iscsd: 
+                raise ValueError("Bode plot is only available for cross-spectra.")
             fig, (ax_mag, ax_phase) = plt.subplots(2, 1, sharex=True, figsize=(7, 5))
 
             mag_data = self.cf_db if dB else self.cf
@@ -776,7 +814,8 @@ class SpectrumResult:
                 mag_error = self.Hxy_mag_error
                 lower = mag_data * (1 - sigma * mag_error)
                 upper = mag_data * (1 + sigma * mag_error)
-                if dB: lower, upper = ct.mag2db(np.maximum(1e-15, lower)), ct.mag2db(upper)
+                if dB: 
+                    lower, upper = ct.mag2db(np.maximum(1e-15, lower)), ct.mag2db(upper)
                 ax_mag.fill_between(self.f, lower, upper, alpha=0.3, label=f'±{sigma}σ', color=kwargs.get('color'))
                 ax_mag.legend()
 
@@ -796,7 +835,8 @@ class SpectrumResult:
         # --- Single Axis Plot Logic ---
         else:
             plot_type, x, y, default_label = plot_options[which]
-            if y is None: raise ValueError(f"'{which}' is not available for this analysis type.")
+            if y is None: 
+                raise ValueError(f"'{which}' is not available for this analysis type.")
 
             fig, ax1 = (ax.get_figure(), ax) if ax is not None else plt.subplots()
             plot_func = getattr(ax1, plot_type)

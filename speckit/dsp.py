@@ -44,7 +44,6 @@ from copy import deepcopy
 from scipy.integrate import cumulative_trapezoid
 from scipy.optimize import curve_fit, minimize
 from scipy.signal import welch
-from tqdm import tqdm
 from typing import List, Optional, Callable
 import warnings
 
@@ -522,19 +521,43 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
         logger.info(f"File \'{file_names[i]}\' contains {header_rows[i]} header rows.")
 
     # Data ingestion:
-    logger.info(f"Loading data and calculating maximum time series overlap...")
+    logger.info("Loading data and calculating maximum time series overlap...")
     for i, file in enumerate(file_list):
         try:
             if names_list is not None and names_list[i] is not None:
-                df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], names=names_list[i], engine='c')
+                df = pd.read_csv(
+                    file,
+                    delimiter=delimiter_list[i],
+                    skiprows=header_rows[i],
+                    names=names_list[i],
+                    engine='c'
+                )
             else:
-                df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='c')
-        except:
-            logger.warning(f"Reading {file} with Python engine")
+                df = pd.read_csv(
+                    file,
+                    delimiter=delimiter_list[i],
+                    skiprows=header_rows[i],
+                    header=0,
+                    engine='c'
+                )
+        except (pd.errors.ParserError, UnicodeDecodeError) as e:
+            logger.warning(f"Reading {file} with Python engine due to {type(e).__name__}: {e}")
             if names_list is not None and names_list[i] is not None:
-                df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], names=names_list[i], engine='python')
+                df = pd.read_csv(
+                    file,
+                    delimiter=delimiter_list[i],
+                    skiprows=header_rows[i],
+                    names=names_list[i],
+                    engine='python'
+                )
             else:
-                df = pd.read_csv(file, delimiter=delimiter_list[i], skiprows=header_rows[i], header=0, engine='python')       
+                df = pd.read_csv(
+                    file,
+                    delimiter=delimiter_list[i],
+                    skiprows=header_rows[i],
+                    header=0,
+                    engine='python'
+                )
         logger.info(f"Loaded data from file \'{file_names[i]}\' with length {len(df)}")
         record_lengths.append(len(df)  / fs_list[i]) # Data stream duration in seconds
         df_list.append(df)
@@ -669,7 +692,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
 
         # Apply preprocessing if specified
         if preprocessors[0] is not None:
-            logger.info(f"Applying preprocessor to DataFrame")
+            logger.info("Applying preprocessor to DataFrame")
             df = preprocessors[0](df)
 
         # Interpolation

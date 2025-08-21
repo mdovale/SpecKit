@@ -68,7 +68,6 @@ from numpy.typing import ArrayLike, NDArray
 from scipy.signal import butter, lfilter
 
 import numba
-import numpy as np
 from scipy import signal
 
 _INDEX_LIMIT = np.iinfo(np.intp).max

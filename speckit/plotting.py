@@ -36,12 +36,10 @@
 import copy
 import numpy as np
 import pandas as pd
-from scipy.special import jv
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import matplotlib.dates as mdates
-from matplotlib.colors import LinearSegmentedColormap, Normalize
-from matplotlib import cm
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
