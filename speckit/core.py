@@ -39,6 +39,7 @@ from typing import List, Dict, Any, Union, Callable, Optional, Tuple
 
 import numpy as np
 from numpy import kaiser as np_kaiser
+from numpy.lib.stride_tricks import as_strided
 from scipy.signal.windows import kaiser as sp_kaiser
 import pandas as pd
 import control as ct
@@ -318,6 +319,8 @@ class SpectrumAnalyzer:
             ]
             plan_output["nf"] = len(plan_output["f"])
 
+        plan_output['D'] = [np.array(d) for d in plan_output['D']]
+
         self._plan_cache = plan_output
         return self._plan_cache
 
@@ -515,38 +518,66 @@ class SpectrumAnalyzer:
         plan = self._plan_cache
         results_block = []
 
+        # --- OPTIMIZATION: Cache for windows and DFT kernels ---
+        window_cache = {}
+
+        # --- OPTIMIZATION: Pre-calculate strides for the data array ---
+        # This is for creating views of segments without copying data.
+        if self.iscsd:
+            # For 2-channel data, strides are (bytes_per_row, bytes_per_element)
+            itemsize = self.data.itemsize
+            strides = (self.data.shape[1] * itemsize, itemsize)
+        else:
+            strides = self.data.strides * 2 # For a 1D array becoming 2D
+
         for i in f_indices:
             start_time = time.time()
-            # Unpack plan for current frequency bin
             len, m, num_averages = plan["L"][i], plan["m"][i], plan["navg"][i]
 
-            # --- Window and DFT Kernel Generation ---
-            if self.config["win_func"] in [np_kaiser, sp_kaiser]:
-                window = self.config["win_func"](len + 1, self.config["alpha"] * np.pi)[
-                    :-1
-                ]
+            # --- OPTIMIZATION: Window and Kernel Caching ---
+            if len in window_cache:
+                window = window_cache[len]
             else:
-                window = self.config["win_func"](len)
+                # Generate and cache the window array
+                if self.config["win_func"] in [np_kaiser, sp_kaiser]:
+                    window = self.config["win_func"](len + 1, self.config["alpha"] * np.pi)[:-1]
+                else:
+                    window = self.config["win_func"](len)
+                window_cache[len] = window
 
+            # --- Recompute the kernel each time (this is fast) ---
             p = 1j * 2 * np.pi * m / len * np.arange(len)
-            C = window * np.exp(p)  # Complex DFT kernel
+            C = window * np.exp(p) # Combine windowing and kernel generation
+            
+            # --- OPTIMIZED Data Segmentation ---
+            start_indices = plan["D"][i]
+            
+            if self.iscsd:
+                shape = (len, self.data.shape[1])
+                # Create a view for each channel and then select segments
+                view_ch1 = as_strided(self.data[:, 0], shape=(self.nx - len + 1, len), strides=(strides[1], strides[1]))
+                view_ch2 = as_strided(self.data[:, 1], shape=(self.nx - len + 1, len), strides=(strides[1], strides[1]))
+                x1s_all = view_ch1[start_indices]
+                x2s_all = view_ch2[start_indices]
+            else:
+                # Create a 2D view of all possible overlapping segments
+                # This view is created without any data copying.
+                all_segments_view = as_strided(self.data, shape=(self.nx - len + 1, len), strides=strides)
+                
+                # Use fancy indexing to select the desired segments.
+                # This performs ONE highly optimized copy, not N small ones.
+                x1s_all = all_segments_view[start_indices]
+                x2s_all = None
 
-            # --- Data Segmentation and Detrending ---
-            segments = np.array(
-                [self.data[d_start : d_start + len] for d_start in plan["D"][i]]
-            )
-
-            x1s_all = segments[:, :, 0] if self.iscsd else segments
-            x2s_all = segments[:, :, 1] if self.iscsd else None
-
+            # --- Detrending ---
             order = self.config["order"]
-            if order == -1:  # Pass through
+            if order == -1:
                 pass
-            elif order == 0:  # Mean removal
+            elif order == 0:
                 x1s_all -= np.mean(x1s_all, axis=1, keepdims=True)
                 if self.iscsd:
                     x2s_all -= np.mean(x2s_all, axis=1, keepdims=True)
-            elif order > 0:  # Polynomial detrending
+            elif order > 0:
                 x1s_all = np.apply_along_axis(polynomial_detrend, 1, x1s_all, order)
                 if self.iscsd:
                     x2s_all = np.apply_along_axis(polynomial_detrend, 1, x2s_all, order)
@@ -561,21 +592,15 @@ class SpectrumAnalyzer:
             else:
                 rysums, iysums = rxsums, ixsums
 
-            # Compute power terms for all segments
             XYr_all = rysums * rxsums + iysums * ixsums
             XYi_all = iysums * rxsums - rysums * ixsums
             XX_all = rxsums**2 + ixsums**2
             YY_all = rysums**2 + iysums**2
 
-            # Average power terms
             MXX = np.mean(XX_all)
             MYY = np.mean(YY_all)
             XY = np.mean(XYr_all) + 1j * np.mean(XYi_all)
-
-            # Variance of the complex cross-power
             M2 = np.var(XYr_all + 1j * XYi_all) if num_averages > 1 else 0.0
-
-            # Window calibration factors
             S1 = np.sum(window)
             S2 = np.sum(window**2)
 
