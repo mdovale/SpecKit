@@ -324,64 +324,6 @@ class SpectrumAnalyzer:
         self._plan_cache = plan_output
         return self._plan_cache
 
-    def compute(self, pool: Optional[mp.Pool] = None) -> "SpectrumResult":
-        """
-        Executes the spectral analysis and returns a SpectrumResult object.
-
-        This method performs the core computation, which can be time-intensive.
-        It uses the generated plan to segment the data, apply windowing and
-        FFTs, and average the results.
-
-        Parameters
-        ----------
-        pool : multiprocessing.Pool, optional
-            A multiprocessing pool to parallelize the computation across
-            frequency bins. If None, the computation is done serially.
-            Defaults to None.
-
-        Returns
-        -------
-        SpectrumResult
-            An object containing all computed spectral quantities and helper methods.
-        """
-        plan = self.plan()
-        if self.verbose:
-            logging.info(f"Computing {plan['nf']} frequencies...")
-
-        start_time = time.time()
-
-        # Parallel or serial execution
-        if pool is not None and pool._processes >= 2:
-            chunk_size = int(np.ceil(plan["nf"] / pool._processes))
-            freq_indices = np.arange(plan["nf"])
-            np.random.shuffle(freq_indices)
-            f_blocks = chunker(freq_indices, chunk_size)
-            tasks = [(block,) for block in f_blocks]
-            results_list = pool.starmap(self._lpsd_core, tasks)
-        else:
-            results_list = [self._lpsd_core(np.arange(plan["nf"]))]
-
-        if self.verbose:
-            logging.info(
-                f"Computation completed in {time.time() - start_time:.2f} seconds."
-            )
-
-        # Consolidate results from all workers
-        df = pd.concat(
-            [
-                pd.DataFrame(
-                    chunk,
-                    columns=["i", "XY", "XX", "YY", "S12", "S2", "M2", "compute_t"],
-                )
-                for chunk in results_list
-            ],
-            ignore_index=True,
-        )
-        df = df.sort_values("i").reset_index(drop=True)
-
-        final_results = {**plan, **df.to_dict("list")}
-
-        return SpectrumResult(final_results, self.config, self.iscsd, self.fs)
 
     def compute_single_bin(
         self, freq: float, *, fres: Optional[float] = None, L: Optional[int] = None
@@ -512,6 +454,67 @@ class SpectrumAnalyzer:
         }
 
         return SpectrumResult(single_bin_results, self.config, self.iscsd, self.fs)
+
+
+    def compute(self, pool: Optional[mp.Pool] = None) -> "SpectrumResult":
+        """
+        Executes the spectral analysis and returns a SpectrumResult object.
+
+        This method performs the core computation, which can be time-intensive.
+        It uses the generated plan to segment the data, apply windowing and
+        FFTs, and average the results.
+
+        Parameters
+        ----------
+        pool : multiprocessing.Pool, optional
+            A multiprocessing pool to parallelize the computation across
+            frequency bins. If None, the computation is done serially.
+            Defaults to None.
+
+        Returns
+        -------
+        SpectrumResult
+            An object containing all computed spectral quantities and helper methods.
+        """
+        plan = self.plan()
+        if self.verbose:
+            logging.info(f"Computing {plan['nf']} frequencies...")
+
+        start_time = time.time()
+
+        # Parallel or serial execution
+        if pool is not None and pool._processes >= 2:
+            chunk_size = int(np.ceil(plan["nf"] / pool._processes))
+            freq_indices = np.arange(plan["nf"])
+            np.random.shuffle(freq_indices)
+            f_blocks = chunker(freq_indices, chunk_size)
+            tasks = [(block,) for block in f_blocks]
+            results_list = pool.starmap(self._lpsd_core, tasks)
+        else:
+            results_list = [self._lpsd_core(np.arange(plan["nf"]))]
+
+        if self.verbose:
+            logging.info(
+                f"Computation completed in {time.time() - start_time:.2f} seconds."
+            )
+
+        # Consolidate results from all workers
+        df = pd.concat(
+            [
+                pd.DataFrame(
+                    chunk,
+                    columns=["i", "XY", "XX", "YY", "S12", "S2", "M2", "compute_t"],
+                )
+                for chunk in results_list
+            ],
+            ignore_index=True,
+        )
+        df = df.sort_values("i").reset_index(drop=True)
+
+        final_results = {**plan, **df.to_dict("list")}
+
+        return SpectrumResult(final_results, self.config, self.iscsd, self.fs)
+
 
     def _lpsd_core(self, f_indices: np.ndarray) -> List[Any]:
         """The core processing loop for a block of frequency indices."""
