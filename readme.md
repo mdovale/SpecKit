@@ -110,11 +110,9 @@ plt.show()
 
 ---
 
-## References
+## References and Acknowledgements
 
-SpecKit’s algorithms are grounded in established digital signal processing and spectral analysis theory. Key references include:
-
-1. **General Spectral Analysis and Error Propagation**  
+1. **General Spectral Analysis and Uncertainty**  
    - Bendat, Piersol. *Random Data: Analysis and Measurement Procedures*. John Wiley & Sons.  
    - Bendat, Piersol. *Engineering Applications of Correlation and Spectral Analysis*. John Wiley & Sons.  
    - Primary reference for spectral definitions, interrelationships, and formulas for calculating random errors.
@@ -130,8 +128,8 @@ SpecKit’s algorithms are grounded in established digital signal processing and
    - Numba-optimized version of original code by [Jan Waldmann](https://github.com/janwaldmann/pyplnoise)
 
 4. **High-order Lagrange Interpolation**
-   - *PyTDI* [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8429119.svg)](https://doi.org/10.5281/zenodo.8429119)
-   - Original code by [Staab, Martin](https://orcid.org/0000-0001-5036-6586), [Bayle, Jean-Baptiste](https://orcid.org/0000-0001-7629-6555), [Hartwig, Olaf](https://orcid.org/0000-0003-2670-3815)
+   - [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8429119.svg)](https://doi.org/10.5281/zenodo.8429119)
+   - `dsp.timeshift` and `dsp.lagrange_taps` adopted from the PyTDI project. Credit to: [Staab, Martin](https://orcid.org/0000-0001-5036-6586), [Bayle, Jean-Baptiste](https://orcid.org/0000-0001-7629-6555), [Hartwig, Olaf](https://orcid.org/0000-0003-2670-3815)
 
 ---
 
