@@ -3,25 +3,25 @@
 It is based on a Matlab script from Joe Henning from 6 May 2013.
 
 Implemented flat-top window functions:
-SFT3F, 31.7 dB PSLL, differentiable, 0.0082 dB emax 
-SFT4F, 44.7 dB PSLL, 2nd differentiable, 0.0041 dB emax 
-SFT5F, 57.3 dB PSLL, 3rd differentiable, -0.0025 dB emax 
-SFT3M, 44.2 dB PSLL, -0.0115 dB emax 
-SFT4M, 66.5 dB PSLL, -0.0067 dB emax 
-SFT5M, 89.9 dB PSLL, 0.0039 dB emax 
-FTNI (National Instruments), 44.4 dB PSLL, 0.0169 dB emax 
-FTHP (old Hewlett Packard), 70.4 dB PSLL, 0.0096 dB emax 
-FTSRS (Stanford Research SR785), 76.6 dB PSLL, differentiable, -0.0156 dB emax 
-Matlab, 93.0 dB PSLL, 0.0097 dB emax 
-HFT70 (3-term cosine), 70.4 dB PSLL, -0.0065 dB emax 
-HFT95 (4-term cosine), 95.0 dB PSLL, 0.0044 dB emax 
-HFT90D (4-term cosine), 90.2 dB PSLL, differentiable, -0.0039 dB emax 
-HFT116D (5-term cosine), 116.8 dB PSLL, differentiable, -0.0028 dB emax 
-HFT144D (6-term cosine), 144.1 dB PSLL, differentiable, 0.0021 dB emax 
-HFT169D (7-term cosine), 169.5 dB PSLL, differentiable, 0.0017 dB emax 
-HFT196D (8-term cosine), 196.2 dB PSLL, differentiable, 0.0013 dB emax 
-HFT223D (9-term cosine), 223.0 dB PSLL, differentiable, -0.0011 dB emax 
-HFT248D (10-term cosine), 248.4 dB PSLL, differentiable, 0.0009 dB emax 
+SFT3F, 31.7 dB PSLL, differentiable, 0.0082 dB emax
+SFT4F, 44.7 dB PSLL, 2nd differentiable, 0.0041 dB emax
+SFT5F, 57.3 dB PSLL, 3rd differentiable, -0.0025 dB emax
+SFT3M, 44.2 dB PSLL, -0.0115 dB emax
+SFT4M, 66.5 dB PSLL, -0.0067 dB emax
+SFT5M, 89.9 dB PSLL, 0.0039 dB emax
+FTNI (National Instruments), 44.4 dB PSLL, 0.0169 dB emax
+FTHP (old Hewlett Packard), 70.4 dB PSLL, 0.0096 dB emax
+FTSRS (Stanford Research SR785), 76.6 dB PSLL, differentiable, -0.0156 dB emax
+Matlab, 93.0 dB PSLL, 0.0097 dB emax
+HFT70 (3-term cosine), 70.4 dB PSLL, -0.0065 dB emax
+HFT95 (4-term cosine), 95.0 dB PSLL, 0.0044 dB emax
+HFT90D (4-term cosine), 90.2 dB PSLL, differentiable, -0.0039 dB emax
+HFT116D (5-term cosine), 116.8 dB PSLL, differentiable, -0.0028 dB emax
+HFT144D (6-term cosine), 144.1 dB PSLL, differentiable, 0.0021 dB emax
+HFT169D (7-term cosine), 169.5 dB PSLL, differentiable, 0.0017 dB emax
+HFT196D (8-term cosine), 196.2 dB PSLL, differentiable, 0.0013 dB emax
+HFT223D (9-term cosine), 223.0 dB PSLL, differentiable, -0.0011 dB emax
+HFT248D (10-term cosine), 248.4 dB PSLL, differentiable, 0.0009 dB emax
 
 In the above, "F" indicates "fast decaying" which enforces a high
 degree of differentiability, "M" indicates minimum sidelobe, and
@@ -37,17 +37,18 @@ Maz-Planck-Institut fur Gravitationsphysik
 Teilinstitut Hannover
 February 15, 2002
 """
+
 import numpy as np
 
 
 def SFT3F(M):
-    """Flat-top window function SFT3F. 
-    
+    """Flat-top window function SFT3F.
+
     Differentiable, -31.7 dB, NBW 3.1681 bins, 0.0082 dB, first zero at +/- 3 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -60,13 +61,13 @@ def SFT3F(M):
 
 
 def SFT4F(M):
-    """Flat-top window function SFT4F. 
-    
+    """Flat-top window function SFT4F.
+
     2nd differentiable, -44.7 dB, NBW 3.7970 bins, 0.0041 dB, first zero at +/- 4 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -80,13 +81,13 @@ def SFT4F(M):
 
 
 def SFT5F(M):
-    """Flat-top window function SFT5F. 
-    
+    """Flat-top window function SFT5F.
+
     3rd differentiable, -57.3 dB, NBW 4.3412 bins, -0.0025 dB, first zero at +/- 5 bins
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -96,19 +97,24 @@ def SFT5F(M):
     a2 = 0.28702
     a3 = 0.13077
     a4 = 0.02488
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+    )
     return w
 
 
 def SFT3M(M):
-    """Flat-top window function SFT3M. 
-    
+    """Flat-top window function SFT3M.
+
     -44.2 dB, NBW 2.9452 bins, -0.0115 dB, first zero at +/- 3 bins
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -121,13 +127,13 @@ def SFT3M(M):
 
 
 def SFT4M(M):
-    """Flat-top window function SFT4M. 
-    
+    """Flat-top window function SFT4M.
+
     -66.5 dB, NBW 3.3868 bins, -0.0067 dB, first zero at +/- 4 bins
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -141,13 +147,13 @@ def SFT4M(M):
 
 
 def SFT5M(M):
-    """Flat-top window function SFT5F. 
-    
+    """Flat-top window function SFT5F.
+
     -89.9 dB, NBW 3.8852 bins, 0.0039 dB, first zero at +/- 5 bins
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -157,19 +163,24 @@ def SFT5M(M):
     a2 = 0.281225
     a3 = 0.092669
     a4 = 0.0091036
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+    )
     return w
 
 
 def FTNI(M):
-    """Flat-top window function FTNI (National Instruments). 
-    
+    """Flat-top window function FTNI (National Instruments).
+
     -44.4 dB, NBW 2.9656 bins, 0.0169 dB, first zero at +/- 3 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -182,13 +193,13 @@ def FTNI(M):
 
 
 def FTHP(M):
-    """Flat-top window function # FTHP (old Hewlett Packard). 
-    
+    """Flat-top window function # FTHP (old Hewlett Packard).
+
     -70.4 dB, NBW 3.4279 bins, 0.0096 dB, first zero at +/- 4 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -202,13 +213,13 @@ def FTHP(M):
 
 
 def FTSR(M):
-    """Flat-top window function FTSRS (Stanford Research SR785). 
-    
+    """Flat-top window function FTSRS (Stanford Research SR785).
+
     Differentiable, -76.6 dB, NBW 3.7702 bins, -0.0156 dB, first zero at +/- 4.72 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -218,19 +229,24 @@ def FTSR(M):
     a2 = 1.29
     a3 = 0.388
     a4 = 0.028
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+    )
     return w
 
 
 def Matlab(M):
-    """Flat-top window function Matlab. 
-    
+    """Flat-top window function Matlab.
+
     -93.0 dB, NBW 3.774 bins, 0.0025 dB, first zero at +/- 5.01 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -240,19 +256,24 @@ def Matlab(M):
     a2 = 0.277263158
     a3 = 0.083578947
     a4 = 0.006947368
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+    )
     return w
 
 
 def HFT70(M):
-    """Flat-top window function HFT70 (lowest sidelobe level with 3 np.cosine terms). 
-    
+    """Flat-top window function HFT70 (lowest sidelobe level with 3 np.cosine terms).
+
     -70.4 dB, NBW 3.4129 bins, -0.0065 dB, first zero at +/- 4 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -267,13 +288,13 @@ def HFT70(M):
 
 
 def HFT95(M):
-    """Flat-top window function HFT95 (lowest sidelobe level with 4 np.cosine terms),  
-    
+    """Flat-top window function HFT95 (lowest sidelobe level with 4 np.cosine terms),
+
     -95.0 dB, NBW 3.8112 bins, 0.0044 dB, first zero at +/- 5 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -283,19 +304,24 @@ def HFT95(M):
     a2 = 1.3045202
     a3 = 0.4028270
     a4 = 0.0350665
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+    )
     return w
 
 
 def HFT90D(M):
-    """Flat-top window function HFT90D (lowest sidelobe level with 4 np.cosine terms). 
-    
+    """Flat-top window function HFT90D (lowest sidelobe level with 4 np.cosine terms).
+
     Differentiable, -90.2, NBW 3.8832 bins, -0.0039 dB, first zero at +/- 5 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -305,19 +331,24 @@ def HFT90D(M):
     a2 = 1.340318
     a3 = 0.440811
     a4 = 0.043097
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+    )
     return w
 
 
 def HFT116D(M):
     """Flat-top window function HFT116D (lowest sidelobe level with 5 np.cosine terms).
-    
+
     Differentiable, -116.8 dB, NBW 4.2186 bins, -0.0028 dB, first zero at +/- 6 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -328,19 +359,25 @@ def HFT116D(M):
     a3 = 0.6367431
     a4 = 0.1228389
     a5 = 0.0066288
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z) - a5 * np.cos(10 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+        - a5 * np.cos(10 * z)
+    )
     return w
 
 
 def HFT144D(M):
     """Flat-top window function HFT144D (lowest sidelobe level with 6 np.cosine terms).
-    
+
     Differentiable, -144.1 dB, NBW 4.5386 bins, 0.0021 dB, first zero at +/- 7 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -352,19 +389,26 @@ def HFT144D(M):
     a4 = 0.22583558
     a5 = 0.02773848
     a6 = 0.00090360
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z) - a5 * np.cos(10 * z) + a6 * np.cos(12 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+        - a5 * np.cos(10 * z)
+        + a6 * np.cos(12 * z)
+    )
     return w
 
 
 def HFT169D(M):
     """Flat-top window function HFT169D (lowest sidelobe level with 7 np.cosine terms).
-    
+
     Differentiable, -169.5 dB, NBW 4.8347 bins, 0.0017 dB, first zero at +/- 8 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -377,20 +421,27 @@ def HFT169D(M):
     a5 = 0.06364621
     a6 = 0.00521942
     a7 = 0.00010599
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z) - a5 * np.cos(10 * z) + a6 * np.cos(
-            12 * z) - a7 * np.cos(14 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+        - a5 * np.cos(10 * z)
+        + a6 * np.cos(12 * z)
+        - a7 * np.cos(14 * z)
+    )
     return w
 
 
 def HFT196D(M):
     """Flat-top window function HFT196D (lowest sidelobe level with 8 np.cosine terms).
-    
+
     Differentiable, -196.2 dB, NBW 5.1134 bins, 0.0013 dB, first zero at +/- 9 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -404,20 +455,28 @@ def HFT196D(M):
     a6 = 0.015122992
     a7 = 0.000871252
     a8 = 0.000011896
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z) - a5 * np.cos(10 * z) + a6 * np.cos(
-            12 * z) - a7 * np.cos(14 * z) + a8 * np.cos(16 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+        - a5 * np.cos(10 * z)
+        + a6 * np.cos(12 * z)
+        - a7 * np.cos(14 * z)
+        + a8 * np.cos(16 * z)
+    )
     return w
 
 
 def HFT223D(M):
     """Flat-top window function HFT223D (lowest sidelobe level with 9 np.cosine terms).
-    
+
     Differentiable, -223.0 dB, NBW 5.3888 bins, -0.0011 dB, first zero at +/- 10 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -432,21 +491,29 @@ def HFT223D(M):
     a7 = 0.00324954578
     a8 = 0.00013801040
     a9 = 0.00000132725
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z) - a5 * np.cos(10 * z) + a6 * np.cos(
-            12 * z) - a7 * np.cos(14 * z) + a8 * np.cos(16 * z) - a9 * np.cos(
-                18 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+        - a5 * np.cos(10 * z)
+        + a6 * np.cos(12 * z)
+        - a7 * np.cos(14 * z)
+        + a8 * np.cos(16 * z)
+        - a9 * np.cos(18 * z)
+    )
     return w
 
 
 def HFT248D(M):
     """Flat-top window function HFT248D (lowest sidelobe level with 10 np.cosine terms).
-    
+
     Differentiable, -248.4 dB, NBW 5.6512 bins, 0.0009 dB, first zero at +/- 11 bins.
-    
+
     Args:
         M (int): Points in the output window.
-    
+
     Returns:
         np.array(): Window values as vector.
     """
@@ -462,10 +529,19 @@ def HFT248D(M):
     a8 = 0.000624544650
     a9 = 0.000019808998
     a10 = 0.000000132974
-    w = a0 - a1 * np.cos(2 * z) + a2 * np.cos(4 * z) - a3 * np.cos(
-        6 * z) + a4 * np.cos(8 * z) - a5 * np.cos(10 * z) + a6 * np.cos(
-            12 * z) - a7 * np.cos(14 * z) + a8 * np.cos(16 * z) - a9 * np.cos(
-                18 * z) + a10 * np.cos(20 * z)
+    w = (
+        a0
+        - a1 * np.cos(2 * z)
+        + a2 * np.cos(4 * z)
+        - a3 * np.cos(6 * z)
+        + a4 * np.cos(8 * z)
+        - a5 * np.cos(10 * z)
+        + a6 * np.cos(12 * z)
+        - a7 * np.cos(14 * z)
+        + a8 * np.cos(16 * z)
+        - a9 * np.cos(18 * z)
+        + a10 * np.cos(20 * z)
+    )
     return w
 
 
@@ -534,7 +610,7 @@ olap_dict = {
     27: 0.812,
     28: 0.823,
     29: 0.833,
-    30: 0.841
+    30: 0.841,
 }
 
 win_dict = {
@@ -555,5 +631,5 @@ win_dict = {
     "HFT169D": HFT169D,
     "HFT196D": HFT196D,
     "HFT223D": HFT223D,
-    "HFT248D": HFT248D
+    "HFT248D": HFT248D,
 }

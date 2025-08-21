@@ -40,6 +40,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def lpsd_plan(N, fs, olap, Jdes, Kdes):
     """
     Original LPSD scheduler.
@@ -49,14 +50,15 @@ def lpsd_plan(N, fs, olap, Jdes, Kdes):
 
     return ltf_plan(N, fs, olap, 1.0, 1, Jdes, Kdes)
 
+
 def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
     """
     LTF scheduler from S2-AEI-TN-3052 (Gerhard Heinzel).
 
-    Based on the input parameters, the algorithm generates an array of 
-    frequencies (f), with corresponding resolution bandwidths (r), bin 
-    numbers (b), segment lengths (L), number of averages (K), and starting 
-    indices (D) for subsequent spectral analysis of time series using 
+    Based on the input parameters, the algorithm generates an array of
+    frequencies (f), with corresponding resolution bandwidths (r), bin
+    numbers (b), segment lengths (L), number of averages (K), and starting
+    indices (D) for subsequent spectral analysis of time series using
     the windowed, overlapped segmented averaging method.
 
     The time series will then be segmented for each frequency as follows:
@@ -69,7 +71,7 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
     .                                                                       [---------] segment length L[j]
                                                                                         starting at index D[j][-1]
 
-    Inputs: 
+    Inputs:
         N (int): Total length of the input data.
         fs (float): Sampling frequency of the input data.
         olap (float): Desired fractional overlap between segments of the input data.
@@ -113,7 +115,7 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
 
     Targets:
     1. r[j]/f[j] = x1[j] with x1[j] -> logfact:
-    This targets the approximate logarithmic spacing of frequencies on the x-axis, 
+    This targets the approximate logarithmic spacing of frequencies on the x-axis,
     and also the desired number of frequencies Jdes.
 
     2. if K[j] = 1, then L[j] = nx:
@@ -121,10 +123,11 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
     can and will be adjusted such that the complete time series is used, at the expense of not precisely achieving the desired overlap.
 
     3. K[j] >= Kdes:
-    This describes the desire to have at least Kdes segments for averaging at each frequency. As mentioned above, 
-    this cannot be met at low frequencies but is easy to over-achieve at high frequencies, such that this serves only as a 
+    This describes the desire to have at least Kdes segments for averaging at each frequency. As mentioned above,
+    this cannot be met at low frequencies but is easy to over-achieve at high frequencies, such that this serves only as a
     guideline for ﬁnding compromises in the scheduler.
     """
+
     def round_half_up(val):
         if (float(val) % 1) >= 0.5:
             x = math.ceil(val)
@@ -133,12 +136,12 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
         return x
 
     # Init constants:
-    xov = (1 - olap)
+    xov = 1 - olap
     fmin = fs / N * bmin
     fmax = fs / 2
     fresmin = fs / N
     freslim = fresmin * (1 + xov * (Kdes - 1))
-    logfact = (N / 2)**(1 / Jdes) - 1
+    logfact = (N / 2) ** (1 / Jdes) - 1
 
     # Init lists:
     Frequencies = []
@@ -156,8 +159,8 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
         fres = fi * logfact
         if fres >= freslim:
             pass
-        elif fres < freslim and (freslim * fres)**0.5 > fresmin:
-            fres = (freslim * fres)**0.5
+        elif fres < freslim and (freslim * fres) ** 0.5 > fresmin:
+            fres = (freslim * fres) ** 0.5
         else:
             fres = fresmin
 
@@ -230,21 +233,23 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
     Averages = np.array(Averages)
 
     # Constraint verification (note that some constraints are "soft"):
-    if not np.isclose(Frequencies[-1], fmax, rtol=0.05): 
+    if not np.isclose(Frequencies[-1], fmax, rtol=0.05):
         logger.warning(f"ltf::ltf_plan: f[-1]={Frequencies[-1]} and fmax={fmax}")
-    if not np.allclose(Frequencies, FrequencyResolutions * BinNumbers): 
+    if not np.allclose(Frequencies, FrequencyResolutions * BinNumbers):
         logger.warning("ltf::ltf_plan: f[j] != r[j]*b[j]")
-    if not np.allclose(FrequencyResolutions * SegmentLengths, np.full(len(FrequencyResolutions), fs)): 
+    if not np.allclose(
+        FrequencyResolutions * SegmentLengths, np.full(len(FrequencyResolutions), fs)
+    ):
         logger.warning("ltf::ltf_plan: r[j]*L[j] != fs")
-    if not np.allclose(FrequencyResolutions[:-1], np.diff(Frequencies), rtol=0.05): 
+    if not np.allclose(FrequencyResolutions[:-1], np.diff(Frequencies), rtol=0.05):
         logger.warning("ltf::ltf_plan: r[j] != f[j+1] - f[j]")
-    if not np.all(SegmentLengths < N+1): 
+    if not np.all(SegmentLengths < N + 1):
         logger.warning("ltf::ltf_plan: L[j] >= N+1")
-    if not np.all(SegmentLengths >= Lmin): 
+    if not np.all(SegmentLengths >= Lmin):
         logger.warning("ltf::ltf_plan: L[j] < Lmin")
-    if not np.all(BinNumbers >= bmin * (1 - 0.05)): 
+    if not np.all(BinNumbers >= bmin * (1 - 0.05)):
         logger.warning("ltf::ltf_plan: b[j] < bmin")
-    if not np.all(SegmentLengths[NSegments == 1] == N): 
+    if not np.all(SegmentLengths[NSegments == 1] == N):
         logger.warning("ltf::ltf_plan: L[K==1] != N")
 
     # Final number of frequencies:
@@ -253,9 +258,21 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
         logger.error("Error: frequency scheduler returned zero frequencies")
         sys.exit(-1)
 
-    output = {"f": Frequencies, "r": FrequencyResolutions, "b": BinNumbers, "m": BinNumbers, "L": SegmentLengths, "K": NSegments, "navg": Averages, "D": Offsets, "O": Overlaps, "nf": nf}
+    output = {
+        "f": Frequencies,
+        "r": FrequencyResolutions,
+        "b": BinNumbers,
+        "m": BinNumbers,
+        "L": SegmentLengths,
+        "K": NSegments,
+        "navg": Averages,
+        "D": Offsets,
+        "O": Overlaps,
+        "nf": nf,
+    }
 
     return output
+
 
 def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
     """
@@ -263,20 +280,21 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
 
     Work in progress.
     """
+
     def round_half_up(val):
         if (float(val) % 1) >= 0.5:
             x = math.ceil(val)
         else:
             x = round(val)
         return x
-    
+
     # Init constants:
-    xov = (1 - olap)
+    xov = 1 - olap
     fmin = fs / N * bmin
     fmax = fs / 2
     fresmin = fs / N
     freslim = fresmin * (1 + xov * (Kdes - 1))
-    logfact = (N / 2)**(1 / Jdes) - 1
+    logfact = (N / 2) ** (1 / Jdes) - 1
 
     # Init lists:
     Frequencies = []
@@ -301,8 +319,8 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
         if fres >= freslim:
             third_stage = True
             break
-        elif fres < freslim and (freslim * fres)**0.5 > fresmin:
-            fres = (freslim * fres)**0.5
+        elif fres < freslim and (freslim * fres) ** 0.5 > fresmin:
+            fres = (freslim * fres) ** 0.5
         else:
             fres = fresmin
 
@@ -336,9 +354,9 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
 
         fi = fi + fres
         j = j + 1
-    
+
     if third_stage:
-        alpha = 1.0*np.log(Lmin / dftlen_crossover) / (Jdes - j - 1)
+        alpha = 1.0 * np.log(Lmin / dftlen_crossover) / (Jdes - j - 1)
         k = 0
         while fi < fmax:
             dftlen = int(dftlen_crossover * np.exp(alpha * (k + 0)))
@@ -349,17 +367,17 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
                 break
 
             if k == 0:
-                fres = fs / dftlen 
+                fres = fs / dftlen
                 fi = fi + fres
-                fi = (fi + f_crossover)/2
-                if fi > fmax: 
+                fi = (fi + f_crossover) / 2
+                if fi > fmax:
                     break
                 fres = fi - f_crossover
                 fbin = fi / fres
             else:
                 fres = fs / dftlen
                 fi = fi + fres
-                if fi > fmax: 
+                if fi > fmax:
                     break
                 fbin = fi / fres
 
@@ -377,10 +395,10 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
             nseg = int(round_half_up((N - dftlen) / (xov * dftlen) + 1))
             fres = fs / dftlen
             fi = fi + fres
-            if fi > fmax: 
+            if fi > fmax:
                 break
             fbin = fi / fres
-            Frequencies.append(fi)    
+            Frequencies.append(fi)
             FrequencyResolutions.append(fres)
             BinNumbers.append(fbin)
             SegmentLengths.append(dftlen)
@@ -429,21 +447,25 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
     Averages = np.array(Averages)
 
     # Constraint verification (note that some constraints are "soft"):
-    if not np.isclose(Frequencies[-1], fmax, rtol=0.05): 
+    if not np.isclose(Frequencies[-1], fmax, rtol=0.05):
         logger.warning(f"ltf::ltf_plan: f[-1]={Frequencies[-1]} and fmax={fmax}")
-    if not np.allclose(Frequencies, FrequencyResolutions * BinNumbers): 
+    if not np.allclose(Frequencies, FrequencyResolutions * BinNumbers):
         logger.warning("ltf::ltf_plan: f[j] != r[j]*b[j]")
-    if not np.allclose(FrequencyResolutions * SegmentLengths, np.full(len(FrequencyResolutions), fs), rtol=0.05): 
+    if not np.allclose(
+        FrequencyResolutions * SegmentLengths,
+        np.full(len(FrequencyResolutions), fs),
+        rtol=0.05,
+    ):
         logger.warning("ltf::ltf_plan: r[j]*L[j] != fs")
-    if not np.allclose(FrequencyResolutions[:-1], np.diff(Frequencies), rtol=0.05): 
+    if not np.allclose(FrequencyResolutions[:-1], np.diff(Frequencies), rtol=0.05):
         logger.warning("ltf::ltf_plan: r[j] != f[j+1] - f[j]")
-    if not np.all(SegmentLengths < N+1): 
+    if not np.all(SegmentLengths < N + 1):
         logger.warning("ltf::ltf_plan: L[j] >= N+1")
-    if not np.all(SegmentLengths >= Lmin): 
+    if not np.all(SegmentLengths >= Lmin):
         logger.warning("ltf::ltf_plan: L[j] < Lmin")
-    if not np.all(BinNumbers >= bmin * (1 - 0.05)): 
+    if not np.all(BinNumbers >= bmin * (1 - 0.05)):
         logger.warning("ltf::ltf_plan: b[j] < bmin")
-    if not np.all(SegmentLengths[NSegments == 1] == N): 
+    if not np.all(SegmentLengths[NSegments == 1] == N):
         logger.warning("ltf::ltf_plan: L[K==1] != N")
 
     # Final number of frequencies:
@@ -452,6 +474,17 @@ def new_ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
         logger.error("Error: frequency scheduler returned zero frequencies")
         sys.exit(-1)
 
-    output = {"f": Frequencies, "r": FrequencyResolutions, "b": BinNumbers, "m": BinNumbers, "L": SegmentLengths, "K": NSegments, "navg": Averages, "D": Offsets, "O": Overlaps, "nf": nf}
+    output = {
+        "f": Frequencies,
+        "r": FrequencyResolutions,
+        "b": BinNumbers,
+        "m": BinNumbers,
+        "L": SegmentLengths,
+        "K": NSegments,
+        "navg": Averages,
+        "D": Offsets,
+        "O": Overlaps,
+        "nf": nf,
+    }
 
     return output

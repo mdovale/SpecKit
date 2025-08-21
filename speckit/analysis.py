@@ -40,21 +40,16 @@ import multiprocessing as mp
 
 from .core import SpectrumAnalyzer, SpectrumResult
 
+
 def lpsd(
-    data: np.ndarray,
-    fs: float, *,
-    pool: Optional[mp.Pool] = None,
-    **kwargs
+    data: np.ndarray, fs: float, *, pool: Optional[mp.Pool] = None, **kwargs
 ) -> SpectrumResult:
-    """ Same as compute_spectrum.
-    """
+    """Same as compute_spectrum."""
     return compute_spectrum(data, fs, pool, **kwargs)
 
+
 def compute_spectrum(
-    data: np.ndarray,
-    fs: float, *,
-    pool: Optional[mp.Pool] = None,
-    **kwargs
+    data: np.ndarray, fs: float, *, pool: Optional[mp.Pool] = None, **kwargs
 ) -> SpectrumResult:
     """
     Computes spectral estimates for one or two time-series in a single call.
@@ -92,7 +87,7 @@ def compute_spectrum(
     -------
     SpectrumResult
         An object containing all computed spectral quantities and helper methods.
-        
+
     Examples
     --------
     >>> import numpy as np
@@ -100,13 +95,13 @@ def compute_spectrum(
     >>> fs = 1000
     >>> t = np.arange(0, 10, 1/fs)
     >>> signal = np.sin(2 * np.pi * 50 * t) + 0.5 * np.random.randn(len(t))
-    
+
     >>> # Compute the ASD in one line
     >>> result = speckit.compute_spectrum(signal, fs=fs, win='hann')
-    
+
     >>> # Access the results
     >>> print(result.asd)
-    
+
     >>> # Use the built-in plotting
     >>> fig, ax = result.plot('asd')
     >>> plt.show()
@@ -120,13 +115,15 @@ def compute_spectrum(
     # 3. Return the final result object
     return result
 
+
 def compute_single_bin(
     data: np.ndarray,
     fs: float,
-    freq: float, *,
+    freq: float,
+    *,
     fres: Optional[float] = None,
     L: Optional[int] = None,
-    **kwargs
+    **kwargs,
 ) -> SpectrumResult:
     """
     Computes spectral estimates for a single frequency bin in one call.
@@ -159,9 +156,9 @@ def compute_single_bin(
     """
     # 1. Instantiate the analyzer
     analyzer = SpectrumAnalyzer(data, fs, **kwargs)
-    
+
     # 2. Call the single-bin computation method
     result = analyzer.compute_single_bin(freq=freq, fres=fres, L=L)
-    
+
     # 3. Return the result
     return result

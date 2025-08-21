@@ -64,7 +64,8 @@ def frequency2phase(f, fs):
     -------
         numpy.ndarray: The phase in radians.
     """
-    return (2*np.pi/fs)*np.cumsum(np.array(f-np.mean(f)))
+    return (2 * np.pi / fs) * np.cumsum(np.array(f - np.mean(f)))
+
 
 def polynomial_detrend(x, order=1):
     """
@@ -88,8 +89,9 @@ def polynomial_detrend(x, order=1):
     trend = T @ coeffs
     return x - trend
 
+
 def crop_data(x, y, xmin, xmax):
-    """ Crop data.
+    """Crop data.
 
     Parameters
     ----------
@@ -103,9 +105,10 @@ def crop_data(x, y, xmin, xmax):
 
     # Create a boolean mask for the range condition
     mask = (x >= xmin) & (x <= xmax)
-    
+
     # Apply the mask to both x and y arrays and return
     return x[mask], y[mask]
+
 
 def truncation(x: np.ndarray, n_trunc: int) -> np.ndarray:
     """Truncate both ends of a time-series array.
@@ -133,23 +136,27 @@ def truncation(x: np.ndarray, n_trunc: int) -> np.ndarray:
 
     return x[n_trunc:-n_trunc] if n_trunc > 0 else x
 
+
 def integral_rms(fourier_freq, asd, pass_band=None):
-    """ Compute the RMS as integral of an ASD.
-    
+    """Compute the RMS as integral of an ASD.
+
     Parameters
     ----------
         fourier_freq: fourier frequency (Hz)
         asd: amplitude spectral density from which RMS is computed
-        pass_band: [0] = min, [1] = max 
+        pass_band: [0] = min, [1] = max
     """
     if pass_band is None:
-        pass_band = [-np.inf,np.inf]
+        pass_band = [-np.inf, np.inf]
 
     integral_range_min = max(np.min(fourier_freq), pass_band[0])
     integral_range_max = min(np.max(fourier_freq), pass_band[1])
-    f_tmp, asd_tmp = crop_data(fourier_freq, asd, integral_range_min, integral_range_max)
+    f_tmp, asd_tmp = crop_data(
+        fourier_freq, asd, integral_range_min, integral_range_max
+    )
     integral_rms2 = cumulative_trapezoid(asd_tmp**2, f_tmp, initial=0)
     return np.sqrt(integral_rms2[-1])
+
 
 def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=1e-2):
     """
@@ -182,12 +189,13 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     The function first applies an optional frequency band filter and then manually detects peaks by identifying points that are higher than their immediate neighbors.
     Peaks that do not meet the specified carrier-to-noise density ratio are discarded. The function returns the frequencies and measurements of the detected peaks.
     """
+
     def noise_model(x, a, b, alpha):
         return a + b * x**alpha
 
     frequency = np.array(frequency)
     measurement = np.array(measurement)
-    
+
     if freq_band is not None:
         low_freq, high_freq = freq_band
         mask = (frequency >= low_freq) & (frequency <= high_freq)
@@ -196,16 +204,20 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
 
     if len(frequency) == 0:
         return
-    
+
     # Initial peak finding
     peaks = []
     i = 1
     while i < len(measurement) - 1:
         if measurement[i - 1] < measurement[i] > measurement[i + 1]:
             peaks.append(i)
-        elif (measurement[i - 1] < measurement[i]) and np.isclose(measurement[i], measurement[i + 1], rtol=rtol):
+        elif (measurement[i - 1] < measurement[i]) and np.isclose(
+            measurement[i], measurement[i + 1], rtol=rtol
+        ):
             start = i
-            while i < len(measurement) - 1 and np.isclose(measurement[i], measurement[i + 1], rtol=rtol):
+            while i < len(measurement) - 1 and np.isclose(
+                measurement[i], measurement[i + 1], rtol=rtol
+            ):
                 i += 1
             if measurement[i] > measurement[i + 1]:
                 mid = (start + i) // 2
@@ -219,27 +231,41 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
             peaks.append(len(measurement) - 1)
     else:
         peaks = [p for p in peaks if p != 0 and p != len(measurement) - 1]
-    
+
     # Exclude peaks for noise fitting
     non_peak_mask = np.ones(len(measurement), dtype=bool)
     non_peak_mask[peaks] = False
 
     # Fit to noise model
-    popt, _ = curve_fit(noise_model, frequency[non_peak_mask], measurement[non_peak_mask])
+    popt, _ = curve_fit(
+        noise_model, frequency[non_peak_mask], measurement[non_peak_mask]
+    )
     noise_level = noise_model(frequency, *popt)
-    
+
     # Calculate CNR threshold
     cnr_threshold = noise_level * (10 ** (cnr / 10))
     valid_peaks = [p for p in peaks if measurement[p] > cnr_threshold[p]]
 
     peak_frequencies = frequency[valid_peaks]
     peak_measurements = measurement[valid_peaks]
-    
+
     return peak_frequencies, peak_measurements
 
-def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=False,  domain='time', method='TNC', tol=1e-9, *args, **kwargs):
+
+def optimal_linear_combination(
+    df,
+    inputs,
+    output,
+    timeshifts=False,
+    gradient=False,
+    domain="time",
+    method="TNC",
+    tol=1e-9,
+    *args,
+    **kwargs,
+):
     """
-    Computes the coefficients of a linear combination of optionally timeshifted "input" signals 
+    Computes the coefficients of a linear combination of optionally timeshifted "input" signals
     that minimize noise when added to the "output" signal.
 
     Target: `RMS[ output + Sum [coefficient_i * timeshift(input_i, shift_i) ] ]`
@@ -259,6 +285,7 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=Fa
         OptimizeResult: The optimization result object.
         np.ndarray: The output with optimal combination of inputs subtracted
     """
+
     def print_optimization_result(res):
         logger.info("Optimization Results:")
         logger.info("=====================")
@@ -270,34 +297,36 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=Fa
             logger.info(f"Variable {idx}: {val}")
 
     def fun(x):
-        y = np.array(df[output] - np.mean(df[output]))        
+        y = np.array(df[output] - np.mean(df[output]))
 
         if timeshifts:
             for i, input in enumerate(df[inputs]):
                 Si = np.array(df[input] - np.mean(df[input]))
-                y += x[len(inputs)+i]*timeshift(Si, x[i])
-            max_delay = np.max(x[:len(inputs)])
-            y = truncation(y, n_trunc=int(2*max_delay))
+                y += x[len(inputs) + i] * timeshift(Si, x[i])
+            max_delay = np.max(x[: len(inputs)])
+            y = truncation(y, n_trunc=int(2 * max_delay))
         else:
             for i, input in enumerate(df[inputs]):
                 Si = np.array(df[input] - np.mean(df[input]))
-                y += x[i]*Si
+                y += x[i] * Si
 
         if gradient:
             y = np.gradient(y)
 
-        if domain == 'time':
-            rms_value = np.sqrt(np.mean(np.square(y-np.mean(y))))
-        elif domain == 'frequency':
-            f, Sxx = welch(y, scaling='density', *args, **kwargs)
+        if domain == "time":
+            rms_value = np.sqrt(np.mean(np.square(y - np.mean(y))))
+        elif domain == "frequency":
+            f, Sxx = welch(y, scaling="density", *args, **kwargs)
             rms_value = np.sqrt(np.trapezoid(Sxx, f))
         else:
-            raise ValueError('The `domain` parameter must be set to \'time\' or \'frequency\'')
-        
+            raise ValueError(
+                "The `domain` parameter must be set to 'time' or 'frequency'"
+            )
+
         return rms_value
 
     if timeshifts:
-        x_initial = np.zeros(len(inputs)*2)
+        x_initial = np.zeros(len(inputs) * 2)
     else:
         x_initial = np.zeros(len(inputs))
 
@@ -308,22 +337,25 @@ def optimal_linear_combination(df, inputs, output, timeshifts=False, gradient=Fa
     print_optimization_result(res)
 
     if timeshifts:
-        y = np.array(df[output] - np.mean(df[output]))        
+        y = np.array(df[output] - np.mean(df[output]))
         for i, input in enumerate(df[inputs]):
             Si = np.array(df[input] - np.mean(df[input]))
-            y += res.x[len(inputs)+i]*timeshift(Si, res.x[i])
-        max_delay = np.max(res.x[:len(inputs)])
-        y = truncation(y, int(2*max_delay))
+            y += res.x[len(inputs) + i] * timeshift(Si, res.x[i])
+        max_delay = np.max(res.x[: len(inputs)])
+        y = truncation(y, int(2 * max_delay))
     else:
-        y = np.array(df[output] - np.mean(df[output]))        
+        y = np.array(df[output] - np.mean(df[output]))
         for i, input in enumerate(df[inputs]):
             Si = np.array(df[input] - np.mean(df[input]))
-            y += res.x[i]*Si
+            y += res.x[i] * Si
 
     return res, y
 
-def df_timeshift(df, fs, seconds, columns=None, truncate=None, inplace=False, suffix='_shifted'):
-    """ 
+
+def df_timeshift(
+    df, fs, seconds, columns=None, truncate=None, inplace=False, suffix="_shifted"
+):
+    """
     Timeshift columns of a pandas DataFrame or the entire DataFrame.
 
     Parameters
@@ -332,7 +364,7 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None, inplace=False, su
         fs (float): The sampling frequency of the data.
         seconds (float): Amount of seconds to shift the data by.
         columns (list or None): List of columns to shift. If None, all columns are shifted.
-        truncate (bool or int or None): If True, truncate the resulting DataFrame based on the shift. 
+        truncate (bool or int or None): If True, truncate the resulting DataFrame based on the shift.
                                         If int, specify the exact number of rows to truncate at both ends.
         inplace (bool): If True, overwrite the original columns. If False, add shifted columns with suffix.
         suffix (str): Suffix to add to column names when inplace is False.
@@ -367,7 +399,8 @@ def df_timeshift(df, fs, seconds, columns=None, truncate=None, inplace=False, su
 
     return df_shifted
 
-def df_detrend(df, columns=None, order=1, inplace=False, suffix='_detrended'):
+
+def df_detrend(df, columns=None, order=1, inplace=False, suffix="_detrended"):
     """
     Detrend all or specified columns of a pandas DataFrame using polynomial_detrend.
 
@@ -388,7 +421,7 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix='_detrended'):
         columns = df.columns
 
     for col in columns:
-        if df[col].dtype.kind in 'biufc':  # Check if the column is numeric
+        if df[col].dtype.kind in "biufc":  # Check if the column is numeric
             detrended_data = polynomial_detrend(df[col].values, order=order)
             if inplace:
                 df_detrended[col] = detrended_data
@@ -398,22 +431,28 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix='_detrended'):
     return df_detrended
 
 
-def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], names_list: Optional[List[str]] = None,
-                                 start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
-                                 timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None) -> List[pd.DataFrame]:
+def multi_file_timeseries_loader(
+    file_list: List[str],
+    fs_list: List[float],
+    names_list: Optional[List[str]] = None,
+    start_time: Optional[float] = 0.0,
+    duration_hours: Optional[float] = None,
+    timeshifts: Optional[List[float]] = None,
+    delimiter_list: Optional[List[str]] = None,
+) -> List[pd.DataFrame]:
     """
-    Loads time-series data from multiple files, restricting the output to the maximum overlapping time window across the datasets. 
+    Loads time-series data from multiple files, restricting the output to the maximum overlapping time window across the datasets.
 
     Parameters
     ----------
     file_list : List[str]
         A list of file paths for the input data files. Each file must contain time-series data sampled with the
         sampling frequencies provided in `fs_list`.
-    
+
     fs_list : List[float]
         A list of sampling frequencies (in Hz) corresponding to each file in `file_list`. The length of `fs_list` must
         match the length of `file_list`, and each value must be positive.
-    
+
     names_list: Optional[List[str]]
         A list of the column names corresponding to each file.
 
@@ -423,7 +462,7 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
 
     timeshifts : List[float], optional
         Time shifts (in seconds) to apply to each data stream.
-    
+
     delimiter_list : List[str], optional
         A list of delimiters to be used for reading each file. If not provided, a space (' ') will be assumed as the
         delimiter for all files. The length of `delimiter_list` must match the length of `file_list` if provided.
@@ -433,7 +472,7 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
     List[pd.DataFrame]
         A list of pandas DataFrames containing the synchronized time-series data for each file. Each DataFrame will have
         been sliced to ensure the maximum overlap duration between all datasets, starting from `start_time`.
-    
+
     Raises
     ------
     ValueError
@@ -449,62 +488,82 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
     - The function supports files with different delimiters and skips any header rows that begin with comment symbols
       such as `#`, `%`, `!`, etc.
     """
+
     def count_header_rows(file):
-        header_symbols = ['#', '%', '!', '@', ';', '&', '*', "/"]  # Add more symbols as needed
+        header_symbols = [
+            "#",
+            "%",
+            "!",
+            "@",
+            ";",
+            "&",
+            "*",
+            "/",
+        ]  # Add more symbols as needed
         header_count = 0
 
         def process_file(file_obj):
             """Helper function to count headers in a file object."""
             nonlocal header_count
             for line in file_obj:
-                line = line.decode('utf-8') if isinstance(line, bytes) else line  # Handle binary content
+                line = (
+                    line.decode("utf-8") if isinstance(line, bytes) else line
+                )  # Handle binary content
                 if any(line.startswith(symbol) for symbol in header_symbols):
                     header_count += 1
                 else:
                     break
 
         if zipfile.is_zipfile(file):  # Check if it's a zip file
-            with zipfile.ZipFile(file, 'r') as zip_ref:
+            with zipfile.ZipFile(file, "r") as zip_ref:
                 first_file_name = zip_ref.namelist()[0]
-                with zip_ref.open(first_file_name, 'r') as target_file:
+                with zip_ref.open(first_file_name, "r") as target_file:
                     process_file(target_file)
 
         elif tarfile.is_tarfile(file):  # Check if it's a tar file
-            with tarfile.open(file, 'r') as tar_ref:
+            with tarfile.open(file, "r") as tar_ref:
                 first_member = tar_ref.getmembers()[0]
                 with tar_ref.extractfile(first_member) as target_file:
                     process_file(target_file)
 
-        elif file.endswith('.gz'):  # Check if it's a gzip file
-            with gzip.open(file, 'rt') as target_file:  # 'rt' for reading text
+        elif file.endswith(".gz"):  # Check if it's a gzip file
+            with gzip.open(file, "rt") as target_file:  # 'rt' for reading text
                 process_file(target_file)
 
-        elif file.endswith('.7z'):  # Check if it's a 7z file
-            with SevenZipFile(file, 'r') as seven_zip_ref:
+        elif file.endswith(".7z"):  # Check if it's a 7z file
+            with SevenZipFile(file, "r") as seven_zip_ref:
                 first_file_name = seven_zip_ref.getnames()[0]
                 with seven_zip_ref.open(first_file_name) as target_file:
                     process_file(target_file)
 
         else:  # Treat it as a regular text file
-            with open(file, 'r') as target_file:
+            with open(file, "r") as target_file:
                 process_file(target_file)
 
         return header_count
-    
+
     # Ensure matching lengths of input lists
     if len(file_list) != len(fs_list):
-        raise ValueError("The length of `fs_list` must match the length of `file_list`.")
+        raise ValueError(
+            "The length of `fs_list` must match the length of `file_list`."
+        )
     if names_list is not None and len(file_list) != len(names_list):
-        raise ValueError("The length of `names_list` must match the length of `file_list`.")
+        raise ValueError(
+            "The length of `names_list` must match the length of `file_list`."
+        )
     if delimiter_list is not None and len(file_list) != len(delimiter_list):
-        raise ValueError("The length of `delimiter_list` must match the length of `file_list`.")
+        raise ValueError(
+            "The length of `delimiter_list` must match the length of `file_list`."
+        )
     if timeshifts is not None and len(file_list) != len(timeshifts):
-        raise ValueError("The length of `timeshifts` must match the length of `file_list`.")
+        raise ValueError(
+            "The length of `timeshifts` must match the length of `file_list`."
+        )
     for fs in fs_list:
         if fs <= 0:
             raise ValueError("Sampling frequency `fs` must be positive.")
-    
-    delimiter_list = delimiter_list or [' '] * len(file_list)
+
+    delimiter_list = delimiter_list or [" "] * len(file_list)
     timeshifts = timeshifts or [None] * len(file_list)
     header_rows = []  # Stores the number of header rows for each file
     record_lengths = []  # Stores the duration for each file
@@ -518,7 +577,7 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
         file_names.append(os.path.basename(file))
         rows = count_header_rows(file)
         header_rows.append(rows)
-        logger.info(f"File \'{file_names[i]}\' contains {header_rows[i]} header rows.")
+        logger.info(f"File '{file_names[i]}' contains {header_rows[i]} header rows.")
 
     # Data ingestion:
     logger.info("Loading data and calculating maximum time series overlap...")
@@ -530,7 +589,7 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
                     delimiter=delimiter_list[i],
                     skiprows=header_rows[i],
                     names=names_list[i],
-                    engine='c'
+                    engine="c",
                 )
             else:
                 df = pd.read_csv(
@@ -538,17 +597,19 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
                     delimiter=delimiter_list[i],
                     skiprows=header_rows[i],
                     header=0,
-                    engine='c'
+                    engine="c",
                 )
         except (pd.errors.ParserError, UnicodeDecodeError) as e:
-            logger.warning(f"Reading {file} with Python engine due to {type(e).__name__}: {e}")
+            logger.warning(
+                f"Reading {file} with Python engine due to {type(e).__name__}: {e}"
+            )
             if names_list is not None and names_list[i] is not None:
                 df = pd.read_csv(
                     file,
                     delimiter=delimiter_list[i],
                     skiprows=header_rows[i],
                     names=names_list[i],
-                    engine='python'
+                    engine="python",
                 )
             else:
                 df = pd.read_csv(
@@ -556,64 +617,97 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
                     delimiter=delimiter_list[i],
                     skiprows=header_rows[i],
                     header=0,
-                    engine='python'
+                    engine="python",
                 )
-        logger.info(f"Loaded data from file \'{file_names[i]}\' with length {len(df)}")
-        record_lengths.append(len(df)  / fs_list[i]) # Data stream duration in seconds
+        logger.info(f"Loaded data from file '{file_names[i]}' with length {len(df)}")
+        record_lengths.append(len(df) / fs_list[i])  # Data stream duration in seconds
         df_list.append(df)
 
     # Drop NaN columns and log warning:
     for i, df in enumerate(df_list):
         initial_columns = list(df.columns)  # Store initial column names
-        df.dropna(axis=1, how='all', inplace=True)  # Drop columns with all NaN values
+        df.dropna(axis=1, how="all", inplace=True)  # Drop columns with all NaN values
         dropped_columns = set(initial_columns) - set(df.columns)  # Find dropped columns
         # Log a warning if columns were dropped:
         if dropped_columns:
-            logger.warning(f"File '{file_names[i]}' had columns dropped due to NaN values: {dropped_columns}")
+            logger.warning(
+                f"File '{file_names[i]}' had columns dropped due to NaN values: {dropped_columns}"
+            )
 
     # Determine the maximum overlap between datasets:
-    max_duration = min(record_lengths) - start_time  # Maximum overlapping time between datasets in seconds
-    logger.info(f"Maximum overlap: {max_duration:.2f} seconds ({max_duration/3600.0:.2f} hours)")
+    max_duration = (
+        min(record_lengths) - start_time
+    )  # Maximum overlapping time between datasets in seconds
+    logger.info(
+        f"Maximum overlap: {max_duration:.2f} seconds ({max_duration / 3600.0:.2f} hours)"
+    )
 
     # Apply optional timeshifts:
     samples_shifted = []
     for i, df in enumerate(df_list):
         if (timeshifts[i] is not None) and (timeshifts[i] != 0.0):
-            logger.info(f"Applying {timeshifts[i]} seconds timeshift to the \'{file_names[i]}\' data stream")
-            df_list[i] = df_timeshift(df, seconds=timeshifts[i], fs=fs_list[i], columns=df.select_dtypes(include=['number']).columns)
-            samples_shifted.append(timeshifts[i]*fs_list[i])
+            logger.info(
+                f"Applying {timeshifts[i]} seconds timeshift to the '{file_names[i]}' data stream"
+            )
+            df_list[i] = df_timeshift(
+                df,
+                seconds=timeshifts[i],
+                fs=fs_list[i],
+                columns=df.select_dtypes(include=["number"]).columns,
+            )
+            samples_shifted.append(timeshifts[i] * fs_list[i])
         else:
             samples_shifted.append(0.0)
 
     # Readjust of start_time and max_duration in the case of large time shifts:
     if any(samples_shifted):
         for i, df in enumerate(df_list):
-            if (samples_shifted[i] < 0.0) and (abs(samples_shifted[i]) > int(start_time * fs_list[i])):
-                start_time = int(2*abs(samples_shifted[i]))
-            if (samples_shifted[i] > 0.0) and (abs(samples_shifted[i]) > len(df) - (int(start_time * fs_list[i]) + int(max_duration * fs_list[i]))):
-                max_duration = (len(df) - int(start_time * fs_list[i]) - int(2*abs(samples_shifted[i]))) / fs_list[i]
-        logger.info(f"Maximum overlap after timeshift and truncation: {max_duration:.2f} seconds")
+            if (samples_shifted[i] < 0.0) and (
+                abs(samples_shifted[i]) > int(start_time * fs_list[i])
+            ):
+                start_time = int(2 * abs(samples_shifted[i]))
+            if (samples_shifted[i] > 0.0) and (
+                abs(samples_shifted[i])
+                > len(df)
+                - (int(start_time * fs_list[i]) + int(max_duration * fs_list[i]))
+            ):
+                max_duration = (
+                    len(df)
+                    - int(start_time * fs_list[i])
+                    - int(2 * abs(samples_shifted[i]))
+                ) / fs_list[i]
+        logger.info(
+            f"Maximum overlap after timeshift and truncation: {max_duration:.2f} seconds"
+        )
 
     # Adjust duration according to user input:
-    total_time = max_duration # Total measurement time in seconds
+    total_time = max_duration  # Total measurement time in seconds
     if duration_hours is not None:
-        if (duration_hours*3600.0 > max_duration) or (duration_hours <= 0.0):
-            logger.warning(f"Specified duration of {duration_hours:.2f} hours is not possible, setting to {max_duration/3600.0:.2f} hours")
+        if (duration_hours * 3600.0 > max_duration) or (duration_hours <= 0.0):
+            logger.warning(
+                f"Specified duration of {duration_hours:.2f} hours is not possible, setting to {max_duration / 3600.0:.2f} hours"
+            )
         else:
-            total_time = duration_hours*3600.0
+            total_time = duration_hours * 3600.0
 
     # Truncation to the overlapping section and timestamping:
     final_df_list = []
     for i, df in enumerate(df_list):
         start_row = int(start_time * fs_list[i])  # Convert start time to row index
-        end_row = start_row + int(total_time * fs_list[i])  # Calculate the end row based on max overlap
+        end_row = start_row + int(
+            total_time * fs_list[i]
+        )  # Calculate the end row based on max overlap
 
-        new_df = df.iloc[start_row:end_row + 1].copy() # Slice the dataframe to get the relevant rows
+        new_df = df.iloc[
+            start_row : end_row + 1
+        ].copy()  # Slice the dataframe to get the relevant rows
         new_df.reset_index(drop=True, inplace=True)
-        time_column_name = 'time'
+        time_column_name = "time"
         if time_column_name in new_df:
-            time_column_name = 'new_time'
-        new_df[time_column_name] = np.linspace(start_row/fs_list[i], end_row/fs_list[i], len(new_df))
+            time_column_name = "new_time"
+        new_df[time_column_name] = np.linspace(
+            start_row / fs_list[i], end_row / fs_list[i], len(new_df)
+        )
         logger.info(f"""File \'{file_names[i]}\':
                                         Start row: {start_row}; Start time: {new_df[time_column_name].iloc[0]:.2f} seconds
                                         End row: {end_row}; End time: {new_df[time_column_name].iloc[-1]:.2f} seconds
@@ -622,23 +716,30 @@ def multi_file_timeseries_loader(file_list: List[str], fs_list: List[float], nam
 
     return final_df_list
 
-def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: Optional[List[str]] = None, tolerance: Optional[float] = 0.1,
-                            preprocessors: Optional[List[Callable]] = None, suffixes: Optional[bool] = False) -> pd.DataFrame:
+
+def resample_to_common_grid(
+    df_list: List[pd.DataFrame],
+    fs: float,
+    t_col_list: Optional[List[str]] = None,
+    tolerance: Optional[float] = 0.1,
+    preprocessors: Optional[List[Callable]] = None,
+    suffixes: Optional[bool] = False,
+) -> pd.DataFrame:
     """
-    Resample one or multiple DataFrames to a common time grid by interpolating 
+    Resample one or multiple DataFrames to a common time grid by interpolating
     data to align with a unified time axis.
 
     Parameters
     ----------
     df_list : List[pd.DataFrame]
-        A list containing one or more DataFrames, each with a time column 
+        A list containing one or more DataFrames, each with a time column
         and associated data columns to be interpolated onto a common time grid.
-        
+
     fs : float
         Sampling frequency (Hz) for the common time grid. Must be positive.
-        
+
     t_col_list : List[str], optional
-        Column names representing time for each DataFrame in `df_list`. If not provided, 
+        Column names representing time for each DataFrame in `df_list`. If not provided,
         defaults to 'time' for all DataFrames.
 
     tolerance : float, optional
@@ -647,19 +748,19 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
 
     preprocessors: List[Callable], optional
         Pre-processing functions to apply to each data stream before resampling. Defaults to None.
-        
+
     suffixes : Optional[bool], default=True
-        If True, suffixes the column names of each DataFrame with its index in `df_list` 
-        to avoid name conflicts. If False, original column names are retained (name 
+        If True, suffixes the column names of each DataFrame with its index in `df_list`
+        to avoid name conflicts. If False, original column names are retained (name
         conflicts may arise if columns have identical names).
 
     Returns
     -------
     pd.DataFrame
-        DataFrame containing interpolated values of each input DataFrame aligned 
-        on a common time grid, with time values in 'common_time'. If `suffixes=True`, 
+        DataFrame containing interpolated values of each input DataFrame aligned
+        on a common time grid, with time values in 'common_time'. If `suffixes=True`,
         data columns are suffixed with the DataFrame index to clarify origin.
-        
+
     Raises
     ------
     ValueError
@@ -673,7 +774,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
     if len(_df_list) == 0:
         raise ValueError("At least one DataFrame must be provided.")
 
-    t_col_list = t_col_list or ['time'] * len(_df_list)
+    t_col_list = t_col_list or ["time"] * len(_df_list)
     preprocessors = preprocessors or [None] * len(_df_list)
 
     # If only one DataFrame is provided, handle separately
@@ -682,13 +783,17 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         t_col = t_col_list[0]
 
         if t_col not in df:
-            raise ValueError(f"The provided DataFrame does not contain the time column '{t_col}'")
+            raise ValueError(
+                f"The provided DataFrame does not contain the time column '{t_col}'"
+            )
 
         # Determine time range and common time grid
         start_time, end_time = df[t_col].min(), df[t_col].max()
-        common_time = np.arange(start_time, end_time, 1/fs)
-        
-        logger.info(f"Single DataFrame provided: Resampling to {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s")
+        common_time = np.arange(start_time, end_time, 1 / fs)
+
+        logger.info(
+            f"Single DataFrame provided: Resampling to {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s"
+        )
 
         # Apply preprocessing if specified
         if preprocessors[0] is not None:
@@ -696,7 +801,7 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
             df = preprocessors[0](df)
 
         # Interpolation
-        df_interp = pd.DataFrame({'common_time': common_time})
+        df_interp = pd.DataFrame({"common_time": common_time})
         for col in df.columns:
             if col == t_col:
                 continue  # Skip the time column
@@ -705,28 +810,34 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         return df_interp
 
     # Handling multiple DataFrames (original logic)
-    start_time, end_time = 0.0, float('inf')
+    start_time, end_time = 0.0, float("inf")
     df_interp_list = []
 
     # Determine the overlapping time range
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
         if t not in df:
-            raise ValueError(f"DataFrame #{i+1} does not contain the time column '{t}'")
+            raise ValueError(
+                f"DataFrame #{i + 1} does not contain the time column '{t}'"
+            )
         start_time = max(start_time, df[t].min())
         end_time = min(end_time, df[t].max())
-        logger.info(f"""DataFrame #{i+1}:
+        logger.info(f"""DataFrame #{i + 1}:
                                         Start time: {df[t].iloc[0]:.2f} seconds
                                         End time: {df[t].iloc[-1]:.2f} seconds
                                         Samples: {len(df)}""")
     if start_time >= end_time:
-        logger.warning("No overlapping time range between DataFrames; output DataFrame is empty.")
+        logger.warning(
+            "No overlapping time range between DataFrames; output DataFrame is empty."
+        )
         return pd.DataFrame(columns=["common_time"])
 
     # Time grid consistency checks:
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
         monotonic = np.all(np.diff(df[t]) > 0)
         if not monotonic:
-            logger.warning(f"Time array is not monotonically increasing in DataFrame #{i+1}.")
+            logger.warning(
+                f"Time array is not monotonically increasing in DataFrame #{i + 1}."
+            )
 
         # Report intervals exceeding tolerance:
         intervals = np.diff(df[t])
@@ -734,45 +845,59 @@ def resample_to_common_grid(df_list: List[pd.DataFrame], fs: float, t_col_list: 
         problematic_indices = np.where(np.abs(intervals - mean_interval) > tolerance)[0]
         problematic_intervals = [(idx, intervals[idx]) for idx in problematic_indices]
         if problematic_intervals:
-            logger.warning(f"DataFrame #{i+1}: found {len(problematic_intervals)} problematic time intervals exceeding the tolerance:")
+            logger.warning(
+                f"DataFrame #{i + 1}: found {len(problematic_intervals)} problematic time intervals exceeding the tolerance:"
+            )
             for idx, interval in problematic_intervals:
                 logger.warning(f"    Interval at index {idx} = {interval:.6f} s")
 
     # Generate the common time grid
-    common_time = np.arange(start_time, end_time, 1/fs)
-    logger.info(f"New common time grid created: {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s")
+    common_time = np.arange(start_time, end_time, 1 / fs)
+    logger.info(
+        f"New common time grid created: {len(common_time)} samples from {start_time:.2f}s to {end_time:.2f}s"
+    )
 
     # Application of preprocessors:
     for i, (df, proc) in enumerate(zip(_df_list, preprocessors)):
         if proc is not None:
-            logger.info(f"Applying pre-processor {proc} to DataFrame #{i+1}")
+            logger.info(f"Applying pre-processor {proc} to DataFrame #{i + 1}")
             _df_list[i] = proc(df)
             logger.info(f"Columns: {list(_df_list[i].columns)}")
 
     # Downsampling and interpolation to the common grid:
     for i, (df, t) in enumerate(zip(_df_list, t_col_list)):
-        logger.info(f"Resampling DataFrame #{i+1} based on column \'{t}\'...")
-        df_interp = pd.DataFrame({'common_time': common_time})
+        logger.info(f"Resampling DataFrame #{i + 1} based on column '{t}'...")
+        df_interp = pd.DataFrame({"common_time": common_time})
         for col in df.columns:
-            col_name = col + f'_{i+1}' if suffixes else col
+            col_name = col + f"_{i + 1}" if suffixes else col
             df_interp[col_name] = np.interp(common_time, df[t], df[col])
         df_interp_list.append(df_interp)
 
     # Merging all data streams to single DataFrame:
     logger.info("Merging...")
-    resampled_df = pd.concat(df_interp_list, axis=1).loc[:,~pd.concat(df_interp_list, axis=1).columns.duplicated()]
+    resampled_df = pd.concat(df_interp_list, axis=1).loc[
+        :, ~pd.concat(df_interp_list, axis=1).columns.duplicated()
+    ]
     logger.info("Done.")
-    
+
     return resampled_df
 
-def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], fs: float, 
-                                    start_time: Optional[float] = 0.0, duration_hours: Optional[float] = None,
-                                    timeshifts: Optional[List[float]] = None, delimiter_list: Optional[List[str]] = None,
-                                    t_col_list: Optional[List[str]] = None, tolerance: Optional[float] = 0.1,
-                                    preprocessors: Optional[List[callable]] = None,
-                                    suffixes: bool = False) -> pd.DataFrame:
+
+def multi_file_timeseries_resampler(
+    file_list: List[str],
+    fs_list: List[float],
+    fs: float,
+    start_time: Optional[float] = 0.0,
+    duration_hours: Optional[float] = None,
+    timeshifts: Optional[List[float]] = None,
+    delimiter_list: Optional[List[str]] = None,
+    t_col_list: Optional[List[str]] = None,
+    tolerance: Optional[float] = 0.1,
+    preprocessors: Optional[List[callable]] = None,
+    suffixes: bool = False,
+) -> pd.DataFrame:
     """
-    Loads time-series data from multiple files, truncates to the maximum overlapping time window, 
+    Loads time-series data from multiple files, truncates to the maximum overlapping time window,
     and resamples to a common time grid by interpolating each data stream.
 
     Parameters
@@ -780,24 +905,24 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
     file_list : List[str]
         A list of file paths for the input data files. Each file must contain time-series data sampled with the
         sampling frequencies provided in `fs_list`.
-    
+
     fs_list : List[float]
         A list of sampling frequencies (in Hz) corresponding to each file in `file_list`. The length of `fs_list` must
         match the length of `file_list`, and each value must be positive.
-    
+
     fs : float
         Sampling frequency (Hz) for the common time grid. Must be positive.
-    
+
     start_time : float, optional
         The starting time (in seconds) from which the data will be extracted in each file. Default is 0.0 seconds.
 
     timeshifts : List[float], optional
         Time shifts (in seconds) to apply to each data stream.
-    
+
     delimiter_list : List[str], optional
         A list of delimiters to be used for reading each file. If not provided, a space (' ') will be assumed as the
         delimiter for all files.
-    
+
     t_col_list : List[str], optional
         Column names representing time for each DataFrame in `file_list`. Defaults to 'time' for all.
 
@@ -807,7 +932,7 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
 
     preprocessors: List[callable], optional
         Pre-processing functions to apply to each data stream before resampling. Defaults to None for all.
-    
+
     suffixes : bool, default=False
         If True, suffixes the column names of each DataFrame with its index in `file_list` to avoid name conflicts.
 
@@ -816,15 +941,26 @@ def multi_file_timeseries_resampler(file_list: List[str], fs_list: List[float], 
     pd.DataFrame
         A single DataFrame containing the resampled time-series data aligned on a common time grid.
     """
-    
+
     # Load the time series data from multiple files using the loader function
-    df_list = multi_file_timeseries_loader(file_list=file_list, fs_list=fs_list, 
-                                           start_time=start_time, duration_hours=duration_hours,
-                                           timeshifts=timeshifts, delimiter_list=delimiter_list)
+    df_list = multi_file_timeseries_loader(
+        file_list=file_list,
+        fs_list=fs_list,
+        start_time=start_time,
+        duration_hours=duration_hours,
+        timeshifts=timeshifts,
+        delimiter_list=delimiter_list,
+    )
 
     # Resample the loaded data to a common time grid using the resampler function
-    resampled_df = resample_to_common_grid(df_list=df_list, fs=fs, t_col_list=t_col_list, 
-                                           tolerance=tolerance, preprocessors=preprocessors, suffixes=suffixes)
+    resampled_df = resample_to_common_grid(
+        df_list=df_list,
+        fs=fs,
+        t_col_list=t_col_list,
+        tolerance=tolerance,
+        preprocessors=preprocessors,
+        suffixes=suffixes,
+    )
 
     return resampled_df
 

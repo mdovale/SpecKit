@@ -39,6 +39,7 @@ from speckit.schedulers import lpsd_plan
 MIN_JDES = 100
 MAX_JDES = 1000000
 
+
 def find_Jdes_binary_search(scheduler, target_nf, *args):
     """Performs a binary search to find the `Jdes` for a scheduler.
 
@@ -87,7 +88,7 @@ def find_Jdes_binary_search(scheduler, target_nf, *args):
     lower = MIN_JDES
     upper = MAX_JDES
 
-    while (lower <= upper):
+    while lower <= upper:
         Jdes = (lower + upper) // 2
 
         # Explicitly build the argument list for each scheduler.
@@ -99,7 +100,9 @@ def find_Jdes_binary_search(scheduler, target_nf, *args):
         else:
             # ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes)
             # We need all args, with Jdes inserted at the correct position.
-            output = scheduler(args[0], args[1], args[2], args[3], args[4], Jdes, args[5])
+            output = scheduler(
+                args[0], args[1], args[2], args[3], args[4], Jdes, args[5]
+            )
 
         nf = output.get("nf")
         if nf is None:
@@ -111,6 +114,7 @@ def find_Jdes_binary_search(scheduler, target_nf, *args):
             lower = Jdes + 1
         else:
             upper = Jdes - 1
+
 
 def kaiser_alpha(psll):
     """Calculates Kaiser window shape parameter (alpha/beta) from PSLL.
@@ -145,7 +149,8 @@ def kaiser_alpha(psll):
     a3 = 0.0889732
 
     x = psll / 100
-    return (((((a3 * x) + a2) * x) + a1) * x + a0)
+    return ((((a3 * x) + a2) * x) + a1) * x + a0
+
 
 def kaiser_rov(alpha):
     """Calculates the recommended fractional overlap for a Kaiser window.
@@ -180,6 +185,7 @@ def kaiser_rov(alpha):
     x = alpha
     return (100 - 1 / (((((a3 * x) + a2) * x) + a1) * x + a0)) / 100
 
+
 def round_half_up(val):
     """Rounds a number to the nearest integer, with halves rounded up.
 
@@ -203,6 +209,7 @@ def round_half_up(val):
     else:
         x = round(val)
     return x
+
 
 def chunker(iter, chunk_size):
     """Splits an iterable into smaller lists of a fixed size.
@@ -231,10 +238,11 @@ def chunker(iter, chunk_size):
     """
     chunks = []
     if chunk_size < 1:
-        raise ValueError('Chunk size must be greater than 0.')
+        raise ValueError("Chunk size must be greater than 0.")
     for i in range(0, len(iter), chunk_size):
-        chunks.append(iter[i:(i+chunk_size)])
+        chunks.append(iter[i : (i + chunk_size)])
     return chunks
+
 
 def is_function_in_dict(function_to_check, function_dict):
     """Checks if a function object exists as a value in a dictionary.
@@ -243,6 +251,7 @@ def is_function_in_dict(function_to_check, function_dict):
     pre-defined, named functions.
     """
     return function_to_check in function_dict.values()
+
 
 def get_key_for_function(function_to_check, function_dict):
     """Performs a reverse lookup to find the key for a given function value.

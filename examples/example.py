@@ -41,20 +41,29 @@ from speckit.noise import band_limited_noise
 from multiprocessing import Pool
 
 if __name__ == "__main__":
-    N  = int(1e6) # Size of the example time series
-    fs = 2.       # Sampling frequency
+    N = int(1e6)  # Size of the example time series
+    fs = 2.0  # Sampling frequency
 
-    x1 = 1e-6*band_limited_noise(1e-6, 1e0, N, fs)\
-        + 1e3*band_limited_noise(1e-3, 10e-3, N, fs)\
-        + 1e3*band_limited_noise(50e-3, 60e-3, N, fs)\
-
-    fig, ax = plt.subplots(figsize=(16,4), dpi=150)
-    ax.set_xlabel('Sample')
-    ax.set_ylabel('Signal')
-    ax.plot(x1, color='black')
+    x1 = (
+        1e-6 * band_limited_noise(1e-6, 1e0, N, fs)
+        + 1e3 * band_limited_noise(1e-3, 10e-3, N, fs)
+        + 1e3 * band_limited_noise(50e-3, 60e-3, N, fs)
+    )
+    fig, ax = plt.subplots(figsize=(16, 4), dpi=150)
+    ax.set_xlabel("Sample")
+    ax.set_ylabel("Signal")
+    ax.plot(x1, color="black")
     plt.show(block=False)
 
-    f1, psd = signal.welch(x1, fs=fs, window=("kaiser", 30), nperseg=int(N), noverlap=int(N/2), scaling='density', return_onesided=True)
+    f1, psd = signal.welch(
+        x1,
+        fs=fs,
+        window=("kaiser", 30),
+        nperseg=int(N),
+        noverlap=int(N / 2),
+        scaling="density",
+        return_onesided=True,
+    )
 
     # 1. Configure the analyzer
     print("Configuring SpectrumAnalyzer...")
@@ -66,7 +75,7 @@ if __name__ == "__main__":
         win="Kaiser",
         Jdes=1000,
         psll=200,
-        verbose=True
+        verbose=True,
     )
 
     # 2. (Optional) Inspect the plan before computation
@@ -80,11 +89,11 @@ if __name__ == "__main__":
     print("\nComputation complete!")
     print(f"Result object type: {type(result_advanced)}")
 
-    fig, ax = plt.subplots(figsize=(6,4), dpi=150)
-    ax.set_xlabel('Fourier frequency (Hz)')
-    ax.set_ylabel(r'Spectral density (units $/\sqrt{\rm Hz}$)')
-    ax.loglog(f1, np.sqrt(psd), label="Welch", color='gray')
-    result_advanced.plot(which='asd', ax=ax, label='LPSD')
+    fig, ax = plt.subplots(figsize=(6, 4), dpi=150)
+    ax.set_xlabel("Fourier frequency (Hz)")
+    ax.set_ylabel(r"Spectral density (units $/\sqrt{\rm Hz}$)")
+    ax.loglog(f1, np.sqrt(psd), label="Welch", color="gray")
+    result_advanced.plot(which="asd", ax=ax, label="LPSD")
     ax.legend()
     fig.tight_layout()
     plt.show()

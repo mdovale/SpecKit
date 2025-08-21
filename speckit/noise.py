@@ -60,6 +60,7 @@ S. PLASZCZYNSKI
 Fluctuation and Noise Letters 2007 07:01, R1-R13
 https://doi.org/10.1142/S0219477507003635
 """
+
 from __future__ import annotations
 from typing import Optional, Tuple
 
@@ -479,9 +480,6 @@ class pink_noise(alpha_noise):
             init_filter=init_filter,
             seed=seed,
         )
-
-
-
 
 
 def fftnoise(
