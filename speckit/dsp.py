@@ -69,7 +69,7 @@ def frequency2phase(f, fs):
 
 def polynomial_detrend(x, order=1):
     """
-    Detrend an input signal using a fast polynomial fit.
+    Detrend an input signal using a fast and stable polynomial fit.
 
     Parameters
     ----------
@@ -80,13 +80,13 @@ def polynomial_detrend(x, order=1):
     -------
         numpy.ndarray: The detrended signal.
     """
+    if order < 0:
+        return x
     t = np.arange(len(x))
-    # Construct the Vandermonde matrix
-    T = np.vander(t, order + 1, increasing=True)
-    # Solve the least squares problem directly
-    coeffs = np.linalg.lstsq(T, x, rcond=None)[0]
-    # Subtract the trend
-    trend = T @ coeffs
+    # Use the numerically stable polyfit to find coefficients
+    coeffs = np.polyfit(t, x, deg=order)
+    # Evaluate the polynomial trend
+    trend = np.polyval(coeffs, t)
     return x - trend
 
 
