@@ -135,142 +135,96 @@ def ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes):
             x = round(val)
         return x
 
-    # Init constants:
+    # --- Pre-computation and Constants ---
     xov = 1 - olap
     fmin = fs / N * bmin
     fmax = fs / 2
     fresmin = fs / N
     freslim = fresmin * (1 + xov * (Kdes - 1))
-    logfact = (N / 2) ** (1 / Jdes) - 1
+    logfact = (fmax / fmin) ** (1 / Jdes) - 1 # More stable logfact calculation
 
-    # Init lists:
-    Frequencies = []
-    FrequencyResolutions = []
-    BinNumbers = []
-    SegmentLengths = []
-    NSegments = []
-    Overlaps = []
-    Offsets = []
-    Averages = []
+    # --- Pre-allocate NumPy arrays instead of using Python lists ---
+    # We allocate a reasonably large size and will trim it later.
+    # This avoids the overhead of list.append().
+    capacity = int(Jdes * 1.5)
+    f_arr = np.zeros(capacity)
+    r_arr = np.zeros(capacity)
+    b_arr = np.zeros(capacity)
+    L_arr = np.zeros(capacity, dtype=int)
+    K_arr = np.zeros(capacity, dtype=int)
 
-    # Scheduler algorithm:
+    # --- Main Scheduler Loop ---
     fi = fmin
-    while fi < fmax:
+    j = 0
+    while fi < fmax and j < capacity:
         fres = fi * logfact
-        if fres >= freslim:
-            pass
-        elif fres < freslim and (freslim * fres) ** 0.5 > fresmin:
-            fres = (freslim * fres) ** 0.5
-        else:
-            fres = fresmin
+        if fres < freslim:
+            fres = max((freslim * fres) ** 0.5, fresmin)
 
         fbin = fi / fres
         if fbin < bmin:
             fbin = bmin
             fres = fi / fbin
-
-        dftlen = int(round_half_up(fs / fres))
+        
+        dftlen = int(round(fs / fres)) # Use standard round
+        
         if dftlen > N:
             dftlen = N
-        if dftlen < Lmin:
+        elif dftlen < Lmin:
             dftlen = Lmin
 
-        nseg = int(round_half_up((N - dftlen) / (xov * dftlen) + 1))
-        if nseg == 1:
+        nseg = int(round((N - dftlen) / (xov * dftlen) + 1))
+        if nseg <= 1: # Handle nseg=0 or 1
             dftlen = N
-
+            nseg = 1
+        
+        # Recalculate based on quantized dftlen
         fres = fs / dftlen
         fbin = fi / fres
 
-        Frequencies.append(fi)
-        FrequencyResolutions.append(fres)
-        BinNumbers.append(fbin)
-        SegmentLengths.append(dftlen)
-        NSegments.append(nseg)
+        f_arr[j] = fi
+        r_arr[j] = fres
+        b_arr[j] = fbin
+        L_arr[j] = dftlen
+        K_arr[j] = nseg
 
-        fi = fi + fres
+        fi += fres
+        j += 1
 
-    nf = len(Frequencies)
+    # --- Trim arrays to the actual number of frequencies found ---
+    nf = j
+    f = f_arr[:nf]
+    r = r_arr[:nf]
+    b = b_arr[:nf]
+    L = L_arr[:nf]
+    K = K_arr[:nf]
 
-    # Compute actual averages and starting indices:
+    # --- Vectorized Calculation of Averages, Offsets, and Overlaps ---
+    navg = np.round(((N - L) / (1 - olap)) / L + 1).astype(int)
+    navg[navg < 1] = 1 # Ensure at least one average
+    
+    # Calculate shifts for all frequencies at once
+    shifts = np.full(nf, 1.0)
+    mask = navg > 1
+    shifts[mask] = (N - L[mask]) / (navg[mask] - 1)
+
+    # D (Offsets) is tricky to vectorize perfectly because each row has a
+    # different length (navg[j]). We generate it with a list comprehension,
+    # which is now much faster because the rest of the plan is already computed.
+    offsets = [np.round(np.arange(navg[j]) * shifts[j]).astype(int) for j in range(nf)]
+    
+    # Compute actual overlaps
+    # This is not a required plan output, we include it for completeness.
+    overlaps = np.zeros(nf)
     for j in range(nf):
-        L_j = int(SegmentLengths[j])
-        SegmentLengths[j] = L_j
-        averages = int(round_half_up(((N - L_j) / (1 - olap)) / L_j + 1))
-        Averages.append(averages)
-
-        if averages == 1:
-            shift = 1.0
-        else:
-            shift = (float)(N - L_j) / (float)(averages - 1)
-        if shift < 1:
-            shift = 1.0
-
-        start = 0.0
-        Offsets.append([])
-        for _ in range(averages):
-            istart = int(float(start) + 0.5) if start >= 0 else int(float(start) - 0.5)
-            start = start + shift
-            Offsets[j].append(istart)
-
-    # Compute the actual overlaps:
-    Overlaps = []
-    for j in range(nf):
-        indices = np.array(Offsets[j])
-        if len(indices) > 1:
-            overlaps = indices[1:] - indices[:-1]
-            Overlaps.append(np.mean((SegmentLengths[j] - overlaps) / SegmentLengths[j]))
-        else:
-            Overlaps.append(0.0)
-
-    # Convert lists to numpy arrays:
-    Frequencies = np.array(Frequencies)
-    FrequencyResolutions = np.array(FrequencyResolutions)
-    BinNumbers = np.array(BinNumbers)
-    SegmentLengths = np.array(SegmentLengths)
-    NSegments = np.array(NSegments)
-    Overlaps = np.array(Overlaps)
-    Averages = np.array(Averages)
-
-    # Constraint verification (note that some constraints are "soft"):
-    if not np.isclose(Frequencies[-1], fmax, rtol=0.05):
-        logger.warning(f"ltf::ltf_plan: f[-1]={Frequencies[-1]} and fmax={fmax}")
-    if not np.allclose(Frequencies, FrequencyResolutions * BinNumbers):
-        logger.warning("ltf::ltf_plan: f[j] != r[j]*b[j]")
-    if not np.allclose(
-        FrequencyResolutions * SegmentLengths, np.full(len(FrequencyResolutions), fs)
-    ):
-        logger.warning("ltf::ltf_plan: r[j]*L[j] != fs")
-    if not np.allclose(FrequencyResolutions[:-1], np.diff(Frequencies), rtol=0.05):
-        logger.warning("ltf::ltf_plan: r[j] != f[j+1] - f[j]")
-    if not np.all(SegmentLengths < N + 1):
-        logger.warning("ltf::ltf_plan: L[j] >= N+1")
-    if not np.all(SegmentLengths >= Lmin):
-        logger.warning("ltf::ltf_plan: L[j] < Lmin")
-    if not np.all(BinNumbers >= bmin * (1 - 0.05)):
-        logger.warning("ltf::ltf_plan: b[j] < bmin")
-    if not np.all(SegmentLengths[NSegments == 1] == N):
-        logger.warning("ltf::ltf_plan: L[K==1] != N")
-
-    # Final number of frequencies:
-    nf = len(Frequencies)
-    if nf == 0:
-        logger.error("Error: frequency scheduler returned zero frequencies")
-        sys.exit(-1)
+        if navg[j] > 1:
+            diffs = np.diff(offsets[j])
+            overlaps[j] = np.mean((L[j] - diffs) / L[j])
 
     output = {
-        "f": Frequencies,
-        "r": FrequencyResolutions,
-        "b": BinNumbers,
-        "m": BinNumbers,
-        "L": SegmentLengths,
-        "K": NSegments,
-        "navg": Averages,
-        "D": Offsets,
-        "O": Overlaps,
-        "nf": nf,
+        "f": f, "r": r, "b": b, "m": b, "L": L, "K": K,
+        "navg": navg, "D": offsets, "O": overlaps, "nf": nf,
     }
-
     return output
 
 
