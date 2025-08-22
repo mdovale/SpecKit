@@ -265,45 +265,30 @@ class SpectrumAnalyzer:
 
         scheduler_func = self.config["scheduler_func"]
 
+        # Common kwargs for any scheduler (**args style); extra keys are tolerated.
+        common_kwargs = dict(
+            N=self.nx,
+            fs=self.fs,
+            olap=self.config["final_olap"],
+            bmin=self.config["bmin"],
+            Lmin=self.config["Lmin"],
+            Kdes=self.config["Kdes"],
+        )
+
+        # If we must force an exact target number of frequencies, solve for Jdes
         if self.config["force_target_nf"]:
             if self.verbose:
-                logging.info(
-                    f"Adjusting plan to target {self.config['Jdes']} frequencies..."
-                )
-            args = (
-                self.nx,
-                self.fs,
-                self.config["final_olap"],
-                self.config["bmin"],
-                self.config["Lmin"],
-                self.config["Kdes"],
-            )
-            self.config["Jdes"] = find_Jdes_binary_search(
-                scheduler_func, self.config["Jdes"], *args
-            )
-            assert self.config["Jdes"] is not None, (
+                logging.info(f"Adjusting plan to target {self.config['Jdes']} frequencies...")
+            target_nf = self.config["Jdes"]
+            solved_Jdes = find_Jdes_binary_search(scheduler_func, target_nf, **common_kwargs)
+            assert solved_Jdes is not None, (
                 "Failed to generate plan with forced number of frequencies"
             )
+            self.config["Jdes"] = int(solved_Jdes)
 
-        # Generate plan using the selected scheduler
-        if scheduler_func == lpsd_plan:
-            plan_output = scheduler_func(
-                self.nx,
-                self.fs,
-                self.config["final_olap"],
-                self.config["Jdes"],
-                self.config["Kdes"],
-            )
-        else:
-            plan_output = scheduler_func(
-                self.nx,
-                self.fs,
-                self.config["final_olap"],
-                self.config["bmin"],
-                self.config["Lmin"],
-                self.config["Jdes"],
-                self.config["Kdes"],
-            )
+        # Generate plan using the selected scheduler (all take **args now)
+        call_kwargs = dict(common_kwargs, Jdes=self.config["Jdes"])
+        plan_output = scheduler_func(**call_kwargs)
 
         # Apply frequency band filter if specified
         if self.config["band"] is not None:
@@ -314,12 +299,11 @@ class SpectrumAnalyzer:
 
             for key in ["f", "r", "b", "L", "K", "navg", "O"]:
                 plan_output[key] = plan_output[key][mask]
-            plan_output["D"] = [
-                row for row, keep in zip(plan_output["D"], mask) if keep
-            ]
+            plan_output["D"] = [row for row, keep in zip(plan_output["D"], mask) if keep]
             plan_output["nf"] = len(plan_output["f"])
 
-        plan_output['D'] = [np.array(d) for d in plan_output['D']]
+        # Normalize D to arrays
+        plan_output["D"] = [np.array(d) for d in plan_output["D"]]
 
         self._plan_cache = plan_output
         return self._plan_cache

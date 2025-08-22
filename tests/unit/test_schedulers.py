@@ -54,64 +54,56 @@ SCHEDULER_PARAMS = {
     ids=["ltf_plan", "lpsd_plan", "new_ltf_plan"],
 )
 def scheduler_plan(request):
-    """Fixture to generate a plan from each available scheduler."""
+    """Fixture to generate a plan from each available scheduler using **kwargs."""
     scheduler_func = request.param
-    params = SCHEDULER_PARAMS
-
-    if scheduler_func == lpsd_plan:
-        plan = scheduler_func(
-            params["N"], params["fs"], params["olap"], params["Jdes"], params["Kdes"]
-        )
-    else:
-        plan = scheduler_func(
-            params["N"],
-            params["fs"],
-            params["olap"],
-            params["bmin"],
-            params["Lmin"],
-            params["Jdes"],
-            params["Kdes"],
-        )
-    return plan, params
+    params = dict(SCHEDULER_PARAMS)
+    plan = scheduler_func(**params)
+    return plan, params, scheduler_func
 
 
 def test_plan_output_structure(scheduler_plan):
-    """Verifies that every scheduler plan contains the required keys and correct types."""
-    plan, _ = scheduler_plan
+    """Verifies required keys and basic shape."""
+    plan, _, _ = scheduler_plan
     expected_keys = ["f", "r", "b", "L", "K", "navg", "D", "O", "nf"]
     for key in expected_keys:
-        assert key in plan
+        assert key in plan, f"Missing key '{key}' in plan output"
+
     assert isinstance(plan["nf"], int)
     assert plan["nf"] > 0
     assert len(plan["f"]) == plan["nf"]
+    # Basic dtype checks
+    assert isinstance(plan["D"], (list, tuple))
+    assert isinstance(plan["O"], np.ndarray)
 
 
 def test_plan_dft_constraint(scheduler_plan):
     """Verifies the fundamental DFT constraint: r * L = fs."""
-    plan, params = scheduler_plan
+    plan, params, _ = scheduler_plan
     fs = params["fs"]
     assert np.allclose(plan["r"] * plan["L"], fs, rtol=1e-12, atol=1e-12)
 
 
 def test_plan_frequency_stepping_constraint(scheduler_plan):
     """Verifies the frequency stepping constraint: f[j+1] - f[j] ≈ r[j]."""
-    plan, _ = scheduler_plan
-    # This is an approximate relationship, especially for new_ltf_plan.
-    # We check that the relative error is small on average.
+    plan, _, _ = scheduler_plan
+    # Approximate relationship; average relative error should be small.
     df = np.diff(plan["f"])
     r_for_diff = plan["r"][:-1]
-    relative_error = np.abs(df - r_for_diff) / r_for_diff
+    # Guard against divide-by-zero in pathological cases
+    nonzero = r_for_diff != 0
+    assert nonzero.all()
+    relative_error = np.abs(df[nonzero] - r_for_diff[nonzero]) / r_for_diff[nonzero]
     assert np.mean(relative_error) < 0.01
 
 
 def test_plan_boundary_and_monotonicity_constraints(scheduler_plan):
     """Checks frequency range, segment lengths, and monotonicity."""
-    plan, params = scheduler_plan
-    # Frequencies must be positive and monotonically increasing
+    plan, params, _ = scheduler_plan
+    # Frequencies must be positive and strictly increasing
     assert np.all(plan["f"] > 0)
     assert np.all(np.diff(plan["f"]) > 0)
     # Frequency should not exceed Nyquist
-    assert plan["f"][-1] <= params["fs"] / 2.0
+    assert plan["f"][-1] <= params["fs"] / 2.0 + 1e-12
     # Segment lengths must be positive integers and not exceed total length
     assert np.issubdtype(plan["L"].dtype, np.integer)
     assert np.all(plan["L"] > 0)

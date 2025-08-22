@@ -40,7 +40,7 @@ MIN_JDES = 100
 MAX_JDES = 1000000
 
 
-def find_Jdes_binary_search(scheduler, target_nf, *args):
+def find_Jdes_binary_search(scheduler, target_nf, **args):
     """Performs a binary search to find the `Jdes` for a scheduler.
 
     This utility function iteratively calls a given scheduler to find the
@@ -91,20 +91,13 @@ def find_Jdes_binary_search(scheduler, target_nf, *args):
     while lower <= upper:
         Jdes = (lower + upper) // 2
 
-        # Explicitly build the argument list for each scheduler.
-        # The incoming `args` tuple is (N, fs, olap, bmin, Lmin, Kdes).
-        if scheduler == lpsd_plan:
-            # lpsd_plan(N, fs, olap, Jdes, Kdes)
-            # We need args[0], args[1], args[2], Jdes, and args[5]
-            output = scheduler(args[0], args[1], args[2], Jdes, args[5])
-        else:
-            # ltf_plan(N, fs, olap, bmin, Lmin, Jdes, Kdes)
-            # We need all args, with Jdes inserted at the correct position.
-            output = scheduler(
-                args[0], args[1], args[2], args[3], args[4], Jdes, args[5]
-            )
+        # Build call with candidate Jdes; schedulers validate required keys.
+        call_kwargs = dict(args)
+        call_kwargs["Jdes"] = int(Jdes)
 
-        nf = output.get("nf")
+        output = scheduler(**call_kwargs)
+
+        nf = output.get("nf") if isinstance(output, dict) else None
         if nf is None:
             raise ValueError("Scheduler did not return 'nf' in output.")
 
@@ -114,6 +107,8 @@ def find_Jdes_binary_search(scheduler, target_nf, *args):
             lower = Jdes + 1
         else:
             upper = Jdes - 1
+
+    return None
 
 
 def kaiser_alpha(psll):

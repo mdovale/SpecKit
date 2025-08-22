@@ -90,18 +90,16 @@ def test_find_jdes_binary_search():
     Tests the binary search utility for finding a Jdes that produces a target
     number of frequencies. This is a key part of the `force_target_nf` feature.
     """
-    # Define a mock analysis setup
+    # Mock analysis setup
     N, fs, olap, bmin, Lmin, Kdes = int(1e6), 1.0, 0.5, 1.0, 100, 100
     target_nf = 1000
 
-    # The *args tuple must be in the specific order expected by the utility
-    args_for_util = (N, fs, olap, bmin, Lmin, Kdes)
+    # Common kwargs for schedulers (**args style)
+    kwargs = dict(N=N, fs=fs, olap=olap, bmin=bmin, Lmin=Lmin, Kdes=Kdes)
 
-    found_jdes = utils.find_Jdes_binary_search(
-        schedulers.ltf_plan, target_nf, *args_for_util
-    )
-
+    found_jdes = utils.find_Jdes_binary_search(schedulers.ltf_plan, target_nf, **kwargs)
     assert found_jdes is not None
+
     # Verify that the found Jdes actually produces the target nf
-    final_plan = schedulers.ltf_plan(N, fs, olap, bmin, Lmin, found_jdes, Kdes)
-    assert final_plan['nf'] == target_nf
+    final_plan = schedulers.ltf_plan(**kwargs, Jdes=int(found_jdes))
+    assert final_plan["nf"] == target_nf
