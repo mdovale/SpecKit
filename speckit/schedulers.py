@@ -254,26 +254,6 @@ def ltf_plan(**args):
     O_arr = np.array(O_arr)
     navg_arr = np.array(navg_arr)
 
-    # Constraint verification (note that some constraints are "soft"):
-    if not np.isclose(f_arr[-1], fmax, rtol=0.05):
-        logger.warning(f"ltf::ltf_plan: f[-1]={f_arr[-1]} and fmax={fmax}")
-    if not np.allclose(f_arr, fres_arr * b_arr):
-        logger.warning("ltf::ltf_plan: f[j] != r[j]*b[j]")
-    if not np.allclose(
-        fres_arr * L_arr, np.full(len(fres_arr), fs)
-    ):
-        logger.warning("ltf::ltf_plan: r[j]*L[j] != fs")
-    if not np.allclose(fres_arr[:-1], np.diff(f_arr), rtol=0.05):
-        logger.warning("ltf::ltf_plan: r[j] != f[j+1] - f[j]")
-    if not np.all(L_arr < N + 1):
-        logger.warning("ltf::ltf_plan: L[j] >= N+1")
-    if not np.all(L_arr >= Lmin):
-        logger.warning("ltf::ltf_plan: L[j] < Lmin")
-    if not np.all(b_arr >= bmin * (1 - 0.05)):
-        logger.warning("ltf::ltf_plan: b[j] < bmin")
-    if not np.all(L_arr[K_arr == 1] == N):
-        logger.warning("ltf::ltf_plan: L[K==1] != N")
-
     # Final number of frequencies:
     nf = len(f_arr)
     if nf == 0:

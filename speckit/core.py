@@ -61,7 +61,375 @@ from speckit.utils import (
 )
 from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 
-logger = logging.getLogger(__name__)
+# ---------- NUMBA SETUP ----------
+try:
+    from numba import njit, prange
+    _HAS_NUMBA = True
+except Exception:
+    _HAS_NUMBA = False
+    def njit(*args, **kwargs):
+        def deco(f): return f
+        return deco
+    def prange(n): return range(n)
+
+# ---------- QR BASIS CACHE (for order=1,2 detrend) ----------
+# We build a centered Vandermonde [1, t, t^2] with t in [-1,1] and QR-reduce to Q (orthonormal columns).
+# Detrend: y <- y - Q @ (Q^T y). This is stable and O(L·order).
+def _build_Q(L: int, order: int) -> np.ndarray:
+    # order in {1,2}; returns Q with shape (L, order+1)
+    t = np.linspace(-1.0, 1.0, L, dtype=np.float64)
+    if order == 1:
+        V = np.stack([np.ones(L, dtype=np.float64), t], axis=1)              # (L,2)
+    elif order == 2:
+        V = np.stack([np.ones(L, dtype=np.float64), t, t*t], axis=1)         # (L,3)
+    else:
+        raise ValueError("Q requested for unsupported order")
+    # Reduced QR; Q has orthonormal columns
+    Q, _ = np.linalg.qr(V, mode="reduced")                                   # (L, p+1)
+    return np.ascontiguousarray(Q, dtype=np.float64)
+
+# ---------- IN-KERNEL STATS (AUTO / CSD) ----------
+# All kernels compute: MXX, MYY, μ_XYr, μ_XYi, M2 across frames (population variance of complex XY).
+
+@njit(parallel=True, fastmath=True, cache=True)
+def _stats_win_only_auto(x, starts, L, w, omega):
+    navg = starts.size
+    cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
+    sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
+    XYr_tmp = np.empty(navg, np.float64); XYi_tmp = np.empty(navg, np.float64)
+    for j in prange(navg):
+        base = starts[j]
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = x[base + n] * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        rx = s1 - cosw * s2; ix = sinw * s2
+        ry = rx; iy = ix  # auto
+        XYr = ry*rx + iy*ix; XYi = iy*rx - ry*ix
+        XX = rx*rx + ix*ix; YY = ry*ry + iy*iy
+        XYr_tmp[j] = XYr; XYi_tmp[j] = XYi
+        sum_XYr += XYr; sum_XYi += XYi; sum_XX += XX; sum_YY += YY
+    inv = 1.0 / navg
+    mu_r = sum_XYr*inv; mu_i = sum_XYi*inv; MXX = sum_XX*inv; MYY = sum_YY*inv
+    acc = 0.0
+    if navg > 1:
+        for j in prange(navg):
+            dr = XYr_tmp[j]-mu_r; di = XYi_tmp[j]-mu_i
+            acc += dr*dr + di*di
+        M2 = acc*inv
+    else:
+        M2 = 0.0
+    return MXX, MYY, mu_r, mu_i, M2
+
+@njit(parallel=True, fastmath=True, cache=True)
+def _stats_win_only_csd(x1, x2, starts, L, w, omega):
+    navg = starts.size
+    cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
+    sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
+    XYr_tmp = np.empty(navg, np.float64); XYi_tmp = np.empty(navg, np.float64)
+    for j in prange(navg):
+        base = starts[j]
+        # ch1
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = x1[base + n] * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        rx = s1 - cosw * s2; ix = sinw * s2
+        # ch2
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = x2[base + n] * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        ry = s1 - cosw * s2; iy = sinw * s2
+        XYr = ry*rx + iy*ix; XYi = iy*rx - ry*ix
+        XX = rx*rx + ix*ix; YY = ry*ry + iy*iy
+        XYr_tmp[j] = XYr; XYi_tmp[j] = XYi
+        sum_XYr += XYr; sum_XYi += XYi; sum_XX += XX; sum_YY += YY
+    inv = 1.0 / navg
+    mu_r = sum_XYr*inv; mu_i = sum_XYi*inv; MXX = sum_XX*inv; MYY = sum_YY*inv
+    acc = 0.0
+    if navg > 1:
+        for j in prange(navg):
+            dr = XYr_tmp[j]-mu_r; di = XYi_tmp[j]-mu_i
+            acc += dr*dr + di*di
+        M2 = acc*inv
+    else:
+        M2 = 0.0
+    return MXX, MYY, mu_r, mu_i, M2
+
+@njit(parallel=True, fastmath=True, cache=True)
+def _stats_detrend0_auto(x, starts, L, w, omega):
+    navg = starts.size
+    cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
+    sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
+    XYr_tmp = np.empty(navg, np.float64); XYi_tmp = np.empty(navg, np.float64)
+    for j in prange(navg):
+        base = starts[j]
+        # mean
+        s = 0.0
+        for n in range(L): s += x[base+n]
+        mu = s / L
+        # Goertzel on demeaned * windowed
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = (x[base+n] - mu) * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        rx = s1 - cosw * s2; ix = sinw * s2
+        ry = rx; iy = ix
+        XYr = ry*rx + iy*ix; XYi = iy*rx - ry*ix
+        XX = rx*rx + ix*ix; YY = ry*ry + iy*iy
+        XYr_tmp[j] = XYr; XYi_tmp[j] = XYi
+        sum_XYr += XYr; sum_XYi += XYi; sum_XX += XX; sum_YY += YY
+    inv = 1.0 / navg
+    mu_r = sum_XYr*inv; mu_i = sum_XYi*inv; MXX = sum_XX*inv; MYY = sum_YY*inv
+    acc = 0.0
+    if navg > 1:
+        for j in prange(navg):
+            dr = XYr_tmp[j]-mu_r; di = XYi_tmp[j]-mu_i
+            acc += dr*dr + di*di
+        M2 = acc*inv
+    else:
+        M2 = 0.0
+    return MXX, MYY, mu_r, mu_i, M2
+
+@njit(parallel=True, fastmath=True, cache=True)
+def _stats_detrend0_csd(x1, x2, starts, L, w, omega):
+    navg = starts.size
+    cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
+    sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
+    XYr_tmp = np.empty(navg, np.float64); XYi_tmp = np.empty(navg, np.float64)
+    for j in prange(navg):
+        base = starts[j]
+        # ch1 mean
+        s = 0.0
+        for n in range(L): s += x1[base+n]
+        mu1 = s / L
+        # ch2 mean
+        s = 0.0
+        for n in range(L): s += x2[base+n]
+        mu2 = s / L
+        # ch1 Goertzel
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = (x1[base+n] - mu1) * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        rx = s1 - cosw * s2; ix = sinw * s2
+        # ch2 Goertzel
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = (x2[base+n] - mu2) * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        ry = s1 - cosw * s2; iy = sinw * s2
+        XYr = ry*rx + iy*ix; XYi = iy*rx - ry*ix
+        XX = rx*rx + ix*ix; YY = ry*ry + iy*iy
+        XYr_tmp[j] = XYr; XYi_tmp[j] = XYi
+        sum_XYr += XYr; sum_XYi += XYi; sum_XX += XX; sum_YY += YY
+    inv = 1.0 / navg
+    mu_r = sum_XYr*inv; mu_i = sum_XYi*inv; MXX = sum_XX*inv; MYY = sum_YY*inv
+    acc = 0.0
+    if navg > 1:
+        for j in prange(navg):
+            dr = XYr_tmp[j]-mu_r; di = XYi_tmp[j]-mu_i
+            acc += dr*dr + di*di
+        M2 = acc*inv
+    else:
+        M2 = 0.0
+    return MXX, MYY, mu_r, mu_i, M2
+
+@njit(parallel=True, fastmath=True, cache=True)
+def _stats_poly_auto(x, starts, L, w, omega, Q):
+    # order is inferred from Q.shape[1]-1
+    navg = starts.size
+    p1 = Q.shape[1]  # p+1
+    cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
+    sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
+    XYr_tmp = np.empty(navg, np.float64); XYi_tmp = np.empty(navg, np.float64)
+    for j in prange(navg):
+        base = starts[j]
+        # alpha = Q^T y
+        alpha0 = 0.0; alpha1 = 0.0; alpha2 = 0.0
+        # limited to p<=2 for speed; handle p1 ∈ {2,3}
+        if p1 == 2:
+            # columns Q[:,0], Q[:,1]
+            for n in range(L):
+                y = x[base+n]
+                alpha0 += Q[n,0] * y
+                alpha1 += Q[n,1] * y
+        else:
+            for n in range(L):
+                y = x[base+n]
+                alpha0 += Q[n,0] * y
+                alpha1 += Q[n,1] * y
+                alpha2 += Q[n,2] * y
+        # y' = y - Q @ alpha ; then window + goertzel
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        if p1 == 2:
+            for n in range(L):
+                y = x[base+n] - (Q[n,0]*alpha0 + Q[n,1]*alpha1)
+                xn = y * w[n]
+                s0 = xn + coeff * s1 - s2
+                s2 = s1; s1 = s0
+        else:
+            for n in range(L):
+                y = x[base+n] - (Q[n,0]*alpha0 + Q[n,1]*alpha1 + Q[n,2]*alpha2)
+                xn = y * w[n]
+                s0 = xn + coeff * s1 - s2
+                s2 = s1; s1 = s0
+        rx = s1 - cosw * s2; ix = sinw * s2
+        ry = rx; iy = ix
+        XYr = ry*rx + iy*ix; XYi = iy*rx - ry*ix
+        XX = rx*rx + ix*ix; YY = ry*ry + iy*iy
+        XYr_tmp[j] = XYr; XYi_tmp[j] = XYi
+        sum_XYr += XYr; sum_XYi += XYi; sum_XX += XX; sum_YY += YY
+    inv = 1.0 / navg
+    mu_r = sum_XYr*inv; mu_i = sum_XYi*inv; MXX = sum_XX*inv; MYY = sum_YY*inv
+    acc = 0.0
+    if navg > 1:
+        for j in prange(navg):
+            dr = XYr_tmp[j]-mu_r; di = XYi_tmp[j]-mu_i
+            acc += dr*dr + di*di
+        M2 = acc*inv
+    else:
+        M2 = 0.0
+    return MXX, MYY, mu_r, mu_i, M2
+
+@njit(parallel=True, fastmath=True, cache=True)
+def _stats_poly_csd(x1, x2, starts, L, w, omega, Q):
+    navg = starts.size
+    p1 = Q.shape[1]
+    cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
+    sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
+    XYr_tmp = np.empty(navg, np.float64); XYi_tmp = np.empty(navg, np.float64)
+    for j in prange(navg):
+        base = starts[j]
+        # alpha for ch1
+        a10 = 0.0; a11 = 0.0; a12 = 0.0
+        # alpha for ch2
+        a20 = 0.0; a21 = 0.0; a22 = 0.0
+        if p1 == 2:
+            for n in range(L):
+                y1 = x1[base+n]; y2 = x2[base+n]
+                a10 += Q[n,0]*y1; a11 += Q[n,1]*y1
+                a20 += Q[n,0]*y2; a21 += Q[n,1]*y2
+        else:
+            for n in range(L):
+                y1 = x1[base+n]; y2 = x2[base+n]
+                a10 += Q[n,0]*y1; a11 += Q[n,1]*y1; a12 += Q[n,2]*y1
+                a20 += Q[n,0]*y2; a21 += Q[n,1]*y2; a22 += Q[n,2]*y2
+        # ch1 goertzel on (y - Q@alpha) * w
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        if p1 == 2:
+            for n in range(L):
+                y = x1[base+n] - (Q[n,0]*a10 + Q[n,1]*a11)
+                xn = y * w[n]
+                s0 = xn + coeff * s1 - s2
+                s2 = s1; s1 = s0
+        else:
+            for n in range(L):
+                y = x1[base+n] - (Q[n,0]*a10 + Q[n,1]*a11 + Q[n,2]*a12)
+                xn = y * w[n]
+                s0 = xn + coeff * s1 - s2
+                s2 = s1; s1 = s0
+        rx = s1 - cosw * s2; ix = sinw * s2
+        # ch2
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        if p1 == 2:
+            for n in range(L):
+                y = x2[base+n] - (Q[n,0]*a20 + Q[n,1]*a21)
+                xn = y * w[n]
+                s0 = xn + coeff * s1 - s2
+                s2 = s1; s1 = s0
+        else:
+            for n in range(L):
+                y = x2[base+n] - (Q[n,0]*a20 + Q[n,1]*a21 + Q[n,2]*a22)
+                xn = y * w[n]
+                s0 = xn + coeff * s1 - s2
+                s2 = s1; s1 = s0
+        ry = s1 - cosw * s2; iy = sinw * s2
+        XYr = ry*rx + iy*ix; XYi = iy*rx - ry*ix
+        XX = rx*rx + ix*ix; YY = ry*ry + iy*iy
+        XYr_tmp[j] = XYr; XYi_tmp[j] = XYi
+        sum_XYr += XYr; sum_XYi += XYi; sum_XX += XX; sum_YY += YY
+    inv = 1.0 / navg
+    mu_r = sum_XYr*inv; mu_i = sum_XYi*inv; MXX = sum_XX*inv; MYY = sum_YY*inv
+    acc = 0.0
+    if navg > 1:
+        for j in prange(navg):
+            dr = XYr_tmp[j]-mu_r; di = XYi_tmp[j]-mu_i
+            acc += dr*dr + di*di
+        M2 = acc*inv
+    else:
+        M2 = 0.0
+    return MXX, MYY, mu_r, mu_i, M2
+
+# ---------- NumPy fallbacks for poly paths (rarely used if Numba available) ----------
+def _stats_poly_auto_np(x, starts, L, w, omega, Q):
+    cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
+    navg = starts.size
+    XYr = np.empty(navg); XYi = np.empty(navg); XX = np.empty(navg); YY = np.empty(navg)
+    for j, base in enumerate(starts):
+        y = x[base:base+L].astype(np.float64, copy=False)
+        alpha = Q.T @ y
+        y = y - Q @ alpha
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = y[n] * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        rx = s1 - cosw*s2; ix = sinw*s2
+        ry = rx; iy = ix
+        XYr[j] = ry*rx + iy*ix
+        XYi[j] = iy*rx - ry*ix
+        XX[j]  = rx*rx + ix*ix
+        YY[j]  = ry*ry + iy*iy
+    MXX = float(XX.mean()); MYY = float(YY.mean())
+    mu_r = float(XYr.mean()); mu_i = float(XYi.mean())
+    if navg > 1:
+        M2 = float(np.mean((XYr-mu_r)**2 + (XYi-mu_i)**2))
+    else:
+        M2 = 0.0
+    return MXX, MYY, mu_r, mu_i, M2
+
+def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q):
+    cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
+    navg = starts.size
+    XYr = np.empty(navg); XYi = np.empty(navg); XX = np.empty(navg); YY = np.empty(navg)
+    for j, base in enumerate(starts):
+        y1 = x1[base:base+L].astype(np.float64, copy=False)
+        y2 = x2[base:base+L].astype(np.float64, copy=False)
+        a1 = Q.T @ y1; a2 = Q.T @ y2
+        y1 = y1 - Q @ a1; y2 = y2 - Q @ a2
+        # ch1
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = y1[n] * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        rx = s1 - cosw*s2; ix = sinw*s2
+        # ch2
+        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        for n in range(L):
+            xn = y2[n] * w[n]
+            s0 = xn + coeff * s1 - s2
+            s2 = s1; s1 = s0
+        ry = s1 - cosw*s2; iy = sinw*s2
+        XYr[j] = ry*rx + iy*ix
+        XYi[j] = iy*rx - ry*ix
+        XX[j]  = rx*rx + ix*ix
+        YY[j]  = ry*ry + iy*iy
+    MXX = float(XX.mean()); MYY = float(YY.mean())
+    mu_r = float(XYr.mean()); mu_i = float(XYi.mean())
+    if navg > 1:
+        M2 = float(np.mean((XYr-mu_r)**2 + (XYi-mu_i)**2))
+    else:
+        M2 = 0.0
+    return MXX, MYY, mu_r, mu_i, M2
 
 
 class SpectrumAnalyzer:
@@ -87,7 +455,7 @@ class SpectrumAnalyzer:
         order: int = 0,
         psll: Optional[float] = 200,
         win: Union[str, Callable] = np_kaiser,
-        scheduler: Union[str, Callable] = "ltf",
+        scheduler: Union[str, Callable] = "new_ltf",
         band: Optional[Tuple[float, float]] = None,
         force_target_nf: Optional[bool] = False,
         verbose: bool = False,
@@ -501,102 +869,93 @@ class SpectrumAnalyzer:
 
 
     def _lpsd_core(self, f_indices: np.ndarray) -> List[Any]:
-        """The core processing loop for a block of frequency indices."""
+        """Core processing loop for a block of frequency indices (optimized, with fast order=1/2)."""
         plan = self._plan_cache
-        results_block = []
+        results_block: List[Any] = []
 
-        # --- OPTIMIZATION: Cache for windows and DFT kernels ---
-        window_cache = {}
+        # Cache window (and sums) per L, and Q per (L, order)
+        window_cache: Dict[int, Tuple[np.ndarray, float, float]] = {}
+        Q_cache: Dict[Tuple[int, int], np.ndarray] = {}
 
-        # --- OPTIMIZATION: Pre-calculate strides for the data array ---
-        # This is for creating views of segments without copying data.
+        # Contiguous views
         if self.iscsd:
-            # For 2-channel data, strides are (bytes_per_row, bytes_per_element)
-            itemsize = self.data.itemsize
-            strides = (self.data.shape[1] * itemsize, itemsize)
+            x1 = np.ascontiguousarray(self.data[:, 0], dtype=np.float64)
+            x2 = np.ascontiguousarray(self.data[:, 1], dtype=np.float64)
         else:
-            strides = self.data.strides * 2 # For a 1D array becoming 2D
+            x1 = np.ascontiguousarray(self.data, dtype=np.float64)
+            x2 = None  # type: ignore
 
         for i in f_indices:
-            start_time = time.time()
-            len, m, num_averages = plan["L"][i], plan["m"][i], plan["navg"][i]
+            t0 = time.time()
+            L = int(plan["L"][i])
+            m = float(plan["m"][i])     # fractional bin
+            starts = plan["D"][i]       # np.ndarray of start indices
+            navg = int(plan["navg"][i])
 
-            # --- OPTIMIZATION: Window and Kernel Caching ---
-            if len in window_cache:
-                window = window_cache[len]
-            else:
-                # Generate and cache the window array
-                if self.config["win_func"] in [np_kaiser, sp_kaiser]:
-                    window = self.config["win_func"](len + 1, self.config["alpha"] * np.pi)[:-1]
+            # Window cache
+            if L not in window_cache:
+                if self.config["win_func"] in (np_kaiser, sp_kaiser):
+                    w = self.config["win_func"](L + 1, self.config["alpha"] * np.pi)[:-1]
                 else:
-                    window = self.config["win_func"](len)
-                window_cache[len] = window
-
-            # --- Recompute the kernel each time (this is fast) ---
-            p = 1j * 2 * np.pi * m / len * np.arange(len)
-            C = window * np.exp(p) # Combine windowing and kernel generation
-            
-            # --- OPTIMIZED Data Segmentation ---
-            start_indices = plan["D"][i]
-            
-            if self.iscsd:
-                shape = (len, self.data.shape[1])
-                # Create a view for each channel and then select segments
-                view_ch1 = as_strided(self.data[:, 0], shape=(self.nx - len + 1, len), strides=(strides[1], strides[1]))
-                view_ch2 = as_strided(self.data[:, 1], shape=(self.nx - len + 1, len), strides=(strides[1], strides[1]))
-                x1s_all = view_ch1[start_indices]
-                x2s_all = view_ch2[start_indices]
+                    w = self.config["win_func"](L)
+                w = np.asarray(w, dtype=np.float64)
+                S1 = float(w.sum()); S2 = float((w*w).sum())
+                window_cache[L] = (w, S1, S2)
             else:
-                # Create a 2D view of all possible overlapping segments
-                # This view is created without any data copying.
-                all_segments_view = as_strided(self.data, shape=(self.nx - len + 1, len), strides=strides)
-                
-                # Use fancy indexing to select the desired segments.
-                # This performs ONE highly optimized copy, not N small ones.
-                x1s_all = all_segments_view[start_indices]
-                x2s_all = None
+                w, S1, S2 = window_cache[L]
 
-            # --- Detrending ---
-            order = self.config["order"]
+            omega = 2.0 * np.pi * (m / L)
+            order = int(self.config["order"])
+
             if order == -1:
-                pass
+                if self.iscsd:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(x1, x2, starts, L, w, omega) if _HAS_NUMBA else _stats_poly_csd_np(x1, x2, starts, L, w, omega, np.zeros((L,1)))
+                else:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(x1, starts, L, w, omega) if _HAS_NUMBA else _stats_poly_auto_np(x1, starts, L, w, omega, np.zeros((L,1)))
             elif order == 0:
-                x1s_all -= np.mean(x1s_all, axis=1, keepdims=True)
                 if self.iscsd:
-                    x2s_all -= np.mean(x2s_all, axis=1, keepdims=True)
-            elif order > 0:
-                x1s_all = np.apply_along_axis(polynomial_detrend, 1, x1s_all, order)
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(x1, x2, starts, L, w, omega) if _HAS_NUMBA else _stats_poly_csd_np(x1, x2, starts, L, w, omega, np.zeros((L,1)))
+                else:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(x1, starts, L, w, omega) if _HAS_NUMBA else _stats_poly_auto_np(x1, starts, L, w, omega, np.zeros((L,1)))
+            elif order in (1, 2):
+                key = (L, order)
+                Q = Q_cache.get(key)
+                if Q is None:
+                    Q = _build_Q(L, order)
+                    Q_cache[key] = Q
                 if self.iscsd:
-                    x2s_all = np.apply_along_axis(polynomial_detrend, 1, x2s_all, order)
-
-            # --- DFT and Averaging ---
-            rxsums = np.dot(x1s_all, np.real(C))
-            ixsums = np.dot(x1s_all, np.imag(C))
-
-            if self.iscsd:
-                rysums = np.dot(x2s_all, np.real(C))
-                iysums = np.dot(x2s_all, np.imag(C))
+                    if _HAS_NUMBA:
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(x1, x2, starts, L, w, omega, Q)
+                    else:
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q)
+                else:
+                    if _HAS_NUMBA:
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(x1, starts, L, w, omega, Q)
+                    else:
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
             else:
-                rysums, iysums = rxsums, ixsums
+                # For higher orders, fall back to your original (apply_along_axis) or extend Q basis similarly.
+                # Here we map to order=2 behavior as a conservative fallback (or raise).
+                key = (L, 2)
+                Q = Q_cache.get(key)
+                if Q is None:
+                    Q = _build_Q(L, 2)
+                    Q_cache[key] = Q
+                if self.iscsd:
+                    if _HAS_NUMBA:
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(x1, x2, starts, L, w, omega, Q)
+                    else:
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q)
+                else:
+                    if _HAS_NUMBA:
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(x1, starts, L, w, omega, Q)
+                    else:
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
 
-            XYr_all = rysums * rxsums + iysums * ixsums
-            XYi_all = iysums * rxsums - rysums * ixsums
-            XX_all = rxsums**2 + ixsums**2
-            YY_all = rysums**2 + iysums**2
-
-            MXX = np.mean(XX_all)
-            MYY = np.mean(YY_all)
-            XY = np.mean(XYr_all) + 1j * np.mean(XYi_all)
-            M2 = np.var(XYr_all + 1j * XYi_all) if num_averages > 1 else 0.0
-            S1 = np.sum(window)
-            S2 = np.sum(window**2)
-
-            results_block.append(
-                [i, XY, MXX, MYY, S1**2, S2, M2, time.time() - start_time]
-            )
+            XY = complex(mu_r, mu_i)
+            results_block.append([i, XY, float(MXX), float(MYY), S1*S1, S2, float(M2), time.time() - t0])
 
         return results_block
-
 
 class SpectrumResult:
     """
