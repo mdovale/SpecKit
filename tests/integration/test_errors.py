@@ -37,7 +37,7 @@ import pytest
 import numpy as np
 from tqdm import trange
 
-from speckit.core import SpectrumAnalyzer
+from speckit import SpectrumAnalyzer
 
 def test_error_formulas_against_monte_carlo():
     """

@@ -36,7 +36,6 @@
 import sys
 import math
 
-import heapq
 import numpy as np
 
 import logging
@@ -280,6 +279,8 @@ def new_ltf_plan(**args):
     """
     Creates a high-performance blueprint for spectral analysis.
 
+    **WORK IN PROGRESS**
+
     This function generates a detailed plan for performing a windowed, overlapped,
     segmented spectral analysis on a time series. The resulting frequency grid is
     logarithmically-spaced at low frequencies for high resolution, transitions
@@ -312,8 +313,8 @@ def new_ltf_plan(**args):
               Returns None on failure.
     """
     # Unpack & validate
-    N, fs, olap, bmin, Lmin, Jdes = _require_args(
-        args, ["N", "fs", "olap", "bmin", "Lmin", "Jdes"]
+    N, fs, olap, bmin, Lmin, Jdes, num_patch_pts = _require_args(
+        args, ["N", "fs", "olap", "bmin", "Lmin", "Jdes", "num_patch_pts"]
     )
 
     # --- 1. Initialization and Core Constants ---
@@ -377,11 +378,9 @@ def new_ltf_plan(**args):
         return None
         
     # --- 3. Prepend Low-Frequency Ramp with Offset Correction ---
-    # This block is the core of the final solution, preserved exactly.
     
     if L_main_plan[0] < N:
         # Generate the L values for the patch ramp
-        num_patch_pts = 5
         L_patch = np.geomspace(N, L_main_plan[0], num=num_patch_pts, endpoint=False).astype(int)
         L_patch = np.unique(L_patch)[::-1] # Ensure unique, sorted descending
 

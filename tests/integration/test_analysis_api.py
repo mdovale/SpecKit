@@ -35,8 +35,7 @@
 #
 import pytest
 import numpy as np
-from speckit.analysis import compute_spectrum
-from speckit.core import SpectrumAnalyzer, SpectrumResult
+from speckit import compute_spectrum, SpectrumAnalyzer, SpectrumResult
 from speckit.flattop import HFT95
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes

@@ -46,6 +46,7 @@ SCHEDULER_PARAMS = {
     "Lmin": 1000,
     "Jdes": 1000,
     "Kdes": 100,
+    "num_patch_pts": 50,
 }
 
 
