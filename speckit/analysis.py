@@ -170,22 +170,31 @@ class SpectrumAnalyzer:
 
         # --- Process and validate input data ---
         x = np.asarray(data)
-        if len(x.shape) == 2 and (x.shape[0] == 2 or x.shape[1] == 2):
+        if x.ndim == 2 and (x.shape[0] == 2 or x.shape[1] == 2):
             self.iscsd = True
-            self.data = x.T if x.shape[0] == 2 else x
+            # Ensure shape == (2, N)
+            if x.shape[0] == 2 and x.shape[1] != 2:
+                data_2n = x
+            elif x.shape[1] == 2 and x.shape[0] != 2:
+                data_2n = x.T
+            else:
+                # both dims are 2 (2x2) or ambiguous; prefer channels-first
+                data_2n = x if x.shape[0] == 2 else x.T
+            self.data = np.ascontiguousarray(data_2n, dtype=np.float64)  # (2, N)
+            self.x1 = self.data[0]
+            self.x2 = self.data[1]
             if self.verbose:
-                logging.info(f"Detected two-channel data with length {len(self.data)}")
-        elif len(x.shape) == 1:
+                logging.info(f"Detected two-channel data with N={self.data.shape[1]}")
+        elif x.ndim == 1:
             self.iscsd = False
-            self.data = x
+            self.data = np.ascontiguousarray(x, dtype=np.float64)
+            self.x1 = self.data
             if self.verbose:
-                logging.info(
-                    f"Detected single-channel data with length {len(self.data)}"
-                )
+                logging.info(f"Detected single-channel data with N={self.data.shape[0]}")
         else:
             raise ValueError("Input data must be a 1D array or a 2xN/Nx2 array.")
-
-        self.nx = len(self.data)
+        
+        self.nx = len(self.x1)
         self.config["N"] = self.nx
 
         self._process_window_config()
@@ -350,105 +359,123 @@ class SpectrumAnalyzer:
             A result object containing the spectral estimates for the single bin.
             All result attributes will be scalar values instead of arrays.
         """
+        import numpy as _np
+        import time as _time
+
+        # -------- Segment length & resolution ----------
         if L is not None:
-            len = int(L)
-            final_fres = self.fs / len
+            segL = int(L)
+            final_fres = float(self.fs) / segL
         elif fres is not None:
-            final_fres = fres
-            len = int(self.fs / fres)
+            final_fres = float(fres)
+            segL = int(round(float(self.fs) / final_fres))
         else:
-            raise ValueError(
-                "Either `fres` (frequency resolution) or `L` (segment length) must be provided."
+            raise ValueError("Provide either `fres` or `L`.")
+
+        if segL < 1 or segL > self.nx:
+            raise ValueError(f"Invalid segment length segL={segL} for N={self.nx}")
+
+        # -------- Segmentation (starts) ----------
+        if self.nx == segL:
+            navg = 1
+            starts = _np.array([0], dtype=_np.int64)
+        else:
+            navg = int(
+                round_half_up(
+                    ((self.nx - segL) / (1.0 - float(self.config["final_olap"]))) / segL + 1.0
+                )
             )
+            if navg <= 1:
+                starts = _np.array([0], dtype=_np.int64)
+                navg = 1
+            else:
+                shift = (self.nx - segL) / (navg - 1)
+                starts = _np.round(_np.arange(navg) * shift).astype(_np.int64)
 
-        m = freq / final_fres  # Fractional bin number
-
-        # --- DFT Kernel Generation ---
-        if self.config["win_func"] in [np_kaiser, sp_kaiser]:
-            window = self.config["win_func"](len + 1, self.config["alpha"] * np.pi)[:-1]
+        # -------- Window ----------
+        win_func = self.config["win_func"]
+        alpha = self.config.get("alpha", None)
+        if win_func in (np_kaiser, sp_kaiser):
+            if alpha is None:
+                raise ValueError("Kaiser window selected but 'alpha' is not set.")
+            w = win_func(segL + 1, alpha * _np.pi)[:-1].astype(_np.float64, copy=False)
         else:
-            window = self.config["win_func"](len)
+            w = win_func(segL).astype(_np.float64, copy=False)
+        if w.shape[0] != segL:
+            raise ValueError(f"Window length {w.shape[0]} != segL {segL}")
+        S1 = float(_np.sum(w))
+        S2 = float(_np.sum(w * w))
 
-        p = 1j * 2 * np.pi * m / len * np.arange(len)
-        C = window * np.exp(p)  # Complex DFT kernel
+        # -------- Inputs for kernels ----------
+        x1 = _np.ascontiguousarray(self.x1, dtype=_np.float64)
+        x2 = _np.ascontiguousarray(self.x2, dtype=_np.float64) if self.iscsd else None
+        is_cross = self.iscsd
+        order = int(self.config.get("order", 0))
+        # SciPy-compatible omega
+        omega = 2.0 * _np.pi * float(freq) / float(self.fs)
 
-        # --- Segmentation ---
-        navg = int(
-            round_half_up(((self.nx - len) / (1 - self.config["final_olap"])) / len + 1)
+        # -------- Optional polynomial basis ----------
+        from .core import (
+            _build_Q,
+            _stats_win_only_auto, _stats_win_only_csd,
+            _stats_detrend0_auto, _stats_detrend0_csd,
+            _stats_poly_auto, _stats_poly_csd,
         )
-        if navg == 1:
-            shift = 0.0
-            starts = [0]
-        else:
-            shift = (self.nx - len) / (navg - 1)
-            starts = np.round(np.arange(navg) * shift).astype(int)
 
-        segments = np.array([self.data[d_start : d_start + len] for d_start in starts])
-
-        # --- Detrending ---
-        x1s_all = segments[:, :, 0] if self.iscsd else segments
-        order = self.config["order"]
-        if order == -1:  # No detrending
-            pass
+        if order == -1:
+            detrend_mode = "win"
         elif order == 0:
-            x1s_all -= np.mean(x1s_all, axis=1, keepdims=True)
-            if self.iscsd:
-                x2s_all = segments[:, :, 1]
-                x2s_all -= np.mean(x2s_all, axis=1, keepdims=True)
-        elif order > 0:
-            x1s_all = np.apply_along_axis(polynomial_detrend, 1, x1s_all, order)
-            if self.iscsd:
-                x2s_all = segments[:, :, 1]
-                x2s_all = np.apply_along_axis(polynomial_detrend, 1, x2s_all, order)
-
-        if self.iscsd and order != -1:  # Re-assign detrended data if needed
-            segments[:, :, 0] = x1s_all
-            segments[:, :, 1] = x2s_all
-
-        # --- DFT and Averaging ---
-        rxsums = np.dot(x1s_all, np.real(C))
-        ixsums = np.dot(x1s_all, np.imag(C))
-
-        if self.iscsd:
-            x2s_all = segments[:, :, 1]
-            rysums = np.dot(x2s_all, np.real(C))
-            iysums = np.dot(x2s_all, np.imag(C))
+            detrend_mode = "mean0"
+        elif order in (1, 2):
+            detrend_mode = "poly"
         else:
-            rysums, iysums = rxsums, ixsums
+            raise ValueError("order must be one of {-1, 0, 1, 2}")
 
-        XYr_all = rysums * rxsums + iysums * ixsums
-        XYi_all = iysums * rxsums - rysums * ixsums
-        XX_all = rxsums**2 + ixsums**2
-        YY_all = rysums**2 + iysums**2
+        Q = None
+        if detrend_mode == "poly":
+            Q = _build_Q(segL, order).astype(_np.float64, copy=False)
 
-        MXX = np.mean(XX_all)
-        MYY = np.mean(YY_all)
-        XY = np.mean(XYr_all) + 1j * np.mean(XYi_all)
-        M2 = np.var(XYr_all + 1j * XYi_all) if navg > 1 else 0.0
+        # -------- Select kernel and run ----------
+        t0 = _time.perf_counter()
+        if detrend_mode == "win":
+            if is_cross:
+                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(x1, x2, starts, segL, w, omega)
+            else:
+                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(x1, starts, segL, w, omega)
+        elif detrend_mode == "mean0":
+            if is_cross:
+                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(x1, x2, starts, segL, w, omega)
+            else:
+                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(x1, starts, segL, w, omega)
+        else:  # poly
+            if is_cross:
+                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(x1, x2, starts, segL, w, omega, Q)
+            else:
+                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(x1, starts, segL, w, omega, Q)
+        tm = _time.perf_counter() - t0
 
-        S1 = np.sum(window)
-        S2 = np.sum(window**2)
+        # -------- Package SpectrumResult ----------
+        final_fres = float(self.fs) / segL
+        m = float(freq) / final_fres
+        XY = complex(mu_r, mu_i)
 
-        # --- Package results for SpectrumResult ---
-        # Note: We package results as single-element lists/arrays so SpectrumResult
-        # can process them just like a multi-bin result.
         single_bin_results = {
-            "f": np.array([freq]),
-            "r": np.array([final_fres]),
-            "b": np.array([m]),
-            "L": np.array([len]),
-            "K": np.array([navg]),
-            "navg": np.array([navg]),
-            "D": np.array([starts], dtype=object),
-            "O": np.array([self.config["final_olap"]]),
-            "i": np.array([0]),
-            "XX": np.array([MXX]),
-            "YY": np.array([MYY]),
-            "XY": np.array([XY]),
-            "S12": np.array([S1**2]),
-            "S2": np.array([S2]),
-            "M2": np.array([M2]),
-            "compute_t": np.array([0.0]),  # Timer not used for single bin
+            "f": _np.array([freq], dtype=_np.float64),
+            "r": _np.array([final_fres], dtype=_np.float64),
+            "b": _np.array([m], dtype=_np.float64),
+            "L": _np.array([segL], dtype=_np.int64),
+            "K": _np.array([navg], dtype=_np.int64),
+            "navg": _np.array([navg], dtype=_np.int64),
+            "D": _np.array([starts], dtype=object),
+            "O": _np.array([self.config["final_olap"]], dtype=_np.float64),
+            "i": _np.array([0], dtype=_np.int64),
+            "XX": _np.array([float(MXX)], dtype=_np.float64),
+            "YY": _np.array([float(MYY)], dtype=_np.float64),
+            "XY": _np.array([XY], dtype=_np.complex128),
+            "S12": _np.array([S1 * S1], dtype=_np.float64),
+            "S2": _np.array([S2], dtype=_np.float64),
+            "M2": _np.array([float(M2)], dtype=_np.float64),
+            "compute_t": _np.array([float(tm)], dtype=_np.float64),
         }
 
         return SpectrumResult(single_bin_results, self.config, self.iscsd, self.fs)
@@ -516,10 +543,10 @@ class SpectrumAnalyzer:
 
         # Contiguous views
         if self.iscsd:
-            x1 = np.ascontiguousarray(self.data[:, 0], dtype=np.float64)
-            x2 = np.ascontiguousarray(self.data[:, 1], dtype=np.float64)
+            x1 = np.ascontiguousarray(self.x1, dtype=np.float64)
+            x2 = np.ascontiguousarray(self.x2, dtype=np.float64)
         else:
-            x1 = np.ascontiguousarray(self.data, dtype=np.float64)
+            x1 = np.ascontiguousarray(self.x1, dtype=np.float64)
             x2 = None  # type: ignore
 
         for i in f_indices:
