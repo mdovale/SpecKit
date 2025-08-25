@@ -47,3 +47,4 @@ from .analysis import (
     SpectrumAnalyzer, 
     SpectrumResult
 )
+from .plotting import default_rc

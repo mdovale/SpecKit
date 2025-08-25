@@ -57,7 +57,7 @@ from speckit.utils import (
     get_key_for_function,
     find_Jdes_binary_search,
 )
-from .core import (_HAS_NUMBA,
+from .core import (_NUMBA_ENABLED,
     _build_Q,
     _stats_detrend0_auto, 
     _stats_detrend0_csd,
@@ -545,23 +545,23 @@ class SpectrumAnalyzer:
 
             if order == -1:
                 if self.iscsd:
-                    if _HAS_NUMBA:
+                    if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(x1, x2, starts, L, w, omega)
                     else: 
                         _stats_poly_csd_np(x1, x2, starts, L, w, omega, np.zeros((L,1)))
                 else:
-                    if _HAS_NUMBA:
+                    if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(x1, starts, L, w, omega)
                     else: 
                         _stats_poly_auto_np(x1, starts, L, w, omega, np.zeros((L,1)))
             elif order == 0:
                 if self.iscsd:
-                    if _HAS_NUMBA:
+                    if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(x1, x2, starts, L, w, omega)
                     else: 
                         _stats_poly_csd_np(x1, x2, starts, L, w, omega, np.zeros((L,1)))
                 else:
-                    if _HAS_NUMBA:
+                    if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(x1, starts, L, w, omega)
                     else:
                         _stats_poly_auto_np(x1, starts, L, w, omega, np.zeros((L,1)))
@@ -572,12 +572,12 @@ class SpectrumAnalyzer:
                     Q = _build_Q(L, order)
                     Q_cache[key] = Q
                 if self.iscsd:
-                    if _HAS_NUMBA:
+                    if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(x1, x2, starts, L, w, omega, Q)
                     else:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q)
                 else:
-                    if _HAS_NUMBA:
+                    if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(x1, starts, L, w, omega, Q)
                     else:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
