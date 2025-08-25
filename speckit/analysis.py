@@ -108,7 +108,7 @@ class SpectrumAnalyzer:
             Input time-series. A 1D array for auto-spectral analysis or a
             2D (2xN or Nx2) array for cross-spectral analysis.
         fs : float
-            The sampling frequency of the data in Hz.
+            The sampling frequency of the data in Hz (must be > 0).
         olap : str or float, optional
             Desired fractional overlap between segments. Use "default" to
             automatically select an optimal value based on the window function.
@@ -130,7 +130,8 @@ class SpectrumAnalyzer:
             to new_ltf_plan scheduler output. Defaults to 50. 
         order : int, optional
             Order of polynomial detrending to apply to each segment.
-            0 for mean removal, 1 for linear, etc. Defaults to 0.
+            Allowed values: -1 (window only), 0 (mean removal), 1 (linear), 2 (quadratic).
+            Defaults to 0.
         psll : float, optional
             Peak Side-Lobe Level in dB for the Kaiser window. Required if
             `win` is 'kaiser'. Defaults to 200.
@@ -150,29 +151,35 @@ class SpectrumAnalyzer:
         verbose : bool, optional
             If True, prints progress and diagnostic information. Defaults to False.
         """
-        self.fs = fs
-        self.verbose = verbose
+        # ---- Basic validation -------------------------------------------------
+        if not np.isfinite(fs) or fs <= 0:
+            raise ValueError(f"`fs` must be a positive finite float, got {fs!r}.")
+        if order not in (-1, 0, 1, 2):
+            raise ValueError(f"`order` must be one of {{-1, 0, 1, 2}}, got {order!r}.")
+
+        self.fs = float(fs)
+        self.verbose = bool(verbose)
 
         self.config = {
             "olap": olap,
-            "bmin": bmin,
-            "Lmin": Lmin,
-            "Jdes": Jdes,
-            "Kdes": Kdes,
-            "num_patch_pts": num_patch_pts,
-            "order": order,
+            "bmin": float(bmin),
+            "Lmin": int(Lmin),
+            "Jdes": int(Jdes),
+            "Kdes": int(Kdes),
+            "num_patch_pts": None if num_patch_pts is None else int(num_patch_pts),
+            "order": int(order),
             "psll": psll,
             "win": win,
             "scheduler": scheduler,
             "band": band,
-            "force_target_nf": force_target_nf,
+            "force_target_nf": bool(force_target_nf),
         }
 
         # --- Process and validate input data ---
         x = np.asarray(data)
         if x.ndim == 2 and (x.shape[0] == 2 or x.shape[1] == 2):
             self.iscsd = True
-            # Ensure shape == (2, N)
+            # Ensure canonical shape == (2, N)
             if x.shape[0] == 2 and x.shape[1] != 2:
                 data_2n = x
             elif x.shape[1] == 2 and x.shape[0] != 2:
@@ -183,88 +190,147 @@ class SpectrumAnalyzer:
             self.data = np.ascontiguousarray(data_2n, dtype=np.float64)  # (2, N)
             self.x1 = self.data[0]
             self.x2 = self.data[1]
+            N = self.data.shape[1]
             if self.verbose:
-                logging.info(f"Detected two-channel data with N={self.data.shape[1]}")
+                logging.info(f"Detected two-channel data with N={N}")
         elif x.ndim == 1:
             self.iscsd = False
-            self.data = np.ascontiguousarray(x, dtype=np.float64)
+            self.data = np.ascontiguousarray(x, dtype=np.float64)       # (N,)
             self.x1 = self.data
+            self.x2 = None
+            N = self.data.shape[0]
             if self.verbose:
-                logging.info(f"Detected single-channel data with N={self.data.shape[0]}")
+                logging.info(f"Detected single-channel data with N={N}")
         else:
             raise ValueError("Input data must be a 1D array or a 2xN/Nx2 array.")
-        
-        self.nx = len(self.x1)
+
+        # Warn (don’t fail) on NaN/Inf in input
+        if not np.all(np.isfinite(self.data)):
+            logging.warning("Input data contains NaN/Inf; results may be undefined.")
+
+        self.nx = int(len(self.x1))
         self.config["N"] = self.nx
 
+        # Resolve dependent config
         self._process_window_config()
         self._process_scheduler_config()
 
+        # Cache for the plan
         self._plan_cache: Optional[Dict[str, Any]] = None
 
+        # Concise summary (verbose only)
+        if self.verbose:
+            win_func = self.config.get("win_func")
+            alpha = self.config.get("alpha")
+            if win_func in (np_kaiser, sp_kaiser):
+                win_name = f"kaiser(alpha={alpha:.3f})" if alpha is not None else "kaiser"
+            elif is_function_in_dict(win_func, win_dict):
+                win_name = get_key_for_function(win_func, win_dict)
+            else:
+                win_name = getattr(win_func, "__name__", "custom_win")
+
+            sched_param = self.config["scheduler"]
+            sched_name = sched_param if isinstance(sched_param, str) else getattr(sched_param, "__name__", "custom_sched")
+
+            logging.info(
+                f"SpectrumAnalyzer: fs={self.fs:g} Hz | N={self.nx} | "
+                f"mode={'CSD' if self.iscsd else 'auto'} | order={self.config['order']} | "
+                f"win={win_name} | olap={self.config.get('final_olap','?')} | "
+                f"scheduler={sched_name}"
+            )
+
+
     def _process_window_config(self):
-        """Internal method to resolve window function and related parameters."""
+        """Resolve window function, Kaiser alpha, and default overlap."""
         win_param = self.config["win"]
         psll = self.config["psll"]
-        win_str_name = "Unknown"
 
+        # 1) Resolve window function and human-readable name
+        win_name = "custom_win"
         if isinstance(win_param, str):
-            win_str_name = win_param
-            if win_param.lower() in ["kaiser"]:
+            w = win_param.lower()
+            win_name = w
+            if w == "kaiser":
                 self.config["win_func"] = np_kaiser
                 if psll is None:
                     raise ValueError("PSLL must be specified for the Kaiser window.")
                 self.config["alpha"] = kaiser_alpha(psll)
-            elif win_param.lower() in ["hann", "hanning"]:
+            elif w in ("hann", "hanning"):
                 self.config["win_func"] = np.hanning
+                self.config["alpha"] = None
             elif win_param in win_dict:
                 self.config["win_func"] = win_dict[win_param]
+                self.config["alpha"] = None
             else:
                 raise ValueError(f"Window function '{win_param}' not recognized.")
         elif callable(win_param):
-            self.config["win_func"] = win_param
-            if win_param in [np_kaiser, sp_kaiser]:
+            # Normalize scipy's kaiser to numpy's for consistent API (expects beta*pi)
+            if win_param in (np_kaiser, sp_kaiser):
                 self.config["win_func"] = np_kaiser
+                win_name = "kaiser"
                 if psll is None:
                     raise ValueError("PSLL must be specified for the Kaiser window.")
                 self.config["alpha"] = kaiser_alpha(psll)
-            if is_function_in_dict(win_param, win_dict):
-                win_str_name = get_key_for_function(win_param, win_dict)
+            else:
+                self.config["win_func"] = win_param
+                # Try to recover a friendly name if it's one of ours
+                if is_function_in_dict(win_param, win_dict):
+                    win_name = get_key_for_function(win_param, win_dict)
+                self.config["alpha"] = None
         else:
-            raise TypeError(
-                "Window must be a recognized string or a callable function."
-            )
+            raise TypeError("Window must be a recognized string or a callable function.")
 
-        # Resolve automatic overlap based on the selected window
-        if self.config["olap"] == "default":
-            if self.config["win_func"] == np_kaiser:
-                self.config["final_olap"] = kaiser_rov(self.config["alpha"])
-            elif win_str_name in olap_dict:
-                self.config["final_olap"] = olap_dict[win_str_name]
+        # 2) Resolve automatic overlap based on the selected window
+        olap_req = self.config["olap"]
+        if olap_req == "default":
+            if self.config["win_func"] is np_kaiser:
+                alpha = self.config.get("alpha", None)
+                if alpha is None:
+                    raise RuntimeError("Internal error: Kaiser 'alpha' missing.")
+                self.config["final_olap"] = float(kaiser_rov(alpha))
+            elif win_name in olap_dict:
+                self.config["final_olap"] = float(olap_dict[win_name])
             else:
                 if self.verbose:
                     logging.warning(
-                        f"Optimal overlap for window '{win_str_name}' not found. Defaulting to 0.5."
+                        f"Optimal overlap for window '{win_name}' not found; defaulting to 0.5."
                     )
                 self.config["final_olap"] = 0.5
         else:
-            self.config["final_olap"] = self.config["olap"]
+            # Validate user-provided overlap
+            try:
+                olap_val = float(olap_req)
+            except Exception as exc:
+                raise TypeError(
+                    f"`olap` must be 'default' or a float in [0,1); got {olap_req!r}"
+                ) from exc
+            if not np.isfinite(olap_val) or not (0.0 <= olap_val < 1.0):
+                raise ValueError(f"`olap` must be in [0, 1); got {olap_val!r}")
+            self.config["final_olap"] = olap_val
+
+        # Save a friendly window name for logging/debugging
+        self.config["win_name"] = win_name
+
 
     def _process_scheduler_config(self):
-        """Internal method to resolve the scheduler function."""
+        """Resolve scheduler function and store a friendly name."""
         scheduler_param = self.config["scheduler"]
         if isinstance(scheduler_param, str):
-            schedulers = {"lpsd": lpsd_plan, "ltf": ltf_plan, "new_ltf": new_ltf_plan}
-            if scheduler_param in schedulers:
-                self.config["scheduler_func"] = schedulers[scheduler_param]
-            else:
-                raise ValueError(f"Scheduler '{scheduler_param}' not recognized.")
+            sched_map = {"lpsd": lpsd_plan, "ltf": ltf_plan, "new_ltf": new_ltf_plan}
+            try:
+                self.config["scheduler_func"] = sched_map[scheduler_param]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Scheduler '{scheduler_param}' not recognized. "
+                    f"Available: {list(sched_map.keys())}"
+                ) from exc
+            self.config["scheduler_name"] = scheduler_param
         elif callable(scheduler_param):
             self.config["scheduler_func"] = scheduler_param
+            self.config["scheduler_name"] = getattr(scheduler_param, "__name__", "custom_sched")
         else:
-            raise TypeError(
-                "Scheduler must be a recognized string or a callable function."
-            )
+            raise TypeError("Scheduler must be a recognized string or a callable function.")
+
 
     def plan(self) -> Dict[str, Any]:
         """
@@ -278,14 +344,16 @@ class SpectrumAnalyzer:
         -------
         dict
             A dictionary containing the full computation plan, including arrays
-            for frequencies (`f`), segment lengths (`L`), number of averages (`K`), etc.
+            for frequencies (`f`), segment lengths (`L`), number of averages (`K`),
+            per-frequency segment starts (`D`), actual overlaps (`O`), etc.
         """
         if self._plan_cache is not None:
             return self._plan_cache
 
         scheduler_func = self.config["scheduler_func"]
+        sched_name = self.config.get("scheduler_name", getattr(scheduler_func, "__name__", "scheduler"))
 
-        # Common kwargs for any scheduler (**args style); extra keys are tolerated.
+        # ---- Common kwargs for any scheduler (tolerates extra keys) ------------
         common_kwargs = dict(
             N=self.nx,
             fs=self.fs,
@@ -295,38 +363,97 @@ class SpectrumAnalyzer:
             Kdes=self.config["Kdes"],
         )
 
-        if scheduler_func == new_ltf_plan:
+        # Some schedulers accept 'num_patch_pts' (new_ltf). Detect by name.
+        if getattr(scheduler_func, "__name__", "") == "new_ltf_plan":
             common_kwargs["num_patch_pts"] = self.config["num_patch_pts"]
 
-        # If we must force an exact target number of frequencies, solve for Jdes
+        # ---- Optional: force target nf via Jdes search --------------------------
         if self.config["force_target_nf"]:
             if self.verbose:
-                logging.info(f"Adjusting plan to target {self.config['Jdes']} frequencies...")
-            target_nf = self.config["Jdes"]
+                logging.info(f"[plan] Adjusting Jdes to target nf={self.config['Jdes']} using {sched_name}...")
+            target_nf = int(self.config["Jdes"])
             solved_Jdes = find_Jdes_binary_search(scheduler_func, target_nf, **common_kwargs)
-            assert solved_Jdes is not None, (
-                "Failed to generate plan with forced number of frequencies"
-            )
+            if solved_Jdes is None:
+                raise RuntimeError("Failed to generate plan with forced number of frequencies.")
             self.config["Jdes"] = int(solved_Jdes)
 
-        # Generate plan using the selected scheduler (all take **args now)
-        call_kwargs = dict(common_kwargs, Jdes=self.config["Jdes"])
+        # ---- Generate plan ------------------------------------------------------
+        call_kwargs = dict(common_kwargs, Jdes=int(self.config["Jdes"]))
         plan_output = scheduler_func(**call_kwargs)
 
-        # Apply frequency band filter if specified
+        # ---- Validate scheduler output ------------------------------------------
+        REQUIRED = ("f", "r", "b", "L", "K", "navg", "D", "O")
+        for k in REQUIRED:
+            if k not in plan_output:
+                raise ValueError(f"Scheduler output missing key '{k}'.")
+
+        # Ensure arrays have consistent lengths
+        lens = [len(plan_output[k]) for k in ("f", "r", "b", "L", "K", "navg", "O")]
+        if not all(L == lens[0] for L in lens):
+            raise ValueError("Scheduler arrays have inconsistent lengths: "
+                            + ", ".join(f"{name}={len(plan_output[name])}" for name in ("f","r","b","L","K","navg","O")))
+        if not isinstance(plan_output["D"], (list, tuple)) or len(plan_output["D"]) != lens[0]:
+            raise ValueError("Scheduler 'D' must be a list of per-frequency start arrays with matching length.")
+
+        nf = int(lens[0])
+        plan_output["nf"] = nf
+
+        # ---- Type & contiguity normalization -----------------------------------
+        # 1D arrays
+        plan_output["f"]    = np.ascontiguousarray(plan_output["f"], dtype=np.float64)
+        plan_output["r"]    = np.ascontiguousarray(plan_output["r"], dtype=np.float64)
+        plan_output["b"]    = np.ascontiguousarray(plan_output["b"], dtype=np.float64)
+        plan_output["L"]    = np.ascontiguousarray(plan_output["L"], dtype=np.int64)
+        plan_output["K"]    = np.ascontiguousarray(plan_output["K"], dtype=np.int64)
+        plan_output["navg"] = np.ascontiguousarray(plan_output["navg"], dtype=np.int64)
+        plan_output["O"]    = np.ascontiguousarray(plan_output["O"], dtype=np.float64)
+
+        # 'D' is ragged: normalize each to int64 arrays and validate bounds
+        D_norm = []
+        N = self.nx
+        for i, d in enumerate(plan_output["D"]):
+            arr = np.asarray(d, dtype=np.int64)
+            if arr.ndim != 1:
+                raise ValueError(f"D[{i}] must be 1D, got shape {arr.shape}.")
+            L_i = int(plan_output["L"][i])
+            if L_i < self.config["Lmin"] or L_i < 1:
+                raise ValueError(f"L[{i}]={L_i} invalid (min {self.config['Lmin']}).")
+            # bounds: 0 <= start <= N-L
+            if arr.size == 0:
+                raise ValueError(f"D[{i}] is empty; scheduler produced zero segments for bin {i}.")
+            if (arr < 0).any() or (arr > (N - L_i)).any():
+                raise ValueError(f"D[{i}] contains out-of-bounds starts for L={L_i} and N={N}.")
+            # K / navg sanity
+            K_i = int(plan_output["K"][i])
+            if K_i != arr.size:
+                raise ValueError(f"K[{i}]={K_i} does not match number of starts D[{i}]={arr.size}.")
+            D_norm.append(arr)
+        plan_output["D"] = D_norm  # keep as list of np.ndarray[int64]
+
+        # ---- Optional band-pass on f -------------------------------------------
         if self.config["band"] is not None:
             fmin, fmax = self.config["band"]
+            if not (np.isfinite(fmin) and np.isfinite(fmax) and fmax >= fmin):
+                raise ValueError(f"Invalid band (fmin, fmax)={self.config['band']!r}.")
             mask = (plan_output["f"] >= fmin) & (plan_output["f"] <= fmax)
             if not np.any(mask):
                 raise ValueError("No frequencies found in the specified band.")
-
-            for key in ["f", "r", "b", "L", "K", "navg", "O"]:
+            # apply mask to vector fields
+            for key in ("f", "r", "b", "L", "K", "navg", "O"):
                 plan_output[key] = plan_output[key][mask]
-            plan_output["D"] = [row for row, keep in zip(plan_output["D"], mask) if keep]
-            plan_output["nf"] = len(plan_output["f"])
+            # D is ragged -> filter by mask
+            plan_output["D"] = [d for d, keep in zip(D_norm, mask) if keep]
+            plan_output["nf"] = int(plan_output["f"].shape[0])
 
-        # Normalize D to arrays
-        plan_output["D"] = [np.array(d) for d in plan_output["D"]]
+        # ---- Final sanity: nf coherence ----------------------------------------
+        nf2 = int(plan_output["f"].shape[0])
+        if nf2 != len(plan_output["D"]):
+            raise RuntimeError("Internal plan error: length mismatch after band filter.")
+        if self.verbose:
+            logging.info(f"[plan] {sched_name}: nf={nf2}, "
+                        f"f∈[{plan_output['f'][0]:.6g}, {plan_output['f'][-1]:.6g}] Hz, "
+                        f"L∈[{int(np.min(plan_output['L']))}, {int(np.max(plan_output['L']))}], "
+                        f"K median={int(np.median(plan_output['K']))}")
 
         self._plan_cache = plan_output
         return self._plan_cache
@@ -340,81 +467,97 @@ class SpectrumAnalyzer:
 
         This method is optimized for calculating spectral quantities at one
         specific frequency, defined by either a frequency resolution (`fres`)
-        or a segment length (`L`).
+        or a segment length (`L`). Returns a SpectrumResult where all arrays
+        have length 1 (single-bin).
 
-        Parameters
-        ----------
-        freq : float
-            The target Fourier frequency in Hz for the analysis.
-        fres : float, optional
-            The desired frequency resolution in Hz for the bin.
-            Either `fres` or `L` must be provided.
-        L : int, optional
-            The desired segment length in samples for the bin.
-            Either `fres` or `L` must be provided.
-
-        Returns
-        -------
-        SpectrumResult
-            A result object containing the spectral estimates for the single bin.
-            All result attributes will be scalar values instead of arrays.
+        Notes
+        -----
+        - Cross-spectrum sign convention matches SciPy: Pxy = X * conj(Y)
+        (i.e., Im{Pxy} = i_x*r_y - r_x*i_y).
         """
         import numpy as _np
         import time as _time
 
+        # -------- Basic validation ----------
+        if not _np.isfinite(freq) or freq < 0:
+            raise ValueError(f"`freq` must be a finite, non-negative float. Got {freq!r}.")
+        if freq > self.fs * 0.5 + 1e-12:
+            logging.warning(
+                f"Requested freq={freq:g} Hz exceeds Nyquist ({self.fs/2:g} Hz). "
+                "Proceeding, but results may be meaningless in one-sided interpretation."
+            )
+
         # -------- Segment length & resolution ----------
+        if L is not None and fres is not None:
+            raise ValueError("Provide only one of `fres` or `L`, not both.")
         if L is not None:
             segL = int(L)
+            if segL < 1:
+                raise ValueError(f"Invalid segment length segL={segL}.")
             final_fres = float(self.fs) / segL
         elif fres is not None:
+            if not _np.isfinite(fres) or fres <= 0:
+                raise ValueError(f"`fres` must be a positive finite float. Got {fres!r}.")
             final_fres = float(fres)
             segL = int(round(float(self.fs) / final_fres))
+            if segL < 1:
+                segL = 1
+                final_fres = float(self.fs) / segL
         else:
             raise ValueError("Provide either `fres` or `L`.")
 
-        if segL < 1 or segL > self.nx:
-            raise ValueError(f"Invalid segment length segL={segL} for N={self.nx}")
+        if segL > self.nx:
+            raise ValueError(f"Invalid segment length segL={segL} for N={self.nx}.")
 
         # -------- Segmentation (starts) ----------
         if self.nx == segL:
             navg = 1
             starts = _np.array([0], dtype=_np.int64)
         else:
+            olap = float(self.config["final_olap"])
             navg = int(
-                round_half_up(
-                    ((self.nx - segL) / (1.0 - float(self.config["final_olap"]))) / segL + 1.0
-                )
+                round_half_up(((self.nx - segL) / (1.0 - olap)) / segL + 1.0)
             )
             if navg <= 1:
-                starts = _np.array([0], dtype=_np.int64)
                 navg = 1
+                starts = _np.array([0], dtype=_np.int64)
             else:
                 shift = (self.nx - segL) / (navg - 1)
                 starts = _np.round(_np.arange(navg) * shift).astype(_np.int64)
 
-        # -------- Window ----------
+        # bounds check to convert segfaults into clear errors
+        if (starts < 0).any() or (starts > (self.nx - segL)).any():
+            raise ValueError(
+                f"Computed segment starts out of bounds for segL={segL}, N={self.nx}."
+            )
+
+        # -------- Window (helper) ----------
+        def _build_window(win_func, Lint: int, alpha_val):
+            if win_func in (np_kaiser, sp_kaiser):
+                if alpha_val is None:
+                    raise ValueError("Kaiser window selected but 'alpha' is not set.")
+                wloc = win_func(Lint + 1, alpha_val * _np.pi)[:-1]
+            else:
+                wloc = win_func(Lint)
+            wloc = _np.asarray(wloc, dtype=_np.float64)
+            if wloc.shape[0] != Lint:
+                raise ValueError(f"Window length {wloc.shape[0]} != L {Lint}")
+            S1loc = float(_np.sum(wloc))
+            S2loc = float(_np.sum(wloc * wloc))
+            return wloc, S1loc, S2loc
+
         win_func = self.config["win_func"]
         alpha = self.config.get("alpha", None)
-        if win_func in (np_kaiser, sp_kaiser):
-            if alpha is None:
-                raise ValueError("Kaiser window selected but 'alpha' is not set.")
-            w = win_func(segL + 1, alpha * _np.pi)[:-1].astype(_np.float64, copy=False)
-        else:
-            w = win_func(segL).astype(_np.float64, copy=False)
-        if w.shape[0] != segL:
-            raise ValueError(f"Window length {w.shape[0]} != segL {segL}")
-        S1 = float(_np.sum(w))
-        S2 = float(_np.sum(w * w))
+        w, S1, S2 = _build_window(win_func, segL, alpha)
 
         # -------- Inputs for kernels ----------
         x1 = _np.ascontiguousarray(self.x1, dtype=_np.float64)
         x2 = _np.ascontiguousarray(self.x2, dtype=_np.float64) if self.iscsd else None
         is_cross = self.iscsd
         order = int(self.config.get("order", 0))
-        # SciPy-compatible omega
         omega = 2.0 * _np.pi * float(freq) / float(self.fs)
 
-        # -------- Optional polynomial basis ----------
+        # -------- Select kernel set ----------
         from .core import (
             _build_Q,
             _stats_win_only_auto, _stats_win_only_csd,
@@ -429,13 +572,13 @@ class SpectrumAnalyzer:
         elif order in (1, 2):
             detrend_mode = "poly"
         else:
-            raise ValueError("order must be one of {-1, 0, 1, 2}")
+            raise ValueError("order must be one of {-1, 0, 1, 2}.")
 
         Q = None
         if detrend_mode == "poly":
             Q = _build_Q(segL, order).astype(_np.float64, copy=False)
 
-        # -------- Select kernel and run ----------
+        # -------- Run kernel ----------
         t0 = _time.perf_counter()
         if detrend_mode == "win":
             if is_cross:
@@ -455,7 +598,6 @@ class SpectrumAnalyzer:
         tm = _time.perf_counter() - t0
 
         # -------- Package SpectrumResult ----------
-        final_fres = float(self.fs) / segL
         m = float(freq) / final_fres
         XY = complex(mu_r, mu_i)
 
@@ -464,8 +606,8 @@ class SpectrumAnalyzer:
             "r": _np.array([final_fres], dtype=_np.float64),
             "b": _np.array([m], dtype=_np.float64),
             "L": _np.array([segL], dtype=_np.int64),
-            "K": _np.array([navg], dtype=_np.int64),
-            "navg": _np.array([navg], dtype=_np.int64),
+            "K": _np.array([int(starts.shape[0])], dtype=_np.int64),
+            "navg": _np.array([int(starts.shape[0])], dtype=_np.int64),
             "D": _np.array([starts], dtype=object),
             "O": _np.array([self.config["final_olap"]], dtype=_np.float64),
             "i": _np.array([0], dtype=_np.int64),
@@ -485,8 +627,9 @@ class SpectrumAnalyzer:
         """
         Executes the spectral analysis and returns a SpectrumResult object.
 
-        This method performs the core computation. It uses the generated plan 
-        to segment the data, apply windowing and FFTs, and average the results.
+        This method performs the core computation. It uses the generated plan
+        to segment the data, apply windowing/Goertzel reductions, and average
+        the results.
 
         Returns
         -------
@@ -494,104 +637,150 @@ class SpectrumAnalyzer:
             An object containing all computed spectral quantities and helper methods.
         """
         plan = self.plan()
-        if self.verbose:
-            logging.info(f"Computing {plan['nf']} frequencies...")
-
-        start_time = time.time()
-
-        # Compute:
-        results_list = [self._lpsd_core(np.arange(plan["nf"]))]
+        nf = int(plan["nf"])
 
         if self.verbose:
-            logging.info(
-                f"Computation completed in {time.time() - start_time:.2f} seconds."
-            )
+            logging.info(f"Computing {nf} frequencies...")
 
-        nf = plan["nf"]
-        XX = np.empty(nf, np.float64)
-        YY = np.empty(nf, np.float64)
-        XY = np.empty(nf, np.complex128)
-        S12 = np.empty(nf, np.float64)
-        S2  = np.empty(nf, np.float64)
-        M2  = np.empty(nf, np.float64)
-        tms = np.empty(nf, np.float64)
+        t0 = time.perf_counter()
+        # Single chunk path (kept simple & explicit)
+        results_list = [self._lpsd_core(np.arange(nf, dtype=np.int64))]
+        t_total = time.perf_counter() - t0
+
+        if self.verbose:
+            logging.info(f"Computation completed in {t_total:.2f} seconds.")
+
+        # Collect into contiguous arrays
+        XX  = np.empty(nf, dtype=np.float64)
+        YY  = np.empty(nf, dtype=np.float64)
+        XY  = np.empty(nf, dtype=np.complex128)
+        S12 = np.empty(nf, dtype=np.float64)
+        S2  = np.empty(nf, dtype=np.float64)
+        M2  = np.empty(nf, dtype=np.float64)
+        tms = np.empty(nf, dtype=np.float64)
 
         for chunk in results_list:
             for (i, xy, mxx, myy, s12, s2, m2, tm) in chunk:
-                XX[i]  = mxx
-                YY[i]  = myy
-                XY[i]  = xy
-                S12[i] = s12
-                S2[i]  = s2
-                M2[i]  = m2
-                tms[i] = tm
+                XX[int(i)]  = mxx
+                YY[int(i)]  = myy
+                XY[int(i)]  = xy
+                S12[int(i)] = s12
+                S2[int(i)]  = s2
+                M2[int(i)]  = m2
+                tms[int(i)] = tm
 
-        final_results = {**plan,
-                        "XX": XX, "YY": YY, "XY": XY,
-                        "S12": S12, "S2": S2, "M2": M2,
-                        "compute_t": tms}
+        final_results = {
+            **plan,
+            "XX": XX, "YY": YY, "XY": XY,
+            "S12": S12, "S2": S2, "M2": M2,
+            "compute_t": tms,
+        }
         return SpectrumResult(final_results, self.config, self.iscsd, self.fs)
 
+
     def _lpsd_core(self, f_indices: np.ndarray) -> List[Any]:
-        """Core processing loop for a block of frequency indices."""
-        plan = self._plan_cache
+        """
+        Core processing loop for a block of frequency indices.
+
+        Notes
+        -----
+        - Cross-spectrum sign convention matches SciPy: Pxy = X * conj(Y)
+        (Im{Pxy} = i_x * r_y - r_x * i_y).
+        - Uses per-L window cache and per-(L,order) Q cache.
+        """
+        plan = self._plan_cache  # plan() already validated & cached before calling
+        assert plan is not None
+
         results_block: List[Any] = []
 
-        # Cache window (and sums) per L, and Q per (L, order)
+        # Per-L window cache: L -> (w, S1, S2)
         window_cache: Dict[int, Tuple[np.ndarray, float, float]] = {}
+        # Per-(L,order) Q cache
         Q_cache: Dict[Tuple[int, int], np.ndarray] = {}
 
-        # Contiguous views
-        if self.iscsd:
-            x1 = np.ascontiguousarray(self.x1, dtype=np.float64)
-            x2 = np.ascontiguousarray(self.x2, dtype=np.float64)
-        else:
-            x1 = np.ascontiguousarray(self.x1, dtype=np.float64)
-            x2 = None  # type: ignore
+        # Contiguous, typed views for kernels
+        x1 = np.ascontiguousarray(self.x1, dtype=np.float64)
+        x2 = np.ascontiguousarray(self.x2, dtype=np.float64) if self.iscsd else None
+
+        win_func = self.config["win_func"]
+        alpha    = self.config.get("alpha", None)
+        order    = int(self.config["order"])
+        fs       = float(self.fs)
+        N        = int(self.nx)
+
+        # Import kernels & fallbacks once
+        from .core import (
+            _build_Q,
+            _stats_win_only_auto, _stats_win_only_csd,
+            _stats_detrend0_auto, _stats_detrend0_csd,
+            _stats_poly_auto, _stats_poly_csd,
+            _stats_poly_auto_np, _stats_poly_csd_np,
+        )
+
+        def _build_window(L: int) -> Tuple[np.ndarray, float, float]:
+            """Return (w, S1, S2) for given L with current window config."""
+            if L in window_cache:
+                return window_cache[L]
+            if win_func in (np_kaiser, sp_kaiser):
+                if alpha is None:
+                    raise RuntimeError("Kaiser window selected but 'alpha' is not set.")
+                w = win_func(L + 1, alpha * np.pi)[:-1]
+            else:
+                w = win_func(L)
+            w = np.ascontiguousarray(w, dtype=np.float64)
+            if w.shape[0] != L:
+                raise ValueError(f"Window length {w.shape[0]} != L {L}.")
+            S1 = float(np.sum(w))
+            S2 = float(np.sum(w * w))
+            window_cache[L] = (w, S1, S2)
+            return window_cache[L]
 
         for i in f_indices:
-            t0 = time.time()
-            L = int(plan["L"][i])
-            m = float(plan["m"][i])     # fractional bin
-            starts = plan["D"][i]       # np.ndarray of start indices
+            i = int(i)
+            t0 = time.perf_counter()
 
-            # Window cache
-            if L not in window_cache:
-                if self.config["win_func"] in (np_kaiser, sp_kaiser):
-                    w = self.config["win_func"](L + 1, self.config["alpha"] * np.pi)[:-1]
-                else:
-                    w = self.config["win_func"](L)
-                w = np.asarray(w, dtype=np.float64)
-                S1 = float(w.sum()); S2 = float((w*w).sum())
-                window_cache[L] = (w, S1, S2)
-            else:
-                w, S1, S2 = window_cache[L]
+            L      = int(plan["L"][i])
+            starts = plan["D"][i]  # np.ndarray[int64] (validated in plan())
+            # Optional extra guard (keeps crashes friendly if external schedulers are used)
+            if (starts < 0).any() or (starts > (N - L)).any():
+                raise ValueError(f"D[{i}] contains out-of-bounds starts for L={L}, N={N}.")
 
-            omega = 2.0 * np.pi * (m / L)
-            order = int(self.config["order"])
+            w, S1, S2 = _build_window(L)
 
+            # Use frequency in Hz directly (clearer than b/L; both equivalent)
+            f_i   = float(plan["f"][i])
+            omega = 2.0 * np.pi * f_i / fs
+
+            # Choose & run kernel
             if order == -1:
                 if self.iscsd:
                     if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(x1, x2, starts, L, w, omega)
-                    else: 
-                        _stats_poly_csd_np(x1, x2, starts, L, w, omega, np.zeros((L,1)))
+                    else:
+                        # Fallback via poly_np with a degenerate basis (no detrend effect)
+                        Q = np.zeros((L, 1), dtype=np.float64)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q)
                 else:
                     if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(x1, starts, L, w, omega)
-                    else: 
-                        _stats_poly_auto_np(x1, starts, L, w, omega, np.zeros((L,1)))
+                    else:
+                        Q = np.zeros((L, 1), dtype=np.float64)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
+
             elif order == 0:
                 if self.iscsd:
                     if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(x1, x2, starts, L, w, omega)
-                    else: 
-                        _stats_poly_csd_np(x1, x2, starts, L, w, omega, np.zeros((L,1)))
+                    else:
+                        Q = np.zeros((L, 1), dtype=np.float64)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q)
                 else:
                     if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(x1, starts, L, w, omega)
                     else:
-                        _stats_poly_auto_np(x1, starts, L, w, omega, np.zeros((L,1)))
+                        Q = np.zeros((L, 1), dtype=np.float64)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
+
             elif order in (1, 2):
                 key = (L, order)
                 Q = Q_cache.get(key)
@@ -609,12 +798,24 @@ class SpectrumAnalyzer:
                     else:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
             else:
-                raise NotImplementedError
+                raise ValueError(f"Unsupported detrend order: {order}.")
 
             XY = complex(mu_r, mu_i)
-            results_block.append([i, XY, float(MXX), float(MYY), S1*S1, S2, float(M2), time.time() - t0])
+            elapsed = time.perf_counter() - t0
+            # Append tuple in the order consumed by compute()
+            results_block.append([
+                i,
+                XY,
+                float(MXX),
+                float(MYY),
+                float(S1 * S1),
+                float(S2),
+                float(M2),
+                float(elapsed),
+            ])
 
         return results_block
+
 
 class SpectrumResult:
     """
@@ -1168,24 +1369,6 @@ def compute_spectrum(
     -------
     SpectrumResult
         An object containing all computed spectral quantities and helper methods.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> import speckit
-    >>> fs = 1000
-    >>> t = np.arange(0, 10, 1/fs)
-    >>> signal = np.sin(2 * np.pi * 50 * t) + 0.5 * np.random.randn(len(t))
-
-    >>> # Compute the ASD in one line
-    >>> result = speckit.compute_spectrum(signal, fs=fs, win='hann')
-
-    >>> # Access the results
-    >>> print(result.asd)
-
-    >>> # Use the built-in plotting
-    >>> fig, ax = result.plot('asd')
-    >>> plt.show()
     """
     # 1. Instantiate the analyzer with all provided parameters
     analyzer = SpectrumAnalyzer(data, fs, **kwargs)
