@@ -52,7 +52,34 @@ except Exception:
 # We build a centered Vandermonde [1, t, t^2] with t in [-1,1] and QR-reduce to Q (orthonormal columns).
 # Detrend: y <- y - Q @ (Q^T y). This is stable and O(L·order).
 def _build_Q(L: int, order: int) -> np.ndarray:
-    # order in {1,2}; returns Q with shape (L, order+1)
+    """
+    Build an orthonormal polynomial detrend basis Q for segments of length L.
+
+    Constructs a centered Vandermonde matrix with t ∈ [-1, 1] and performs a
+    reduced QR to obtain an orthonormal basis Q with p+1 columns, where
+    p == order ∈ {1, 2}. This basis can be used to project out constant/linear
+    (order=1) or constant/linear/quadratic (order=2) trends via
+    y_detr = y - Q @ (Q.T @ y).
+
+    Parameters
+    ----------
+    L : int
+        Segment length.
+    order : int
+        Polynomial detrend order. Supported values are 1 (constant+linear)
+        or 2 (constant+linear+quadratic).
+
+    Returns
+    -------
+    Q : ndarray of shape (L, order+1), dtype float64, C-contiguous
+        Orthonormal columns spanning the chosen polynomial subspace.
+
+    Notes
+    -----
+    - Use with: y_detr = y - Q @ (Q.T @ y).
+    - Q has orthonormal columns (Q.T @ Q == I), improving numerical stability
+      vs. fitting raw polynomials.
+    """
     t = np.linspace(-1.0, 1.0, L, dtype=np.float64)
     if order == 1:
         V = np.stack([np.ones(L, dtype=np.float64), t], axis=1)              # (L,2)
@@ -69,6 +96,48 @@ def _build_Q(L: int, order: int) -> np.ndarray:
 
 @njit(parallel=True, fastmath=True, cache=True)
 def _stats_win_only_auto(x, starts, L, w, omega):
+    """
+    Single-bin auto-spectral sufficient statistics using windowing only.
+
+    Computes, for one target DFT bin (at digital radian frequency `omega`),
+    the windowed Goertzel response per overlapping segment and returns
+    sufficient statistics across all segments: mean auto-power (MXX == MYY),
+    mean complex cross term (μ_XY == μ of X with itself), and second moment M2.
+
+    Parameters
+    ----------
+    x : ndarray, shape (N,), float64
+        Input time series (single channel). Must index x[starts[j]:starts[j]+L].
+    starts : ndarray, shape (K,), int64 or int32
+        Start indices of each segment (non-negative, valid with L).
+    L : int
+        Segment length.
+    w : ndarray, shape (L,), float64
+        Window weights applied sample-wise inside each segment.
+    omega : float
+        Target digital radian frequency (radians/sample) for the single-bin
+        Goertzel evaluation. Can be fractional (not restricted to 2π m/L).
+
+    Returns
+    -------
+    MXX : float
+        Mean auto-power of channel X across segments.
+    MYY : float
+        Identical to MXX for auto (returned for interface symmetry).
+    mu_r : float
+        Mean real part of the complex XY term (here X with itself).
+    mu_i : float
+        Mean imaginary part of the complex XY term.
+    M2 : float
+        Mean squared magnitude deviation of XY about its mean across segments,
+        i.e. E[ |XY - μ|^2 ].
+
+    Notes
+    -----
+    - Uses Goertzel recurrence with precomputed cos/sin(omega).
+    - Does not perform detrending; only windowing is applied.
+    - Returns are sufficient statistics consumed by higher-level estimators.
+    """
     navg = starts.size
     cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
     sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
@@ -101,6 +170,47 @@ def _stats_win_only_auto(x, starts, L, w, omega):
 
 @njit(parallel=True, fastmath=True, cache=True)
 def _stats_win_only_csd(x1, x2, starts, L, w, omega):
+    """
+    Single-bin cross-spectral sufficient statistics using windowing only.
+
+    For one target DFT bin at `omega`, computes Goertzel responses of two
+    channels (X, Y) over overlapping segments and returns sufficient statistics:
+    mean auto-powers (MXX, MYY), mean complex cross term (μ_XY = μ_r + i μ_i),
+    and second moment M2 of XY across segments.
+
+    Parameters
+    ----------
+    x1 : ndarray, shape (N,), float64
+        Channel-1 time series. Must index x1[starts[j]:starts[j]+L].
+    x2 : ndarray, shape (N,), float64
+        Channel-2 time series. Must index x2[starts[j]:starts[j]+L].
+    starts : ndarray, shape (K,), int64 or int32
+        Segment start indices (valid with L for both channels).
+    L : int
+        Segment length.
+    w : ndarray, shape (L,), float64
+        Window applied sample-wise to both channels.
+    omega : float
+        Target digital radian frequency (radians/sample), possibly fractional.
+
+    Returns
+    -------
+    MXX : float
+        Mean auto-power of X across segments.
+    MYY : float
+        Mean auto-power of Y across segments.
+    mu_r : float
+        Mean real part of the cross term XY across segments.
+    mu_i : float
+        Mean imaginary part of the cross term XY across segments.
+    M2 : float
+        Mean squared magnitude deviation of XY about its mean across segments.
+
+    Notes
+    -----
+    - Uses windowing only (no detrending).
+    - XY is formed from the complex bin values of X and Y via Goertzel.
+    """
     navg = starts.size
     cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
     sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
@@ -140,6 +250,43 @@ def _stats_win_only_csd(x1, x2, starts, L, w, omega):
 
 @njit(parallel=True, fastmath=True, cache=True)
 def _stats_detrend0_auto(x, starts, L, w, omega):
+    """
+    Single-bin auto-spectral stats with mean removal (order=0 detrend).
+
+    As `_stats_win_only_auto`, but first de-mean each segment before applying
+    the window and Goertzel recurrence.
+
+    Parameters
+    ----------
+    x : ndarray, shape (N,), float64
+        Input time series (single channel).
+    starts : ndarray, shape (K,), int64 or int32
+        Segment start indices.
+    L : int
+        Segment length.
+    w : ndarray, shape (L,), float64
+        Window weights.
+    omega : float
+        Digital radian frequency (radians/sample), possibly fractional.
+
+    Returns
+    -------
+    MXX : float
+        Mean auto-power (returned also as MYY for interface symmetry).
+    MYY : float
+        Same as MXX.
+    mu_r : float
+        Mean real part of XY (here X with itself).
+    mu_i : float
+        Mean imaginary part of XY.
+    M2 : float
+        Mean squared magnitude deviation of XY about its mean across segments.
+
+    Notes
+    -----
+    - Mean is computed per-segment as sum(y)/L, then removed.
+    - Useful to suppress DC leakage prior to windowing.
+    """
     navg = starts.size
     cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
     sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
@@ -177,6 +324,45 @@ def _stats_detrend0_auto(x, starts, L, w, omega):
 
 @njit(parallel=True, fastmath=True, cache=True)
 def _stats_detrend0_csd(x1, x2, starts, L, w, omega):
+    """
+    Single-bin cross-spectral stats with mean removal (order=0 detrend).
+
+    As `_stats_win_only_csd`, but removes the per-segment mean from each
+    channel independently before windowing and Goertzel.
+
+    Parameters
+    ----------
+    x1 : ndarray, shape (N,), float64
+        Channel-1 time series.
+    x2 : ndarray, shape (N,), float64
+        Channel-2 time series.
+    starts : ndarray, shape (K,), int64 or int32
+        Segment start indices.
+    L : int
+        Segment length.
+    w : ndarray, shape (L,), float64
+        Window weights.
+    omega : float
+        Digital radian frequency (radians/sample), possibly fractional.
+
+    Returns
+    -------
+    MXX : float
+        Mean auto-power of X.
+    MYY : float
+        Mean auto-power of Y.
+    mu_r : float
+        Mean real part of the cross term XY.
+    mu_i : float
+        Mean imaginary part of the cross term XY.
+    M2 : float
+        Mean squared magnitude deviation of XY about its mean across segments.
+
+    Notes
+    -----
+    - Mean removal is performed separately on x1 and x2 in each segment.
+    - Helps reduce low-frequency leakage in cross-spectral estimates.
+    """
     navg = starts.size
     cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
     sum_XX = 0.0; sum_YY = 0.0; sum_XYr = 0.0; sum_XYi = 0.0
@@ -224,7 +410,48 @@ def _stats_detrend0_csd(x1, x2, starts, L, w, omega):
 
 @njit(parallel=True, fastmath=True, cache=True)
 def _stats_poly_auto(x, starts, L, w, omega, Q):
-    # order is inferred from Q.shape[1]-1
+    """
+    Single-bin auto-spectral stats with polynomial detrending via Q.
+
+    Projects each segment onto the orthonormal basis Q (built by `_build_Q`)
+    and subtracts the projection (constant+linear for Q with 2 cols, or
+    constant+linear+quadratic for Q with 3 cols). Then applies windowing and
+    Goertzel to compute sufficient statistics across segments.
+
+    Parameters
+    ----------
+    x : ndarray, shape (N,), float64
+        Input time series (single channel).
+    starts : ndarray, shape (K,), int64 or int32
+        Segment start indices.
+    L : int
+        Segment length (must match Q.shape[0]).
+    w : ndarray, shape (L,), float64
+        Window weights.
+    omega : float
+        Digital radian frequency (radians/sample), possibly fractional.
+    Q : ndarray, shape (L, p+1), float64
+        Orthonormal polynomial basis with p ∈ {1, 2}. Typically produced by
+        `_build_Q(L, order)`.
+
+    Returns
+    -------
+    MXX : float
+        Mean auto-power of X (returned also as MYY for interface symmetry).
+    MYY : float
+        Same as MXX.
+    mu_r : float
+        Mean real part of XY (X with itself).
+    mu_i : float
+        Mean imaginary part of XY.
+    M2 : float
+        Mean squared magnitude deviation of XY about its mean across segments.
+
+    Notes
+    -----
+    - Detrending uses y_detr = y - Q @ (Q.T @ y) with Q orthonormal.
+    - Q.shape[1] determines detrend order: 2 → order=1, 3 → order=2.
+    """
     navg = starts.size
     p1 = Q.shape[1]  # p+1
     cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
@@ -282,6 +509,48 @@ def _stats_poly_auto(x, starts, L, w, omega, Q):
 
 @njit(parallel=True, fastmath=True, cache=True)
 def _stats_poly_csd(x1, x2, starts, L, w, omega, Q):
+    """
+    Single-bin cross-spectral stats with polynomial detrending via Q.
+
+    For each segment and each channel, projects onto Q and subtracts the
+    projection to remove constant/linear (or quadratic) trends. Then applies
+    windowing and Goertzel to compute sufficient statistics for the cross term.
+
+    Parameters
+    ----------
+    x1 : ndarray, shape (N,), float64
+        Channel-1 time series.
+    x2 : ndarray, shape (N,), float64
+        Channel-2 time series.
+    starts : ndarray, shape (K,), int64 or int32
+        Segment start indices.
+    L : int
+        Segment length (must match Q.shape[0]).
+    w : ndarray, shape (L,), float64
+        Window weights.
+    omega : float
+        Digital radian frequency (radians/sample), possibly fractional.
+    Q : ndarray, shape (L, p+1), float64
+        Orthonormal polynomial basis (p ∈ {1, 2}) from `_build_Q`.
+
+    Returns
+    -------
+    MXX : float
+        Mean auto-power of X.
+    MYY : float
+        Mean auto-power of Y.
+    mu_r : float
+        Mean real part of the cross term XY.
+    mu_i : float
+        Mean imaginary part of the cross term XY.
+    M2 : float
+        Mean squared magnitude deviation of XY about its mean across segments.
+
+    Notes
+    -----
+    - The same Q is applied to both channels (shape must match L).
+    - Detrending is numerically stable due to orthonormal Q.
+    """
     navg = starts.size
     p1 = Q.shape[1]
     cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
@@ -352,6 +621,37 @@ def _stats_poly_csd(x1, x2, starts, L, w, omega, Q):
 
 # ---------- NumPy fallbacks for poly paths (not used if Numba available) ----------
 def _stats_poly_auto_np(x, starts, L, w, omega, Q):
+    """
+    NumPy fallback: auto-spectral stats with polynomial detrending via Q.
+
+    Equivalent to `_stats_poly_auto`, implemented in pure NumPy without Numba.
+    Useful when Numba is unavailable; API and returns are identical.
+
+    Parameters
+    ----------
+    x : ndarray, shape (N,), float64
+        Input time series (single channel).
+    starts : ndarray, shape (K,), int64 or int32
+        Segment start indices.
+    L : int
+        Segment length (must match Q.shape[0]).
+    w : ndarray, shape (L,), float64
+        Window weights.
+    omega : float
+        Digital radian frequency (radians/sample), possibly fractional.
+    Q : ndarray, shape (L, p+1), float64
+        Orthonormal polynomial basis.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : floats
+        Sufficient statistics across segments; see `_stats_poly_auto`.
+
+    Notes
+    -----
+    - Uses matrix-vector products (Q.T @ y) and (Q @ alpha) per segment, then
+      Goertzel recurrence for the target bin.
+    """
     cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
     navg = starts.size
     XYr = np.empty(navg); XYi = np.empty(navg); XX = np.empty(navg); YY = np.empty(navg)
@@ -381,6 +681,39 @@ def _stats_poly_auto_np(x, starts, L, w, omega, Q):
     return MXX, MYY, mu_r, mu_i, M2
 
 def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q):
+    """
+    NumPy fallback: cross-spectral stats with polynomial detrending via Q.
+
+    Equivalent to `_stats_poly_csd`, implemented in pure NumPy without Numba.
+    Detrends both channels with the same Q, applies windowing, runs Goertzel,
+    and returns sufficient statistics across segments.
+
+    Parameters
+    ----------
+    x1 : ndarray, shape (N,), float64
+        Channel-1 time series.
+    x2 : ndarray, shape (N,), float64
+        Channel-2 time series.
+    starts : ndarray, shape (K,), int64 or int32
+        Segment start indices.
+    L : int
+        Segment length (must match Q.shape[0]).
+    w : ndarray, shape (L,), float64
+        Window weights.
+    omega : float
+        Digital radian frequency (radians/sample), possibly fractional.
+    Q : ndarray, shape (L, p+1), float64
+        Orthonormal polynomial basis.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : floats
+        Sufficient statistics across segments; see `_stats_poly_csd`.
+
+    Notes
+    -----
+    - Mirrors the Numba version's math and interface for drop-in use.
+    """
     cosw = np.cos(omega); sinw = np.sin(omega); coeff = 2.0 * cosw
     navg = starts.size
     XYr = np.empty(navg); XYi = np.empty(navg); XX = np.empty(navg); YY = np.empty(navg)

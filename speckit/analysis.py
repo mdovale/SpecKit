@@ -53,7 +53,6 @@ from speckit.utils import (
     kaiser_alpha,
     kaiser_rov,
     round_half_up,
-    chunker,
     is_function_in_dict,
     get_key_for_function,
     find_Jdes_binary_search,
