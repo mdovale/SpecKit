@@ -15,7 +15,7 @@ Built on rigorous, textbook-backed theory, SpecKit also provides **comprehensive
   Dynamically adapts segment length and averaging to deliver optimal resolution and stability across the entire frequency spectrum.
 
 - **High-Performance Engine**  
-  Leverages `multiprocessing` for parallel computation across frequency bins and `numba` for JIT-compiling performance-critical code.
+  Leverages `numba` for JIT-compiling and parallelizing performance-critical code.
 
 - **Comprehensive Spectral Quantities**  
   Calculates a full suite of auto-spectral and cross-spectral estimates, including:  
@@ -67,7 +67,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import welch
 from speckit import compute_spectrum
-from multiprocessing import Pool
 
 # 1. Generate sample data
 N = int(1e6)  # Length of the time series
@@ -86,7 +85,6 @@ result = compute_spectrum(
     Kdes=100,       # Scheduler control parameter for averaging
     win="Kaiser",   # Use a Kaiser window
     psll=200,       # with 200 dB peak side-lobe suppression
-    pool=Pool(),    # Multiprocessing pool to accelerate computation
 )
 
 # 4. Plot the results

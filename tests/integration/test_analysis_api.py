@@ -72,7 +72,7 @@ def test_compute_spectrum_autospectrum(short_white_noise_data, win_config, sched
 
 def test_compute_spectrum_cross_spectrum(siso_data, multiprocessing_pool):
     """
-    Tests cross-spectrum computation using a multiprocessing pool.
+    Tests cross-spectrum computation.
     """
     params = siso_data
     data_stack = np.vstack([params["input"], params["output"]])
@@ -82,7 +82,6 @@ def test_compute_spectrum_cross_spectrum(siso_data, multiprocessing_pool):
         win="hann",
         Jdes=200,
         Kdes=50,
-        pool=multiprocessing_pool,
     )
 
     assert isinstance(result, SpectrumResult)

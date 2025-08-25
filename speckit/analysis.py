@@ -45,7 +45,6 @@ import control as ct
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
-import multiprocessing as mp
 
 from speckit.flattop import olap_dict, win_dict
 from speckit.dsp import integral_rms, polynomial_detrend
@@ -59,7 +58,8 @@ from speckit.utils import (
     get_key_for_function,
     find_Jdes_binary_search,
 )
-from .core import (_HAS_NUMBA, 
+from .core import (_HAS_NUMBA,
+    _build_Q,
     _stats_detrend0_auto, 
     _stats_detrend0_csd,
     _stats_poly_auto_np,
@@ -455,20 +455,12 @@ class SpectrumAnalyzer:
         return SpectrumResult(single_bin_results, self.config, self.iscsd, self.fs)
 
 
-    def compute(self, pool: Optional[mp.Pool] = None) -> "SpectrumResult":
+    def compute(self) -> "SpectrumResult":
         """
         Executes the spectral analysis and returns a SpectrumResult object.
 
-        This method performs the core computation, which can be time-intensive.
-        It uses the generated plan to segment the data, apply windowing and
-        FFTs, and average the results.
-
-        Parameters
-        ----------
-        pool : multiprocessing.Pool, optional
-            A multiprocessing pool to parallelize the computation across
-            frequency bins. If None, the computation is done serially.
-            Defaults to None.
+        This method performs the core computation. It uses the generated plan 
+        to segment the data, apply windowing and FFTs, and average the results.
 
         Returns
         -------
@@ -481,16 +473,8 @@ class SpectrumAnalyzer:
 
         start_time = time.time()
 
-        # Parallel or serial execution
-        if pool is not None and pool._processes >= 2:
-            chunk_size = int(np.ceil(plan["nf"] / pool._processes))
-            freq_indices = np.arange(plan["nf"])
-            # np.random.shuffle(freq_indices)
-            f_blocks = chunker(freq_indices, chunk_size)
-            tasks = [(block,) for block in f_blocks]
-            results_list = pool.starmap(self._lpsd_core, tasks)
-        else:
-            results_list = [self._lpsd_core(np.arange(plan["nf"]))]
+        # Compute:
+        results_list = [self._lpsd_core(np.arange(plan["nf"]))]
 
         if self.verbose:
             logging.info(
@@ -523,7 +507,7 @@ class SpectrumAnalyzer:
         return SpectrumResult(final_results, self.config, self.iscsd, self.fs)
 
     def _lpsd_core(self, f_indices: np.ndarray) -> List[Any]:
-        """Core processing loop for a block of frequency indices (optimized, with fast order=1/2)."""
+        """Core processing loop for a block of frequency indices."""
         plan = self._plan_cache
         results_block: List[Any] = []
 
@@ -1117,14 +1101,14 @@ class SpectrumResult:
 
 
 def lpsd(
-    data: np.ndarray, fs: float, *, pool: Optional[mp.Pool] = None, **kwargs
+    data: np.ndarray, fs: float, **kwargs
 ) -> SpectrumResult:
     """Same as compute_spectrum."""
-    return compute_spectrum(data, fs, pool, **kwargs)
+    return compute_spectrum(data, fs, **kwargs)
 
 
 def compute_spectrum(
-    data: np.ndarray, fs: float, *, pool: Optional[mp.Pool] = None, **kwargs
+    data: np.ndarray, fs: float, **kwargs
 ) -> SpectrumResult:
     """
     Computes spectral estimates for one or two time-series in a single call.
@@ -1141,10 +1125,6 @@ def compute_spectrum(
         2D (2xN or Nx2) array for cross-spectral analysis.
     fs : float
         The sampling frequency of the data in Hz.
-    pool : multiprocessing.Pool, optional
-        A multiprocessing pool to parallelize the computation across
-        frequency bins. If None, the computation is done serially.
-        Defaults to None.
     **kwargs :
         Additional keyword arguments to configure the analysis, passed
         directly to the `SpectrumAnalyzer`. Common arguments include:
@@ -1184,8 +1164,8 @@ def compute_spectrum(
     # 1. Instantiate the analyzer with all provided parameters
     analyzer = SpectrumAnalyzer(data, fs, **kwargs)
 
-    # 2. Immediately call the compute method, passing the pool
-    result = analyzer.compute(pool=pool)
+    # 2. Immediately call the compute method
+    result = analyzer.compute()
 
     # 3. Return the final result object
     return result
