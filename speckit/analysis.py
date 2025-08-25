@@ -1059,6 +1059,44 @@ class SpectrumResult:
                     )
 
         # --- Errors and Deviations ---
+        # --- Exposed kernel statistics (segment-level means & scatter) ---
+        elif name == "XX_mean":
+            # mean per-segment |X|^2 (already averaged across segments by the kernels)
+            val = self._data["XX"]
+        elif name == "YY_mean":
+            val = self._data["YY"] if self.iscsd else self._data["XX"]
+        elif name == "XY_M2":
+            # mean over segments of |XY_seg - E[XY_seg]|^2
+            val = self._data["M2"]
+
+        # --- Empirical (non-parametric) uncertainties from segment scatter ---
+        elif name in ("XY_emp_var", "XY_emp_dev", "Gxx_emp_dev", "Gxy_emp_dev"):
+            navg = self._data["navg"]
+            M2 = self._data["M2"]
+
+            if name == "XY_emp_var":
+                # variance of the averaged complex XY
+                val = np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0))
+
+            elif name == "XY_emp_dev":
+                val = np.sqrt(np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0)))
+
+            else:
+                # Scale raw XY std-dev to one-sided spectral density units
+                scale = np.divide(
+                    2.0, self.fs * self._data["S2"],
+                    out=np.zeros_like(self._data["S2"]),
+                    where=(self._data["S2"] != 0),
+                )
+                base = np.sqrt(np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0)))
+
+                if name == "Gxx_emp_dev":
+                    # Meaningful for auto only (in auto, kernels set XY per-seg to power)
+                    val = scale * base if not self.iscsd else None
+                else:  # "Gxy_emp_dev"
+                    val = scale * base if self.iscsd else None
+
+        # --- Textbook errors and deviations (asymptotic formulas) ---
         elif name.endswith(("_dev", "_error")):
             navg = self._data["navg"]
             coh = self.coh if self.iscsd else np.ones_like(navg)
@@ -1070,22 +1108,13 @@ class SpectrumResult:
                 val = self.Gyy / np.sqrt(navg) if self.iscsd else self.Gxx_dev
             elif name == "Hxy_dev":
                 val = (
-                    np.abs(self.Hxy)
-                    * np.sqrt(np.abs(1 - coh))
-                    / np.sqrt(coh * 2 * navg)
-                    if self.iscsd
-                    else None
+                    np.abs(self.Hxy) * np.sqrt(np.abs(1 - coh)) / np.sqrt(coh * 2 * navg)
+                    if self.iscsd else None
                 )
             elif name == "Gxy_dev":
-                val = (
-                    np.sqrt(np.abs(self.Gxy) ** 2 / coh / navg) if self.iscsd else None
-                )
+                val = (np.sqrt(np.abs(self.Gxy) ** 2 / coh / navg) if self.iscsd else None)
             elif name == "coh_dev":
-                val = (
-                    np.sqrt(np.abs((2 * coh / navg) * (1 - coh) ** 2))
-                    if self.iscsd
-                    else None
-                )
+                val = (np.sqrt(np.abs((2 * coh / navg) * (1 - coh) ** 2)) if self.iscsd else None)
 
             # Normalized Random Errors
             elif name == "Gxx_error":
@@ -1097,59 +1126,20 @@ class SpectrumResult:
             elif name == "Hxy_mag_error":
                 val = (
                     np.sqrt(np.abs(1 - coh)) / (np.sqrt(coh * 2 * navg))
-                    if self.iscsd
-                    else None
+                    if self.iscsd else None
                 )
             elif name == "Hxy_rad_error":
                 val = (
                     np.arcsin(np.sqrt(np.abs(1 - coh))) / np.sqrt(coh * 2 * navg)
-                    if self.iscsd
-                    else None
+                    if self.iscsd else None
                 )
             elif name == "Hxy_deg_error":
                 val = np.rad2deg(self.Hxy_rad_error) if self.iscsd else None
             elif name == "coh_error":
                 val = (
                     np.sqrt(2) * (1 - coh) / (np.sqrt(coh) * np.sqrt(navg))
-                    if self.iscsd
-                    else None
+                    if self.iscsd else None
                 )
-
-            # --- Exposed kernel statistics (segment-level means & scatter) ---
-            elif name == "XX_mean":
-                val = self._data["XX"]  # mean per-segment |X|^2
-            elif name == "YY_mean":
-                val = self._data["YY"] if self.iscsd else self._data["XX"]
-            elif name == "XY_M2":
-                # mean over segments of |XY_seg - E[XY_seg]|^2
-                val = self._data["M2"]
-
-            # --- Empirical (non-parametric) uncertainties from segment scatter ---
-            elif name in ("XY_emp_var", "XY_emp_dev", "Gxx_emp_dev", "Gxy_emp_dev"):
-                # Common pieces
-                navg = self._data["navg"]
-                M2 = self._data["M2"]
-
-                # Variance of the averaged complex XY: M2 / navg
-                if name == "XY_emp_var":
-                    val = np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0))
-
-                elif name == "XY_emp_dev":
-                    val = np.sqrt(np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0)))
-
-                else:
-                    # Scale factor from raw XX/XY to one-sided spectral density
-                    scale = np.divide(2.0, self.fs * self._data["S2"],
-                                    out=np.zeros_like(self._data["S2"]),
-                                    where=(self._data["S2"] != 0))
-                    base = np.sqrt(np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0)))
-
-                    if name == "Gxx_emp_dev":
-                        # Only meaningful in auto mode (M2 reflects per-seg power scatter)
-                        val = scale * base if not self.iscsd else None
-                    elif name == "Gxy_emp_dev":
-                        # Only meaningful in cross mode (M2 reflects XY scatter)
-                        val = scale * base if self.iscsd else None
 
         elif name in self._data:
             val = self._data[name]
@@ -1160,6 +1150,7 @@ class SpectrumResult:
 
         self._cache[name] = val
         return val
+
 
     def __dir__(self) -> List[str]:
         """Enhances tab-completion to include dynamic attributes."""
