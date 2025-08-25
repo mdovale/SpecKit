@@ -47,25 +47,6 @@ Design notes
   where M2 is the mean squared distance of XY from its mean across segments.
 -----------------------------------------------------------------------------
 """
-from typing import NamedTuple, Tuple
-import numpy as np
-
-# Optional Numba integration ---------------------------------------------------
-try:
-    import numba as _nb
-    from numba import njit as _njit, prange as _prange
-    _NUMBA_ENABLED = True
-except Exception:  # pragma: no cover
-    _NUMBA_ENABLED = False
-
-    def _njit(*args, **kwargs):
-        def _decorator(f):
-            return f
-        return _decorator
-
-    def _prange(*args, **kwargs):
-        return range(*args)
-
 __all__ = [
     "_NUMBA_ENABLED",
     "BinStats",
@@ -75,8 +56,10 @@ __all__ = [
     "_reduce_stats",
     # jitted helpers
     "_reduce_stats_nb",
-    "_apply_detrend0_inplace_nb",
-    "_apply_poly_detrend_inplace_nb",
+    "_apply_detrend0_inplace_nb_mean",
+    "_apply_detrend0_inplace_nb_val",
+    "_apply_poly_detrend_inplace_nb_alpha",
+    "_apply_poly_detrend_inplace_nb_rowdot",
     # jitted kernels
     "_stats_win_only_auto",
     "_stats_win_only_csd",
@@ -93,8 +76,29 @@ __all__ = [
     "_stats_poly_csd_np",
 ]
 
+from typing import NamedTuple, Tuple
+import numpy as np
+
+# Optional Numba integration ---------------------------------------------------
+
+try:
+    import numba as _nb
+    from numba import njit as _njit, prange as _prange
+    _NUMBA_ENABLED = True
+except Exception:  # pragma: no cover
+    _NUMBA_ENABLED = False
+
+    def _njit(*args, **kwargs):
+        def _decorator(f):
+            return f
+        return _decorator
+
+    def _prange(*args, **kwargs):
+        return range(*args)
+
 
 # Typed container for readability (not used inside nopython regions) ----------
+
 class BinStats(NamedTuple):
     """
     Sufficient statistics for a single (frequency, set of segments).
@@ -118,6 +122,7 @@ class BinStats(NamedTuple):
 
 
 # Public helper: orthonormal polynomial detrend basis --------------------------
+
 def _build_Q(L: int, order: int) -> np.ndarray:
     """
     Build an orthonormal polynomial detrend basis Q for segments of length L.
@@ -155,6 +160,7 @@ def _build_Q(L: int, order: int) -> np.ndarray:
 
 
 # Reference Goertzel (optional helper; not used in hot JIT code) ---------------
+
 @_njit(cache=True, fastmath=True)
 def _goertzel_real_imag(y: np.ndarray, cosw: float, sinw: float, coeff: float) -> Tuple[float, float]:
     """
@@ -189,6 +195,7 @@ def _goertzel_real_imag(y: np.ndarray, cosw: float, sinw: float, coeff: float) -
 
 
 # Pure-Python reducer (handy in fallbacks & tests) -----------------------------
+
 def _reduce_stats(xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarray) -> BinStats:
     """
     Reduce per-segment arrays into (MXX, MYY, mu_r, mu_i, M2).

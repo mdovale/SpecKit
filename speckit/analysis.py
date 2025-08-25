@@ -829,7 +829,12 @@ class SpectrumResult:
     Notes
     -----
     - Cross-spectrum sign convention matches SciPy:
-      Pxy = X * conj(Y)  (i.e., Im{Pxy} = i_x * r_y - r_x * i_y)
+      Pxy = X * conj(Y)
+    - This class exposes segment-level sufficient statistics:
+      `XX_mean`, `YY_mean`, and `XY_M2`.
+      From `XY_M2` it also derives empirical (non-parametric) uncertainties:
+      `XY_emp_var`, `XY_emp_dev`, and the scaled spectral deviations
+      `Gxx_emp_dev` (auto) / `Gxy_emp_dev` (cross).
 
     Attributes
     ----------
@@ -1110,6 +1115,42 @@ class SpectrumResult:
                     else None
                 )
 
+            # --- Exposed kernel statistics (segment-level means & scatter) ---
+            elif name == "XX_mean":
+                val = self._data["XX"]  # mean per-segment |X|^2
+            elif name == "YY_mean":
+                val = self._data["YY"] if self.iscsd else self._data["XX"]
+            elif name == "XY_M2":
+                # mean over segments of |XY_seg - E[XY_seg]|^2
+                val = self._data["M2"]
+
+            # --- Empirical (non-parametric) uncertainties from segment scatter ---
+            elif name in ("XY_emp_var", "XY_emp_dev", "Gxx_emp_dev", "Gxy_emp_dev"):
+                # Common pieces
+                navg = self._data["navg"]
+                M2 = self._data["M2"]
+
+                # Variance of the averaged complex XY: M2 / navg
+                if name == "XY_emp_var":
+                    val = np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0))
+
+                elif name == "XY_emp_dev":
+                    val = np.sqrt(np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0)))
+
+                else:
+                    # Scale factor from raw XX/XY to one-sided spectral density
+                    scale = np.divide(2.0, self.fs * self._data["S2"],
+                                    out=np.zeros_like(self._data["S2"]),
+                                    where=(self._data["S2"] != 0))
+                    base = np.sqrt(np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0)))
+
+                    if name == "Gxx_emp_dev":
+                        # Only meaningful in auto mode (M2 reflects per-seg power scatter)
+                        val = scale * base if not self.iscsd else None
+                    elif name == "Gxy_emp_dev":
+                        # Only meaningful in cross mode (M2 reflects XY scatter)
+                        val = scale * base if self.iscsd else None
+
         elif name in self._data:
             val = self._data[name]
         else:
@@ -1160,6 +1201,13 @@ class SpectrumResult:
             "Hxy_rad_error",
             "Hxy_deg_error",
             "coh_error",
+            "XX_mean",
+            "YY_mean",
+            "XY_M2",
+            "XY_emp_var",
+            "XY_emp_dev",
+            "Gxx_emp_dev",
+            "Gxy_emp_dev",
         ]
         return sorted(list(set(default_attrs + list(self._data.keys()) + dynamic_attrs)))
     
