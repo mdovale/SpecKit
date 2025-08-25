@@ -416,7 +416,7 @@ class SpectrumAnalyzer:
             if arr.ndim != 1:
                 raise ValueError(f"D[{i}] must be 1D, got shape {arr.shape}.")
             L_i = int(plan_output["L"][i])
-            if L_i < self.config["Lmin"] or L_i < 1:
+            if (L_i < self.config["Lmin"] and scheduler_func != lpsd_plan) or L_i < 1:
                 raise ValueError(f"L[{i}]={L_i} invalid (min {self.config['Lmin']}).")
             # bounds: 0 <= start <= N-L
             if arr.size == 0:
@@ -826,6 +826,11 @@ class SpectrumResult:
     It provides convenient properties for access and methods for plotting and
     further analysis.
 
+    Notes
+    -----
+    - Cross-spectrum sign convention matches SciPy:
+      Pxy = X * conj(Y)  (i.e., Im{Pxy} = i_x * r_y - r_x * i_y)
+
     Attributes
     ----------
     f : np.ndarray
@@ -844,7 +849,6 @@ class SpectrumResult:
         Standard deviation of the PSD estimate.
     coh_error : np.ndarray or None
         Normalized random error of the coherence estimate.
-    ... and many others. Use tab-completion to explore.
     """
 
     def __init__(
@@ -855,22 +859,61 @@ class SpectrumResult:
         fs: float,
     ):
         """Initializes the result object."""
-        self._data = results_dict
+        self._data = dict(results_dict)  # shallow copy to allow normalization
         self._config = config_dict
-        self.iscsd = iscsd
-        self.fs = fs
+        self.iscsd = bool(iscsd)
+        self.fs = float(fs)
         self._cache: Dict[str, Any] = {}
 
-        # Ensure all list-based data from dict are numpy arrays
-        for key, value in self._data.items():
+        # ---- Normalize shapes/dtypes (robustness) ---------------------------
+        # Convert list-valued entries to arrays (preserve ragged D as object)
+        for key, value in list(self._data.items()):
             if isinstance(value, list):
                 if key == "D":
-                    # The 'D' key is a list of lists with varying lengths.
-                    # Force object dtype to handle this inhomogeneous shape.
                     self._data[key] = np.array(value, dtype=object)
                 else:
-                    # For all other keys, a standard array conversion is expected.
-                    self._data[key] = np.array(value)
+                    self._data[key] = np.asarray(value)
+
+        # Enforce expected dtypes when present
+        def _as_float64(name):
+            if name in self._data:
+                self._data[name] = np.ascontiguousarray(self._data[name], dtype=np.float64)
+
+        def _as_complex128(name):
+            if name in self._data:
+                self._data[name] = np.ascontiguousarray(self._data[name], dtype=np.complex128)
+
+        def _as_int64(name):
+            if name in self._data:
+                self._data[name] = np.ascontiguousarray(self._data[name], dtype=np.int64)
+
+        for k in ("f", "r", "b", "S12", "S2", "XX", "YY", "M2", "O", "compute_t"):
+            _as_float64(k)
+        for k in ("XY",):
+            _as_complex128(k)
+        for k in ("L", "K", "navg", "i"):
+            _as_int64(k)
+
+        # Normalize ragged D to list[np.ndarray[int64]]
+        if "D" in self._data and self._data["D"].dtype == object:
+            D_list = []
+            for d in self._data["D"]:
+                arr = np.asarray(d, dtype=np.int64)
+                D_list.append(arr)
+            self._data["D"] = np.array(D_list, dtype=object)
+
+        # Convenience: number of frequency bins
+        self.nf = int(self._data.get("f", np.array([])).shape[0])
+
+    def __len__(self) -> int:
+        return self.nf
+
+    def __repr__(self) -> str:
+        mode = "CSD" if self.iscsd else "auto"
+        fspan = "∅"
+        if self.nf:
+            fspan = f"[{self._data['f'][0]:.6g}, {self._data['f'][-1]:.6g}] Hz"
+        return f"SpectrumResult(mode={mode}, nf={self.nf}, f={fspan})"
 
     def __getattr__(self, name: str) -> Any:
         """Lazy computation and caching of spectral properties."""
@@ -880,21 +923,41 @@ class SpectrumResult:
         val: Any = None
         # --- Base Quantities ---
         if name == "Gxx":
-            val = 2.0 * self._data["XX"] / self.fs / self._data["S2"]
+            # 2 * XX / (fs * S2)
+            XX, S2 = self._data["XX"], self._data["S2"]
+            val = np.divide(
+                2.0 * XX, self.fs * S2,
+                out=np.zeros_like(XX),
+                where=(S2 != 0),
+            )
         elif name == "Gyy":
-            val = (
-                2.0 * self._data["YY"] / self.fs / self._data["S2"]
-                if self.iscsd
-                else self.Gxx
-            )
+            if self.iscsd:
+                YY, S2 = self._data["YY"], self._data["S2"]
+                val = np.divide(
+                    2.0 * YY, self.fs * S2,
+                    out=np.zeros_like(YY),
+                    where=(S2 != 0),
+                )
+            else:
+                val = self.Gxx
         elif name == "Gxy":
-            val = (
-                2.0 * self._data["XY"] / self.fs / self._data["S2"]
-                if self.iscsd
-                else self.Gxx
-            )
+            if self.iscsd:
+                XY, S2 = self._data["XY"], self._data["S2"]
+                # Note: magnitude/phase derived from XY elsewhere; here it's scaled by S2 and fs.
+                val = np.divide(
+                    2.0 * XY, self.fs * S2,
+                    out=np.zeros_like(XY),
+                    where=(S2 != 0),
+                )
+            else:
+                val = self.Gxx
         elif name == "ENBW":
-            val = self.fs * self._data["S2"] / self._data["S12"]
+            S2, S12 = self._data["S2"], self._data["S12"]
+            val = np.divide(
+                self.fs * S2, S12,
+                out=np.zeros_like(S2),
+                where=(S12 != 0),
+            )
 
         # --- Derived Auto-Spectral Quantities ---
         elif name in ["psd", "G", "asd", "ps"]:
@@ -933,11 +996,12 @@ class SpectrumResult:
                 elif name == "Gyx":
                     val = np.conj(self.Gxy)
                 elif name == "Hxy":
+                    # Transfer function estimate conj(XY) / XX
                     val = np.divide(
                         np.conj(self._data["XY"]),
                         self._data["XX"],
                         out=np.zeros_like(self._data["XX"], dtype=complex),
-                        where=self._data["XX"] != 0,
+                        where=(self._data["XX"] != 0),
                     )
                 elif name == "Hyx":
                     val = np.conj(self.Hxy)
@@ -1080,7 +1144,7 @@ class SpectrumResult:
             "cf_rad",
             "cf_deg",
             "cf_rad_unwrapped",
-            "cf_rad_unwrapped",
+            "cf_deg_unwrapped",
             "GyyCx",
             "GyyRx",
             "GyySx",
@@ -1097,9 +1161,8 @@ class SpectrumResult:
             "Hxy_deg_error",
             "coh_error",
         ]
-        return sorted(
-            list(set(default_attrs + list(self._data.keys()) + dynamic_attrs))
-        )
+        return sorted(list(set(default_attrs + list(self._data.keys()) + dynamic_attrs)))
+    
 
     def get_rms(self, pass_band: Optional[Tuple[float, float]] = None) -> float:
         """
@@ -1117,10 +1180,24 @@ class SpectrumResult:
             The computed RMS value.
         """
         if self.iscsd:
-            raise NotImplementedError(
-                "RMS calculation is only available for auto-spectra."
-            )
-        return integral_rms(self.f, self.asd, pass_band)
+            raise NotImplementedError("RMS calculation is only available for auto-spectra.")
+
+        if pass_band is not None:
+            try:
+                fmin, fmax = float(pass_band[0]), float(pass_band[1])
+            except Exception as exc:
+                raise ValueError(f"Invalid pass_band {pass_band!r}; expected (f_min, f_max).") from exc
+            if not (np.isfinite(fmin) and np.isfinite(fmax)):
+                raise ValueError("pass_band must contain finite floats.")
+            if fmax < fmin:
+                fmin, fmax = fmax, fmin
+            band = (fmin, fmax)
+        else:
+            band = None
+
+        # integral_rms handles None-band as full span
+        return float(integral_rms(self.f, self.asd, band))
+
 
     def get_measurement(
         self, freq: Union[float, np.ndarray], which: str
@@ -1139,14 +1216,33 @@ class SpectrumResult:
         -------
         float or np.ndarray
             The interpolated value(s) of the spectral quantity.
+
+        Notes
+        -----
+        - Complex quantities are interpolated component-wise (real & imaginary),
+        then recombined.
+        - Values outside the tabulated frequency range will be extrapolated
+        as the boundary values (np.interp behavior).
         """
         target_signal = getattr(self, which)
+        f = np.asarray(freq, dtype=float)
+
+        # Handle scalar input path at the end to preserve dtype/shape.
+        was_scalar = np.isscalar(freq)
+
+        # Ensure finite frequencies; np.interp will handle monotonic x.
+        if not np.all(np.isfinite(f)):
+            raise ValueError("`freq` contains non-finite values.")
+
         if np.iscomplexobj(target_signal):
-            real_part = np.interp(freq, self.f, np.real(target_signal))
-            imag_part = np.interp(freq, self.f, np.imag(target_signal))
-            return real_part + 1j * imag_part
+            real_part = np.interp(f, self.f, np.real(target_signal))
+            imag_part = np.interp(f, self.f, np.imag(target_signal))
+            out = real_part + 1j * imag_part
         else:
-            return np.interp(freq, self.f, target_signal)
+            out = np.interp(f, self.f, target_signal)
+
+        return out.item() if was_scalar else out
+
 
     def to_dataframe(self) -> pd.DataFrame:
         """
@@ -1160,20 +1256,27 @@ class SpectrumResult:
         pd.DataFrame
             A DataFrame containing the spectral analysis results.
         """
-        df_dict = {"f": self.f}
-        for attr in dir(self):
-            if (
-                not attr.startswith("_")
-                and attr not in ["iscsd", "fs"]
-                and not callable(getattr(self, attr))
-            ):
-                try:
-                    value = getattr(self, attr)
-                    if isinstance(value, np.ndarray) and len(value) == len(self.f):
-                        df_dict[attr] = value
-                except AttributeError:
-                    continue  # Skip attributes that fail to compute
-        return pd.DataFrame(df_dict).set_index("f")
+        # Start with frequency as index
+        df_dict: Dict[str, np.ndarray] = {"f": np.asanyarray(self.f)}
+        n = df_dict["f"].shape[0]
+
+        # Enumerate attributes once; filter to ndarray of matching length
+        for attr in sorted(set(dir(self)) - {"iscsd", "fs"}):
+            if attr.startswith("_"):
+                continue
+            # Avoid calling methods
+            try:
+                val = getattr(self, attr)
+            except AttributeError:
+                continue
+            if callable(val):
+                continue
+            if isinstance(val, np.ndarray) and val.shape[:1] == (n,):
+                df_dict[attr] = val
+
+        df = pd.DataFrame(df_dict).set_index("f")
+        return df
+
 
     def plot(
         self,
@@ -1215,7 +1318,7 @@ class SpectrumResult:
             The number of standard deviations (sigma) to show in the error band.
             Defaults to 1.
         **kwargs
-            Additional keyword arguments passed to the `matplotlib.pyplot.plot` function.
+            Additional keyword arguments passed to the plotting function.
 
         Returns
         -------
@@ -1227,13 +1330,8 @@ class SpectrumResult:
             "psd": ("loglog", self.f, self.psd, "Power Spectral Density"),
             "asd": ("loglog", self.f, self.asd, "Amplitude Spectral Density"),
             "coh": ("semilogx", self.f, self.coh, "Coherence"),
-            "csd": (
-                "loglog",
-                self.f,
-                np.abs(self.csd) if self.csd is not None else None,
-                "|Cross Spectral Density|",
-            ),
-            "cf": ("loglog", self.f, self.cf, "Coupling Factor Magnitude"),
+            "csd": ("loglog", self.f, np.abs(self.csd) if self.csd is not None else None, "|Cross Spectral Density|"),
+            "cf":  ("loglog", self.f, self.cf, "Coupling Factor Magnitude"),
             "bode": "bode",
         }
 
@@ -1241,9 +1339,7 @@ class SpectrumResult:
             which = "bode" if self.iscsd else "asd"
 
         if which not in plot_options:
-            raise ValueError(
-                f"Plot type '{which}' not recognized. Available options are: {list(plot_options.keys())}"
-            )
+            raise ValueError(f"Plot type '{which}' not recognized. Available: {list(plot_options.keys())}")
 
         # --- Bode Plot Logic ---
         if which == "bode":
@@ -1252,6 +1348,9 @@ class SpectrumResult:
             fig, (ax_mag, ax_phase) = plt.subplots(2, 1, sharex=True, figsize=(7, 5))
 
             mag_data = self.cf_db if dB else self.cf
+            if mag_data is None:
+                raise ValueError("No cross-spectrum data available for 'bode' plot.")
+
             plot_func_mag = ax_mag.semilogx if dB else ax_mag.loglog
             plot_func_mag(self.f, mag_data, **kwargs)
             ax_mag.set_ylabel(f"Magnitude {'(dB)' if dB else ''}")
@@ -1260,15 +1359,10 @@ class SpectrumResult:
                 lower = mag_data * (1 - sigma * mag_error)
                 upper = mag_data * (1 + sigma * mag_error)
                 if dB:
-                    lower, upper = ct.mag2db(np.maximum(1e-15, lower)), ct.mag2db(upper)
-                ax_mag.fill_between(
-                    self.f,
-                    lower,
-                    upper,
-                    alpha=0.3,
-                    label=f"±{sigma}σ",
-                    color=kwargs.get("color"),
-                )
+                    # Protect against log of nonpositive
+                    lower = ct.mag2db(np.maximum(lower, 1e-300))
+                    upper = ct.mag2db(np.maximum(upper, 1e-300))
+                ax_mag.fill_between(self.f, lower, upper, alpha=0.3, label=f"±{sigma}σ", color=kwargs.get("color"))
                 ax_mag.legend()
 
             phase_data_rad = np.unwrap(self.cf_rad) if unwrap else self.cf_rad
@@ -1292,39 +1386,42 @@ class SpectrumResult:
             return fig, (ax_mag, ax_phase)
 
         # --- Single Axis Plot Logic ---
-        else:
-            plot_type, x, y, default_label = plot_options[which]
-            if y is None:
-                raise ValueError(f"'{which}' is not available for this analysis type.")
+        plot_type, x, y, default_label = plot_options[which]
+        if y is None:
+            raise ValueError(f"'{which}' is not available for this analysis type.")
 
-            fig, ax1 = (ax.get_figure(), ax) if ax is not None else plt.subplots()
-            plot_func = getattr(ax1, plot_type)
-            plot_func(x, y, **kwargs)
-            ax1.set_xlabel("Frequency (Hz)")
-            ax1.set_ylabel(ylabel if ylabel is not None else default_label)
+        # Drop NaNs/inf quietly to avoid matplotlib warnings
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y)
+        finite_mask = np.isfinite(x) & np.isfinite(y)
+        if not np.any(finite_mask):
+            raise ValueError(f"No finite data to plot for '{which}'.")
 
-            if errors:
-                error_map = {
-                    "asd": self.Gxx_dev / 2 / np.sqrt(self.Gxx),
-                    "psd": self.Gxx_dev,
-                    "coh": self.coh_dev,
-                    "csd": self.Gxy_dev,
-                    "cf": self.Hxy_dev,
-                }
-                error_data = error_map.get(which)
-                if error_data is not None:
-                    ax1.fill_between(
-                        x,
-                        y - sigma * error_data,
-                        y + sigma * error_data,
-                        alpha=0.3,
-                        label=f"±{sigma}σ",
-                        color=kwargs.get("color"),
-                    )
-                    ax1.legend()
+        x = x[finite_mask]
+        y = y[finite_mask]
 
-            fig.tight_layout()
-            return fig, ax1
+        fig, ax1 = (ax.get_figure(), ax) if ax is not None else plt.subplots()
+        plot_func = getattr(ax1, plot_type)
+        plot_func(x, y, **kwargs)
+        ax1.set_xlabel("Frequency (Hz)")
+        ax1.set_ylabel(ylabel if ylabel is not None else default_label)
+
+        if errors:
+            error_map = {
+                "asd": self.Gxx_dev / 2 / np.sqrt(np.maximum(self.Gxx, 1e-300)),
+                "psd": self.Gxx_dev,
+                "coh": self.coh_dev,
+                "csd": self.Gxy_dev,
+                "cf":  self.Hxy_dev,
+            }
+            err = error_map.get(which)
+            if isinstance(err, np.ndarray) and err.shape == self.f.shape:
+                err = err[finite_mask]
+                ax1.fill_between(x, y - sigma * err, y + sigma * err, alpha=0.3, label=f"±{sigma}σ", color=kwargs.get("color"))
+                ax1.legend()
+
+        fig.tight_layout()
+        return fig, ax1
 
 
 def lpsd(
