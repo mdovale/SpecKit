@@ -57,7 +57,7 @@ For development:
 ```bash
 git clone https://github.com/mdovale/speckit.git
 cd speckit
-pip install -e .[dev]
+pip install -e '.[dev]'
 ```
 
 ---
@@ -124,20 +124,20 @@ plt.show()
 SpecKit is designed for datasets with millions of samples. Performance comes from:
 
 1. **Numba JIT Kernels**  
-   - Core bin-by-bin statistics are computed with hand-optimized Goertzel recurrences.  
+   - Core bin-by-bin statistics are computed with hand-optimized Goertzel recurrences.
    - Parallelized across segments using `numba.prange`.
 
 2. **Selective Detrending**  
-   - Order = `-1`: window only  
-   - Order = `0`: mean removal  
-   - Order = `1,2`: polynomial detrend via orthonormal basis (`_build_Q`)  
+   - Order = `-1`: windowing only. 
+   - Order = `0`: mean removal.
+   - Order = `1,2`: polynomial detrend via orthonormal basis (`_build_Q`).
    - The detrend mode changes which JIT kernel is dispatched.
 
 3. **Window/Polynomial Caching**  
    - Expensive objects like windows and polynomial bases are cached per segment length.
 
 4. **Fallback to NumPy**  
-   - If Numba is unavailable, pure-NumPy helpers vectorize segment processing.  
+   - If Numba is unavailable, pure-NumPy helpers vectorize segment processing.
    - NumPy path uses highly optimized `polyfit`/`polyval` for detrending.
 
 5. **Single-Bin Evaluation**  
@@ -154,20 +154,20 @@ SpecKit implements Bendat & Piersol-style analytic formulas:
 
 ### Empirical scatter (M2)
 In addition, the JIT kernels compute:
-- **`MXX`, `MYY`**: mean segment powers  
-- **`M2`**: mean squared deviation of per-segment cross-spectra about the mean  
+- **`MXX`, `MYY`**: mean segment powers.
+- **`M2`**: mean squared deviation of per-segment cross-spectra about the mean.
 
 This is essentially Welford’s algorithm for streaming variance, adapted to complex quantities.  
 
 From `M2`, SpecKit derives:
-- **`XY_emp_var`**: variance of the averaged cross-spectrum  
-- **`XY_emp_dev`**: empirical standard deviation  
-- **`Gxx_emp_dev`**, **`Gxy_emp_dev`**: empirical deviations mapped into spectral density units  
+- **`XY_emp_var`**: variance of the averaged cross-spectrum.
+- **`XY_emp_dev`**: empirical standard deviation.
+- **`Gxx_emp_dev`**, **`Gxy_emp_dev`**: empirical deviations mapped into spectral density units.
 
 These provide **non-parametric uncertainty estimates**, complementing the analytic formulas. They are particularly useful when:
-- The Gaussian assumptions of textbook theory may not hold  
-- Segments are correlated due to overlap  
-- One wants to validate that statistical convergence is as expected  
+- The Gaussian assumptions of textbook theory may not hold.
+- Segments are correlated due to overlap.
+- One wants to validate that statistical convergence is as expected.
 
 ### Why both?  
 - **Analytic errors** are fast, interpretable, and match the literature.  
@@ -185,7 +185,7 @@ Together, they provide a complete picture of uncertainty.
 2. **Logarithmic Frequency Scheduling**
    - Tröbs, M., Heinzel, G. *Improved spectrum estimation from digitized time series on a logarithmic frequency axis*. [doi:10.1016/j.measurement.2005.10.010](https://doi.org/10.1016/j.measurement.2005.10.010)
    - Heinzel, G., Rüdiger, A., & Schilling, R. (2002). *Spectrum and spectral density estimation by the Discrete Fourier transform (DFT), including a comprehensive list of window functions and some new flat-top windows*. Max-Planck-Institut für Gravitationsphysik.  
-   - Basis for SpecKit’s lpsd_plan and ltf_plan scheduler, inspired by algorithms developed for LISA Pathfinder data analysis.
+   - Basis for SpecKit’s `schedulers.lpsd_plan` and `schedulers.ltf_plan`, inspired by algorithms developed for LISA Pathfinder data analysis.
 
 3. **Colored Noise Generation**  
    - Plaszczynski, S. (2007). *Generating long streams of 1/f^α noise*. Fluctuation and Noise Letters. [doi:10.1142/S0219477507003635](https://doi.org/10.1142/S0219477507003635)  
@@ -194,7 +194,7 @@ Together, they provide a complete picture of uncertainty.
 
 4. **High-order Lagrange Interpolation**
    - [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8429119.svg)](https://doi.org/10.5281/zenodo.8429119)
-   - dsp.timeshift and dsp.lagrange_taps adopted from the PyTDI project. Credit to: [Staab, Martin](https://orcid.org/0000-0001-5036-6586), [Bayle, Jean-Baptiste](https://orcid.org/0000-0001-7629-6555), [Hartwig, Olaf](https://orcid.org/0000-0003-2670-3815)
+   - `dsp.timeshift` and `dsp.lagrange_taps` adopted from the PyTDI project. Credit to: [Staab, Martin](https://orcid.org/0000-0001-5036-6586), [Bayle, Jean-Baptiste](https://orcid.org/0000-0001-7629-6555), [Hartwig, Olaf](https://orcid.org/0000-0003-2670-3815)
 
 ---
 
