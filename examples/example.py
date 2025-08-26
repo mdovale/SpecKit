@@ -37,9 +37,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
-from speckit.core import SpectrumAnalyzer
+from speckit import SpectrumAnalyzer
 from speckit.noise import band_limited_noise
-from multiprocessing import Pool
 
 if __name__ == "__main__":
     N = int(1e6)  # Size of the example time series
@@ -85,16 +84,16 @@ if __name__ == "__main__":
 
     # 3. Create a multiprocessing pool and run the computation
     print("\nStarting computation...")
-    result_advanced = analyzer.compute(pool=Pool())
+    result = analyzer.compute()
 
     print("\nComputation complete!")
-    print(f"Result object type: {type(result_advanced)}")
+    print(f"Result object type: {type(result)}")
 
     fig, ax = plt.subplots(figsize=(6, 4), dpi=150)
     ax.set_xlabel("Fourier frequency (Hz)")
     ax.set_ylabel(r"Spectral density (units $/\sqrt{\rm Hz}$)")
     ax.loglog(f1, np.sqrt(psd), label="Welch", color="gray")
-    result_advanced.plot(which="asd", ax=ax, label="LPSD")
+    result.plot(which="asd", ax=ax, label="LPSD")
     ax.legend()
     fig.tight_layout()
     plt.show()
