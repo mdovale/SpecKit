@@ -569,239 +569,274 @@ def _stats_poly_csd(x1, x2, starts, L, w, omega, Q):
 
 # Pure-NumPy fallbacks (readable, no Numba dependency) -------------------------
 
-def _stats_win_only_auto_np(x, starts, L, w, omega):
+# ----------------------------------------------------------------------
+# Utilities
+# ----------------------------------------------------------------------
+
+def _check_starts_bounds(N: int, starts: np.ndarray, L: int) -> None:
+    """Raise if any start index would overrun the signal."""
+    if starts.size == 0:
+        return
+    smin = int(starts.min())
+    smax = int(starts.max())
+    if smin < 0 or (smax + L) > N:
+        raise ValueError(
+            f"Segment starts out of bounds: min={smin}, max+L={smax+L}, N={N}, L={L}"
+        )
+
+def _gather_segments(x: np.ndarray, starts: np.ndarray, L: int) -> np.ndarray:
     """
-    NumPy fallback: window-only auto-spectral stats (matches JIT behavior).
+    Vectorized gather of segments -> (K, L) with safety & finiteness.
     """
-    K = starts.shape[0]
-    cosw = float(np.cos(omega))
-    sinw = float(np.sin(omega))
-    coeff = 2.0 * cosw
+    idx = starts[:, None] + np.arange(L, dtype=np.int64)[None, :]
+    segs = x[idx]  # (K, L)
+    return np.nan_to_num(segs, copy=False)
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
-    xyr = np.empty(K, np.float64)
-    xyi = np.empty(K, np.float64)
+# ----------------------------------------------------------------------
+# NumPy fallbacks
+# ----------------------------------------------------------------------
 
-    for j in range(K):
-        s = int(starts[j])
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            v = x[s + n] * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r = s1 - s2 * cosw
-        i = s2 * sinw
-        p = r*r + i*i
-        xx[j]  = p
-        yy[j]  = p
-        xyr[j] = p
-        xyi[j] = 0.0
+def _stats_win_only_auto_np(x, starts, L, w, omega, *, _chunk=32768):
+    """Auto-spectral stats with windowing only (NumPy)."""
+    K = int(len(starts))
+    if K == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
 
-    bs = _reduce_stats(xx, yy, xyr, xyi)
-    return bs.MXX, bs.MYY, bs.mu_r, bs.mu_i, bs.M2
+    x = np.asarray(x, dtype=np.float64, order="C")
+    starts = np.asarray(starts, dtype=np.int64, order="C")
+    w = np.asarray(w, dtype=np.float64, order="C")
+    _check_starts_bounds(x.shape[0], starts, L)
 
+    n = np.arange(L, dtype=np.float64)
+    e = np.exp(1j * omega * n)
 
-def _stats_win_only_csd_np(x1, x2, starts, L, w, omega):
-    """
-    NumPy fallback: window-only cross-spectral stats (SciPy CSD sign).
-    """
-    K = starts.shape[0]
-    cosw = float(np.cos(omega))
-    sinw = float(np.sin(omega))
-    coeff = 2.0 * cosw
+    p_all = np.empty(K, dtype=np.float64)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for j0 in range(0, K, _chunk):
+            j1 = min(j0 + _chunk, K)
+            segs = _gather_segments(x, starts[j0:j1], L)
+            X = (segs * w) @ e
+            X = np.nan_to_num(X, copy=False)
+            p_all[j0:j1] = (X.real**2 + X.imag**2)
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
-    xyr = np.empty(K, np.float64)
-    xyi = np.empty(K, np.float64)
-
-    for j in range(K):
-        s = int(starts[j])
-
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            v = x1[s + n] * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r1 = s1 - s2 * cosw
-        i1 = s2 * sinw
-
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            v = x2[s + n] * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r2 = s1 - s2 * cosw
-        i2 = s2 * sinw
-
-        xx[j]  = r1*r1 + i1*i1
-        yy[j]  = r2*r2 + i2*i2
-        xyr[j] = r1*r2 + i1*i2
-        xyi[j] = i1*r2 - r1*i2
-
-    bs = _reduce_stats(xx, yy, xyr, xyi)
-    return bs.MXX, bs.MYY, bs.mu_r, bs.mu_i, bs.M2
+    MXX = float(p_all.mean())
+    mu_r = float(MXX)
+    mu_i = 0.0
+    M2  = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
+    return MXX, MXX, mu_r, mu_i, M2
 
 
-def _stats_detrend0_auto_np(x, starts, L, w, omega):
-    """
-    NumPy fallback: detrend0 auto-spectral stats (matches JIT behavior).
-    """
-    K = starts.shape[0]
-    cosw = float(np.cos(omega))
-    sinw = float(np.sin(omega))
-    coeff = 2.0 * cosw
+def _stats_win_only_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
+    """Cross-spectral stats with windowing only (NumPy)."""
+    K = int(len(starts))
+    if K == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
-    xyr = np.empty(K, np.float64)
-    xyi = np.empty(K, np.float64)
+    x1 = np.asarray(x1, dtype=np.float64, order="C")
+    x2 = np.asarray(x2, dtype=np.float64, order="C")
+    starts = np.asarray(starts, dtype=np.int64, order="C")
+    w = np.asarray(w, dtype=np.float64, order="C")
+    _check_starts_bounds(x1.shape[0], starts, L)
+    _check_starts_bounds(x2.shape[0], starts, L)
 
-    for j in range(K):
-        s = int(starts[j])
-        m = float(np.mean(x[s:s+L]))
+    n = np.arange(L, dtype=np.float64)
+    e = np.exp(1j * omega * n)
 
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            v = (x[s + n] - m) * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r = s1 - s2 * cosw
-        i = s2 * sinw
+    p1 = np.empty(K, dtype=np.float64)
+    p2 = np.empty(K, dtype=np.float64)
+    zr = np.empty(K, dtype=np.float64)
+    zi = np.empty(K, dtype=np.float64)
 
-        p = r*r + i*i
-        xx[j]  = p
-        yy[j]  = p
-        xyr[j] = p
-        xyi[j] = 0.0
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for j0 in range(0, K, _chunk):
+            j1 = min(j0 + _chunk, K)
+            segs1 = _gather_segments(x1, starts[j0:j1], L)
+            segs2 = _gather_segments(x2, starts[j0:j1], L)
+            X = (segs1 * w) @ e
+            Y = (segs2 * w) @ e
+            X = np.nan_to_num(X, copy=False)
+            Y = np.nan_to_num(Y, copy=False)
+            Z = X * np.conj(Y)
+            p1[j0:j1] = (X.real**2 + X.imag**2)
+            p2[j0:j1] = (Y.real**2 + Y.imag**2)
+            zr[j0:j1] = Z.real
+            zi[j0:j1] = Z.imag
 
-    bs = _reduce_stats(xx, yy, xyr, xyi)
-    return bs.MXX, bs.MYY, bs.mu_r, bs.mu_i, bs.M2
-
-
-def _stats_detrend0_csd_np(x1, x2, starts, L, w, omega):
-    """
-    NumPy fallback: detrend0 cross-spectral stats (SciPy CSD sign).
-    """
-    K = starts.shape[0]
-    cosw = float(np.cos(omega))
-    sinw = float(np.sin(omega))
-    coeff = 2.0 * cosw
-
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
-    xyr = np.empty(K, np.float64)
-    xyi = np.empty(K, np.float64)
-
-    for j in range(K):
-        s = int(starts[j])
-        m1 = float(np.mean(x1[s:s+L]))
-        m2 = float(np.mean(x2[s:s+L]))
-
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            v = (x1[s + n] - m1) * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r1 = s1 - s2 * cosw
-        i1 = s2 * sinw
-
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            v = (x2[s + n] - m2) * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r2 = s1 - s2 * cosw
-        i2 = s2 * sinw
-
-        xx[j]  = r1*r1 + i1*i1
-        yy[j]  = r2*r2 + i2*i2
-        xyr[j] = r1*r2 + i1*i2
-        xyi[j] = i1*r2 - r1*i2
-
-    bs = _reduce_stats(xx, yy, xyr, xyi)
-    return bs.MXX, bs.MYY, bs.mu_r, bs.mu_i, bs.M2
+    MXX = float(p1.mean())
+    MYY = float(p2.mean())
+    mu_r = float(zr.mean())
+    mu_i = float(zi.mean())
+    M2  = float(np.mean((zr - mu_r)**2 + (zi - mu_i)**2)) if K >= 2 else 0.0
+    return MXX, MYY, mu_r, mu_i, M2
 
 
-def _stats_poly_auto_np(x, starts, L, w, omega, Q):
-    """
-    NumPy fallback: polynomial-detrended auto-spectral stats.
-    """
-    K = starts.shape[0]
-    cosw = float(np.cos(omega))
-    sinw = float(np.sin(omega))
-    coeff = 2.0 * cosw
+def _stats_detrend0_auto_np(x, starts, L, w, omega, *, _chunk=32768):
+    """Auto-spectral stats with mean removal (NumPy)."""
+    K = int(len(starts))
+    if K == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
-    xyr = np.empty(K, np.float64)
-    xyi = np.empty(K, np.float64)
+    x = np.asarray(x, dtype=np.float64, order="C")
+    starts = np.asarray(starts, dtype=np.int64, order="C")
+    w = np.asarray(w, dtype=np.float64, order="C")
+    _check_starts_bounds(x.shape[0], starts, L)
 
-    for j in range(K):
-        s = int(starts[j])
-        alpha = Q.T @ x[s:s+L]
+    n = np.arange(L, dtype=np.float64)
+    e = np.exp(1j * omega * n)
 
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            qdot = float(Q[n, :].dot(alpha))
-            v = (x[s + n] - qdot) * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r = s1 - s2 * cosw
-        i = s2 * sinw
+    p_all = np.empty(K, dtype=np.float64)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for j0 in range(0, K, _chunk):
+            j1 = min(j0 + _chunk, K)
+            segs = _gather_segments(x, starts[j0:j1], L)
+            segs -= segs.mean(axis=1, keepdims=True)
+            segs = np.nan_to_num(segs, copy=False)
+            X = (segs * w) @ e
+            X = np.nan_to_num(X, copy=False)
+            p_all[j0:j1] = (X.real**2 + X.imag**2)
 
-        p = r*r + i*i
-        xx[j]  = p
-        yy[j]  = p
-        xyr[j] = p
-        xyi[j] = 0.0
-
-    bs = _reduce_stats(xx, yy, xyr, xyi)
-    return bs.MXX, bs.MYY, bs.mu_r, bs.mu_i, bs.M2
+    MXX = float(p_all.mean())
+    mu_r = float(MXX)
+    mu_i = 0.0
+    M2  = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
+    return MXX, MXX, mu_r, mu_i, M2
 
 
-def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q):
-    """
-    NumPy fallback: polynomial-detrended cross-spectral stats (SciPy sign).
-    """
-    K = starts.shape[0]
-    cosw = float(np.cos(omega))
-    sinw = float(np.sin(omega))
-    coeff = 2.0 * cosw
+def _stats_detrend0_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
+    """Cross-spectral stats with mean removal (NumPy)."""
+    K = int(len(starts))
+    if K == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
-    xyr = np.empty(K, np.float64)
-    xyi = np.empty(K, np.float64)
+    x1 = np.asarray(x1, dtype=np.float64, order="C")
+    x2 = np.asarray(x2, dtype=np.float64, order="C")
+    starts = np.asarray(starts, dtype=np.int64, order="C")
+    w = np.asarray(w, dtype=np.float64, order="C")
+    _check_starts_bounds(x1.shape[0], starts, L)
+    _check_starts_bounds(x2.shape[0], starts, L)
 
-    for j in range(K):
-        s = int(starts[j])
-        alpha1 = Q.T @ x1[s:s+L]
-        alpha2 = Q.T @ x2[s:s+L]
+    n = np.arange(L, dtype=np.float64)
+    e = np.exp(1j * omega * n)
 
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            qdot = float(Q[n, :].dot(alpha1))
-            v = (x1[s + n] - qdot) * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r1 = s1 - s2 * cosw
-        i1 = s2 * sinw
+    p1 = np.empty(K, dtype=np.float64)
+    p2 = np.empty(K, dtype=np.float64)
+    zr = np.empty(K, dtype=np.float64)
+    zi = np.empty(K, dtype=np.float64)
 
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
-        for n in range(L):
-            qdot = float(Q[n, :].dot(alpha2))
-            v = (x2[s + n] - qdot) * w[n]
-            s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
-        r2 = s1 - s2 * cosw
-        i2 = s2 * sinw
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for j0 in range(0, K, _chunk):
+            j1 = min(j0 + _chunk, K)
+            segs1 = _gather_segments(x1, starts[j0:j1], L)
+            segs2 = _gather_segments(x2, starts[j0:j1], L)
+            segs1 -= segs1.mean(axis=1, keepdims=True)
+            segs2 -= segs2.mean(axis=1, keepdims=True)
+            segs1 = np.nan_to_num(segs1, copy=False)
+            segs2 = np.nan_to_num(segs2, copy=False)
+            X = (segs1 * w) @ e
+            Y = (segs2 * w) @ e
+            X = np.nan_to_num(X, copy=False)
+            Y = np.nan_to_num(Y, copy=False)
+            Z = X * np.conj(Y)
+            p1[j0:j1] = (X.real**2 + X.imag**2)
+            p2[j0:j1] = (Y.real**2 + Y.imag**2)
+            zr[j0:j1] = Z.real
+            zi[j0:j1] = Z.imag
 
-        xx[j]  = r1*r1 + i1*i1
-        yy[j]  = r2*r2 + i2*i2
-        xyr[j] = r1*r2 + i1*i2
-        xyi[j] = i1*r2 - r1*i2
+    MXX = float(p1.mean())
+    MYY = float(p2.mean())
+    mu_r = float(zr.mean())
+    mu_i = float(zi.mean())
+    M2  = float(np.mean((zr - mu_r)**2 + (zi - mu_i)**2)) if K >= 2 else 0.0
+    return MXX, MYY, mu_r, mu_i, M2
 
-    bs = _reduce_stats(xx, yy, xyr, xyi)
-    return bs.MXX, bs.MYY, bs.mu_r, bs.mu_i, bs.M2
+
+def _stats_poly_auto_np(x, starts, L, w, omega, Q, *, _chunk=16384):
+    """Auto-spectral stats with polynomial detrending (NumPy)."""
+    K = int(len(starts))
+    if K == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
+    x = np.asarray(x, dtype=np.float64, order="C")
+    starts = np.asarray(starts, dtype=np.int64, order="C")
+    w = np.asarray(w, dtype=np.float64, order="C")
+    Q = np.asarray(Q, dtype=np.float64, order="C")
+    if Q.shape[0] != L:
+        raise ValueError("Q.shape mismatch with L")
+    _check_starts_bounds(x.shape[0], starts, L)
+
+    n = np.arange(L, dtype=np.float64)
+    e = np.exp(1j * omega * n)
+
+    p_all = np.empty(K, dtype=np.float64)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for j0 in range(0, K, _chunk):
+            j1 = min(j0 + _chunk, K)
+            segs = _gather_segments(x, starts[j0:j1], L)
+            alpha = segs @ Q
+            alpha = np.nan_to_num(alpha, copy=False)
+            segs_dt = segs - alpha @ Q.T
+            segs_dt = np.nan_to_num(segs_dt, copy=False)
+            X = (segs_dt * w) @ e
+            X = np.nan_to_num(X, copy=False)
+            p_all[j0:j1] = (X.real**2 + X.imag**2)
+
+    MXX = float(p_all.mean())
+    mu_r = float(MXX)
+    mu_i = 0.0
+    M2  = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
+    return MXX, MXX, mu_r, mu_i, M2
+
+
+def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q, *, _chunk=8192):
+    """Cross-spectral stats with polynomial detrending (NumPy)."""
+    K = int(len(starts))
+    if K == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
+    x1 = np.asarray(x1, dtype=np.float64, order="C")
+    x2 = np.asarray(x2, dtype=np.float64, order="C")
+    starts = np.asarray(starts, dtype=np.int64, order="C")
+    w = np.asarray(w, dtype=np.float64, order="C")
+    Q = np.asarray(Q, dtype=np.float64, order="C")
+    if Q.shape[0] != L:
+        raise ValueError("Q.shape mismatch with L")
+    _check_starts_bounds(x1.shape[0], starts, L)
+    _check_starts_bounds(x2.shape[0], starts, L)
+
+    n = np.arange(L, dtype=np.float64)
+    e = np.exp(1j * omega * n)
+
+    p1 = np.empty(K, dtype=np.float64)
+    p2 = np.empty(K, dtype=np.float64)
+    zr = np.empty(K, dtype=np.float64)
+    zi = np.empty(K, dtype=np.float64)
+
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for j0 in range(0, K, _chunk):
+            j1 = min(j0 + _chunk, K)
+            segs1 = _gather_segments(x1, starts[j0:j1], L)
+            segs2 = _gather_segments(x2, starts[j0:j1], L)
+            a1 = segs1 @ Q
+            a2 = segs2 @ Q
+            a1 = np.nan_to_num(a1, copy=False)
+            a2 = np.nan_to_num(a2, copy=False)
+            segs1_dt = segs1 - a1 @ Q.T
+            segs2_dt = segs2 - a2 @ Q.T
+            segs1_dt = np.nan_to_num(segs1_dt, copy=False)
+            segs2_dt = np.nan_to_num(segs2_dt, copy=False)
+            X = (segs1_dt * w) @ e
+            Y = (segs2_dt * w) @ e
+            X = np.nan_to_num(X, copy=False)
+            Y = np.nan_to_num(Y, copy=False)
+            Z = X * np.conj(Y)
+            p1[j0:j1] = (X.real**2 + X.imag**2)
+            p2[j0:j1] = (Y.real**2 + Y.imag**2)
+            zr[j0:j1] = Z.real
+            zi[j0:j1] = Z.imag
+
+    MXX = float(p1.mean())
+    MYY = float(p2.mean())
+    mu_r = float(zr.mean())
+    mu_i = float(zi.mean())
+    M2  = float(np.mean((zr - mu_r)**2 + (zi - mu_i)**2)) if K >= 2 else 0.0
+    return MXX, MYY, mu_r, mu_i, M2

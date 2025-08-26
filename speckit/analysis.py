@@ -59,14 +59,18 @@ from speckit.utils import (
 )
 from .core import (_NUMBA_ENABLED,
     _build_Q,
-    _stats_detrend0_auto, 
-    _stats_detrend0_csd,
-    _stats_poly_auto_np,
-    _stats_poly_csd_np,
     _stats_win_only_auto,
     _stats_win_only_csd,
+    _stats_detrend0_auto, 
+    _stats_detrend0_csd,
     _stats_poly_auto,
     _stats_poly_csd,
+    _stats_win_only_auto_np,
+    _stats_win_only_csd_np,
+    _stats_detrend0_csd_np,
+    _stats_detrend0_auto_np,
+    _stats_poly_auto_np,
+    _stats_poly_csd_np,
 )
 
 
@@ -714,7 +718,6 @@ class SpectrumAnalyzer:
             _stats_win_only_auto, _stats_win_only_csd,
             _stats_detrend0_auto, _stats_detrend0_csd,
             _stats_poly_auto, _stats_poly_csd,
-            _stats_poly_auto_np, _stats_poly_csd_np,
         )
 
         def _build_window(L: int) -> Tuple[np.ndarray, float, float]:
@@ -757,29 +760,24 @@ class SpectrumAnalyzer:
                     if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(x1, x2, starts, L, w, omega)
                     else:
-                        # Fallback via poly_np with a degenerate basis (no detrend effect)
-                        Q = np.zeros((L, 1), dtype=np.float64)
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd_np(x1, x2, starts, L, w, omega)
                 else:
                     if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(x1, starts, L, w, omega)
                     else:
-                        Q = np.zeros((L, 1), dtype=np.float64)
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto_np(x1, starts, L, w, omega)
 
             elif order == 0:
                 if self.iscsd:
                     if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(x1, x2, starts, L, w, omega)
                     else:
-                        Q = np.zeros((L, 1), dtype=np.float64)
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd_np(x1, x2, starts, L, w, omega)
                 else:
                     if _NUMBA_ENABLED:
                         MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(x1, starts, L, w, omega)
                     else:
-                        Q = np.zeros((L, 1), dtype=np.float64)
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto_np(x1, starts, L, w, omega)
 
             elif order in (1, 2):
                 key = (L, order)
