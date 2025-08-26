@@ -44,6 +44,7 @@ from speckit import dsp
 
 # --- Tests for polynomial_detrend ---
 
+
 def test_polynomial_detrend():
     """Tests that polynomial detrending correctly removes known trends."""
     t = np.linspace(0, 10, 1000)
@@ -58,21 +59,26 @@ def test_polynomial_detrend():
     # After detrending, the mean should be close to zero
     assert np.mean(detrended_linear) == pytest.approx(0, abs=1e-12)
     assert np.mean(detrended_quad) == pytest.approx(0, abs=1e-12)
-    
+
     # The standard deviation should be close to that of the original sine/cosine wave
     assert np.std(detrended_linear) == pytest.approx(np.std(np.sin(t)), rel=0.1)
     assert np.std(detrended_quad) == pytest.approx(np.std(np.cos(t)), rel=0.1)
 
+
 # --- Tests for DataFrame utilities ---
+
 
 @pytest.fixture
 def sample_dataframe():
     """Creates a sample pandas DataFrame for testing."""
-    return pd.DataFrame({
-        'time': np.linspace(0, 9.99, 1000),
-        'signal1': np.random.randn(1000),
-        'signal2': np.arange(1000)
-    })
+    return pd.DataFrame(
+        {
+            "time": np.linspace(0, 9.99, 1000),
+            "signal1": np.random.randn(1000),
+            "signal2": np.arange(1000),
+        }
+    )
+
 
 def test_df_timeshift(sample_dataframe):
     """Tests the DataFrame timeshift wrapper."""
@@ -81,18 +87,21 @@ def test_df_timeshift(sample_dataframe):
     delay_sec = 0.05  # 5 samples
 
     # Test out-of-place shift
-    df_shifted = dsp.df_timeshift(df, fs, delay_sec, columns=['signal1'], inplace=False)
-    assert 'signal1_shifted' in df_shifted.columns
-    assert 'signal1' in df_shifted.columns
-    assert not np.allclose(df_shifted['signal1'], df_shifted['signal1_shifted'])
+    df_shifted = dsp.df_timeshift(df, fs, delay_sec, columns=["signal1"], inplace=False)
+    assert "signal1_shifted" in df_shifted.columns
+    assert "signal1" in df_shifted.columns
+    assert not np.allclose(df_shifted["signal1"], df_shifted["signal1_shifted"])
 
     # Test in-place shift
-    df_shifted_inplace = dsp.df_timeshift(df.copy(), fs, delay_sec, columns=['signal1'], inplace=True)
-    assert 'signal1_shifted' not in df_shifted_inplace.columns
-    assert not np.allclose(df['signal1'], df_shifted_inplace['signal1'])
+    df_shifted_inplace = dsp.df_timeshift(
+        df.copy(), fs, delay_sec, columns=["signal1"], inplace=True
+    )
+    assert "signal1_shifted" not in df_shifted_inplace.columns
+    assert not np.allclose(df["signal1"], df_shifted_inplace["signal1"])
 
 
 # --- Tests for optimal_linear_combination ---
+
 
 def test_optimal_linear_combination_siso():
     """Tests OLC on a simple single-input, single-output system."""
@@ -101,9 +110,11 @@ def test_optimal_linear_combination_siso():
     noise = 0.1 * rng.normal(size=1000)
     A = -3.5
     y = A * x + noise
-    df = pd.DataFrame({'input': x, 'output': y})
-    
-    res, residual = dsp.optimal_linear_combination(df, inputs=['input'], output='output')
+    df = pd.DataFrame({"input": x, "output": y})
+
+    res, residual = dsp.optimal_linear_combination(
+        df, inputs=["input"], output="output"
+    )
 
     # The recovered coefficient should be very close to the true one
     recovered_A = res.x[0]

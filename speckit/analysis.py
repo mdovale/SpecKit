@@ -47,7 +47,7 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 
 from speckit.flattop import olap_dict, win_dict
-from speckit.dsp import integral_rms, polynomial_detrend
+from speckit.dsp import integral_rms
 from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
 from speckit.utils import (
     kaiser_alpha,
@@ -57,11 +57,12 @@ from speckit.utils import (
     get_key_for_function,
     find_Jdes_binary_search,
 )
-from .core import (_NUMBA_ENABLED,
+from .core import (
+    _NUMBA_ENABLED,
     _build_Q,
     _stats_win_only_auto,
     _stats_win_only_csd,
-    _stats_detrend0_auto, 
+    _stats_detrend0_auto,
     _stats_detrend0_csd,
     _stats_poly_auto,
     _stats_poly_csd,
@@ -130,8 +131,8 @@ class SpectrumAnalyzer:
             The desired number of segments to average. This is a control
             parameter for the scheduler. Defaults to 100.
         num_patch_pts: int, optional
-            [new_ltf_plan] Number of lower frequencies to prepend 
-            to new_ltf_plan scheduler output. Defaults to 50. 
+            [new_ltf_plan] Number of lower frequencies to prepend
+            to new_ltf_plan scheduler output. Defaults to 50.
         order : int, optional
             Order of polynomial detrending to apply to each segment.
             Allowed values: -1 (window only), 0 (mean removal), 1 (linear), 2 (quadratic).
@@ -193,7 +194,9 @@ class SpectrumAnalyzer:
             self.data = np.ascontiguousarray(data_2n, dtype=np.float64)  # (2, N)
             # Sanitize *after* stacking to ndarray
             if not np.all(np.isfinite(self.data)):
-                logging.warning("Input data contains NaN/Inf; replacing non-finite samples with 0.")
+                logging.warning(
+                    "Input data contains NaN/Inf; replacing non-finite samples with 0."
+                )
                 np.nan_to_num(self.data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
             self.x1 = self.data[0]
             self.x2 = self.data[1]
@@ -204,11 +207,15 @@ class SpectrumAnalyzer:
             self.data = np.ascontiguousarray(x, dtype=np.float64)
             # Sanitize *after* making ndarray
             if not np.all(np.isfinite(self.data)):
-                logging.warning("Input data contains NaN/Inf; replacing non-finite samples with 0.")
+                logging.warning(
+                    "Input data contains NaN/Inf; replacing non-finite samples with 0."
+                )
                 np.nan_to_num(self.data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
             self.x1 = self.data
             if self.verbose:
-                logging.info(f"Detected single-channel data with N={self.data.shape[0]}")
+                logging.info(
+                    f"Detected single-channel data with N={self.data.shape[0]}"
+                )
         else:
             raise ValueError("Input data must be a 1D array or a 2xN/Nx2 array.")
 
@@ -231,22 +238,27 @@ class SpectrumAnalyzer:
             win_func = self.config.get("win_func")
             alpha = self.config.get("alpha")
             if win_func in (np_kaiser, sp_kaiser):
-                win_name = f"kaiser(alpha={alpha:.3f})" if alpha is not None else "kaiser"
+                win_name = (
+                    f"kaiser(alpha={alpha:.3f})" if alpha is not None else "kaiser"
+                )
             elif is_function_in_dict(win_func, win_dict):
                 win_name = get_key_for_function(win_func, win_dict)
             else:
                 win_name = getattr(win_func, "__name__", "custom_win")
 
             sched_param = self.config["scheduler"]
-            sched_name = sched_param if isinstance(sched_param, str) else getattr(sched_param, "__name__", "custom_sched")
+            sched_name = (
+                sched_param
+                if isinstance(sched_param, str)
+                else getattr(sched_param, "__name__", "custom_sched")
+            )
 
             logging.info(
                 f"SpectrumAnalyzer: fs={self.fs:g} Hz | N={self.nx} | "
                 f"mode={'CSD' if self.iscsd else 'auto'} | order={self.config['order']} | "
-                f"win={win_name} | olap={self.config.get('final_olap','?')} | "
+                f"win={win_name} | olap={self.config.get('final_olap', '?')} | "
                 f"scheduler={sched_name}"
             )
-
 
     def _process_window_config(self):
         """Resolve window function, Kaiser alpha, and default overlap."""
@@ -286,7 +298,9 @@ class SpectrumAnalyzer:
                     win_name = get_key_for_function(win_param, win_dict)
                 self.config["alpha"] = None
         else:
-            raise TypeError("Window must be a recognized string or a callable function.")
+            raise TypeError(
+                "Window must be a recognized string or a callable function."
+            )
 
         # 2) Resolve automatic overlap based on the selected window
         olap_req = self.config["olap"]
@@ -319,7 +333,6 @@ class SpectrumAnalyzer:
         # Save a friendly window name for logging/debugging
         self.config["win_name"] = win_name
 
-
     def _process_scheduler_config(self):
         """Resolve scheduler function and store a friendly name."""
         scheduler_param = self.config["scheduler"]
@@ -335,10 +348,13 @@ class SpectrumAnalyzer:
             self.config["scheduler_name"] = scheduler_param
         elif callable(scheduler_param):
             self.config["scheduler_func"] = scheduler_param
-            self.config["scheduler_name"] = getattr(scheduler_param, "__name__", "custom_sched")
+            self.config["scheduler_name"] = getattr(
+                scheduler_param, "__name__", "custom_sched"
+            )
         else:
-            raise TypeError("Scheduler must be a recognized string or a callable function.")
-
+            raise TypeError(
+                "Scheduler must be a recognized string or a callable function."
+            )
 
     def plan(self) -> Dict[str, Any]:
         """
@@ -359,7 +375,9 @@ class SpectrumAnalyzer:
             return self._plan_cache
 
         scheduler_func = self.config["scheduler_func"]
-        sched_name = self.config.get("scheduler_name", getattr(scheduler_func, "__name__", "scheduler"))
+        sched_name = self.config.get(
+            "scheduler_name", getattr(scheduler_func, "__name__", "scheduler")
+        )
 
         # ---- Common kwargs for any scheduler (tolerates extra keys) ------------
         common_kwargs = dict(
@@ -378,11 +396,17 @@ class SpectrumAnalyzer:
         # ---- Optional: force target nf via Jdes search --------------------------
         if self.config["force_target_nf"]:
             if self.verbose:
-                logging.info(f"[plan] Adjusting Jdes to target nf={self.config['Jdes']} using {sched_name}...")
+                logging.info(
+                    f"[plan] Adjusting Jdes to target nf={self.config['Jdes']} using {sched_name}..."
+                )
             target_nf = int(self.config["Jdes"])
-            solved_Jdes = find_Jdes_binary_search(scheduler_func, target_nf, **common_kwargs)
+            solved_Jdes = find_Jdes_binary_search(
+                scheduler_func, target_nf, **common_kwargs
+            )
             if solved_Jdes is None:
-                raise RuntimeError("Failed to generate plan with forced number of frequencies.")
+                raise RuntimeError(
+                    "Failed to generate plan with forced number of frequencies."
+                )
             self.config["Jdes"] = int(solved_Jdes)
 
         # ---- Generate plan ------------------------------------------------------
@@ -398,23 +422,33 @@ class SpectrumAnalyzer:
         # Ensure arrays have consistent lengths
         lens = [len(plan_output[k]) for k in ("f", "r", "b", "L", "K", "navg", "O")]
         if not all(L == lens[0] for L in lens):
-            raise ValueError("Scheduler arrays have inconsistent lengths: "
-                            + ", ".join(f"{name}={len(plan_output[name])}" for name in ("f","r","b","L","K","navg","O")))
-        if not isinstance(plan_output["D"], (list, tuple)) or len(plan_output["D"]) != lens[0]:
-            raise ValueError("Scheduler 'D' must be a list of per-frequency start arrays with matching length.")
+            raise ValueError(
+                "Scheduler arrays have inconsistent lengths: "
+                + ", ".join(
+                    f"{name}={len(plan_output[name])}"
+                    for name in ("f", "r", "b", "L", "K", "navg", "O")
+                )
+            )
+        if (
+            not isinstance(plan_output["D"], (list, tuple))
+            or len(plan_output["D"]) != lens[0]
+        ):
+            raise ValueError(
+                "Scheduler 'D' must be a list of per-frequency start arrays with matching length."
+            )
 
         nf = int(lens[0])
         plan_output["nf"] = nf
 
         # ---- Type & contiguity normalization -----------------------------------
         # 1D arrays
-        plan_output["f"]    = np.ascontiguousarray(plan_output["f"], dtype=np.float64)
-        plan_output["r"]    = np.ascontiguousarray(plan_output["r"], dtype=np.float64)
-        plan_output["b"]    = np.ascontiguousarray(plan_output["b"], dtype=np.float64)
-        plan_output["L"]    = np.ascontiguousarray(plan_output["L"], dtype=np.int64)
-        plan_output["K"]    = np.ascontiguousarray(plan_output["K"], dtype=np.int64)
+        plan_output["f"] = np.ascontiguousarray(plan_output["f"], dtype=np.float64)
+        plan_output["r"] = np.ascontiguousarray(plan_output["r"], dtype=np.float64)
+        plan_output["b"] = np.ascontiguousarray(plan_output["b"], dtype=np.float64)
+        plan_output["L"] = np.ascontiguousarray(plan_output["L"], dtype=np.int64)
+        plan_output["K"] = np.ascontiguousarray(plan_output["K"], dtype=np.int64)
         plan_output["navg"] = np.ascontiguousarray(plan_output["navg"], dtype=np.int64)
-        plan_output["O"]    = np.ascontiguousarray(plan_output["O"], dtype=np.float64)
+        plan_output["O"] = np.ascontiguousarray(plan_output["O"], dtype=np.float64)
 
         # 'D' is ragged: normalize each to int64 arrays and validate bounds
         D_norm = []
@@ -428,13 +462,19 @@ class SpectrumAnalyzer:
                 raise ValueError(f"L[{i}]={L_i} invalid (min {self.config['Lmin']}).")
             # bounds: 0 <= start <= N-L
             if arr.size == 0:
-                raise ValueError(f"D[{i}] is empty; scheduler produced zero segments for bin {i}.")
+                raise ValueError(
+                    f"D[{i}] is empty; scheduler produced zero segments for bin {i}."
+                )
             if (arr < 0).any() or (arr > (N - L_i)).any():
-                raise ValueError(f"D[{i}] contains out-of-bounds starts for L={L_i} and N={N}.")
+                raise ValueError(
+                    f"D[{i}] contains out-of-bounds starts for L={L_i} and N={N}."
+                )
             # K / navg sanity
             K_i = int(plan_output["K"][i])
             if K_i != arr.size:
-                raise ValueError(f"K[{i}]={K_i} does not match number of starts D[{i}]={arr.size}.")
+                raise ValueError(
+                    f"K[{i}]={K_i} does not match number of starts D[{i}]={arr.size}."
+                )
             D_norm.append(arr)
         plan_output["D"] = D_norm  # keep as list of np.ndarray[int64]
 
@@ -456,16 +496,19 @@ class SpectrumAnalyzer:
         # ---- Final sanity: nf coherence ----------------------------------------
         nf2 = int(plan_output["f"].shape[0])
         if nf2 != len(plan_output["D"]):
-            raise RuntimeError("Internal plan error: length mismatch after band filter.")
+            raise RuntimeError(
+                "Internal plan error: length mismatch after band filter."
+            )
         if self.verbose:
-            logging.info(f"[plan] {sched_name}: nf={nf2}, "
-                        f"f∈[{plan_output['f'][0]:.6g}, {plan_output['f'][-1]:.6g}] Hz, "
-                        f"L∈[{int(np.min(plan_output['L']))}, {int(np.max(plan_output['L']))}], "
-                        f"K median={int(np.median(plan_output['K']))}")
+            logging.info(
+                f"[plan] {sched_name}: nf={nf2}, "
+                f"f∈[{plan_output['f'][0]:.6g}, {plan_output['f'][-1]:.6g}] Hz, "
+                f"L∈[{int(np.min(plan_output['L']))}, {int(np.max(plan_output['L']))}], "
+                f"K median={int(np.median(plan_output['K']))}"
+            )
 
         self._plan_cache = plan_output
         return self._plan_cache
-
 
     def compute_single_bin(
         self, freq: float, *, fres: Optional[float] = None, L: Optional[int] = None
@@ -488,10 +531,12 @@ class SpectrumAnalyzer:
 
         # -------- Basic validation ----------
         if not _np.isfinite(freq) or freq < 0:
-            raise ValueError(f"`freq` must be a finite, non-negative float. Got {freq!r}.")
+            raise ValueError(
+                f"`freq` must be a finite, non-negative float. Got {freq!r}."
+            )
         if freq > self.fs * 0.5 + 1e-12:
             logging.warning(
-                f"Requested freq={freq:g} Hz exceeds Nyquist ({self.fs/2:g} Hz). "
+                f"Requested freq={freq:g} Hz exceeds Nyquist ({self.fs / 2:g} Hz). "
                 "Proceeding, but results may be meaningless in one-sided interpretation."
             )
 
@@ -505,7 +550,9 @@ class SpectrumAnalyzer:
             final_fres = float(self.fs) / segL
         elif fres is not None:
             if not _np.isfinite(fres) or fres <= 0:
-                raise ValueError(f"`fres` must be a positive finite float. Got {fres!r}.")
+                raise ValueError(
+                    f"`fres` must be a positive finite float. Got {fres!r}."
+                )
             final_fres = float(fres)
             segL = int(round(float(self.fs) / final_fres))
             if segL < 1:
@@ -523,9 +570,7 @@ class SpectrumAnalyzer:
             starts = _np.array([0], dtype=_np.int64)
         else:
             olap = float(self.config["final_olap"])
-            navg = int(
-                round_half_up(((self.nx - segL) / (1.0 - olap)) / segL + 1.0)
-            )
+            navg = int(round_half_up(((self.nx - segL) / (1.0 - olap)) / segL + 1.0))
             if navg <= 1:
                 navg = 1
                 starts = _np.array([0], dtype=_np.int64)
@@ -566,12 +611,6 @@ class SpectrumAnalyzer:
         omega = 2.0 * _np.pi * float(freq) / float(self.fs)
 
         # -------- Select kernel set ----------
-        from .core import (
-            _build_Q,
-            _stats_win_only_auto, _stats_win_only_csd,
-            _stats_detrend0_auto, _stats_detrend0_csd,
-            _stats_poly_auto, _stats_poly_csd,
-        )
 
         if order == -1:
             detrend_mode = "win"
@@ -590,19 +629,31 @@ class SpectrumAnalyzer:
         t0 = _time.perf_counter()
         if detrend_mode == "win":
             if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(x1, x2, starts, segL, w, omega)
+                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(
+                    x1, x2, starts, segL, w, omega
+                )
             else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(x1, starts, segL, w, omega)
+                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(
+                    x1, starts, segL, w, omega
+                )
         elif detrend_mode == "mean0":
             if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(x1, x2, starts, segL, w, omega)
+                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(
+                    x1, x2, starts, segL, w, omega
+                )
             else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(x1, starts, segL, w, omega)
+                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(
+                    x1, starts, segL, w, omega
+                )
         else:  # poly
             if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(x1, x2, starts, segL, w, omega, Q)
+                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(
+                    x1, x2, starts, segL, w, omega, Q
+                )
             else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(x1, starts, segL, w, omega, Q)
+                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(
+                    x1, starts, segL, w, omega, Q
+                )
         tm = _time.perf_counter() - t0
 
         # -------- Package SpectrumResult ----------
@@ -629,7 +680,6 @@ class SpectrumAnalyzer:
         }
 
         return SpectrumResult(single_bin_results, self.config, self.iscsd, self.fs)
-
 
     def compute(self) -> "SpectrumResult":
         """
@@ -659,22 +709,22 @@ class SpectrumAnalyzer:
             logging.info(f"Computation completed in {t_total:.2f} seconds.")
 
         # Collect into contiguous arrays
-        XX  = np.empty(nf, dtype=np.float64)
-        YY  = np.empty(nf, dtype=np.float64)
-        XY  = np.empty(nf, dtype=np.complex128)
+        XX = np.empty(nf, dtype=np.float64)
+        YY = np.empty(nf, dtype=np.float64)
+        XY = np.empty(nf, dtype=np.complex128)
         S12 = np.empty(nf, dtype=np.float64)
-        S2  = np.empty(nf, dtype=np.float64)
-        M2  = np.empty(nf, dtype=np.float64)
+        S2 = np.empty(nf, dtype=np.float64)
+        M2 = np.empty(nf, dtype=np.float64)
         tms = np.empty(nf, dtype=np.float64)
 
         for chunk in results_list:
-            for (i, xy, mxx, myy, s12, s2, m2, tm) in chunk:
-                XX[int(i)]  = mxx
-                YY[int(i)]  = myy
-                XY[int(i)]  = xy
+            for i, xy, mxx, myy, s12, s2, m2, tm in chunk:
+                XX[int(i)] = mxx
+                YY[int(i)] = myy
+                XY[int(i)] = xy
                 S12[int(i)] = s12
-                S2[int(i)]  = s2
-                M2[int(i)]  = m2
+                S2[int(i)] = s2
+                M2[int(i)] = m2
                 tms[int(i)] = tm
 
         # Make results finite once, globally
@@ -684,18 +734,21 @@ class SpectrumAnalyzer:
         xy_r = np.nan_to_num(np.real(XY), nan=0.0, posinf=0.0, neginf=0.0)
         xy_i = np.nan_to_num(np.imag(XY), nan=0.0, posinf=0.0, neginf=0.0)
         XY[:] = xy_r + 1j * xy_i
-        np.nan_to_num(S2,  copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        np.nan_to_num(S2, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         np.nan_to_num(S12, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        np.nan_to_num(M2,  copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        np.nan_to_num(M2, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         final_results = {
             **plan,
-            "XX": XX, "YY": YY, "XY": XY,
-            "S12": S12, "S2": S2, "M2": M2,
+            "XX": XX,
+            "YY": YY,
+            "XY": XY,
+            "S12": S12,
+            "S2": S2,
+            "M2": M2,
             "compute_t": tms,
         }
         return SpectrumResult(final_results, self.config, self.iscsd, self.fs)
-
 
     def _lpsd_core(self, f_indices: np.ndarray) -> List[Any]:
         """
@@ -722,18 +775,12 @@ class SpectrumAnalyzer:
         x2 = np.ascontiguousarray(self.x2, dtype=np.float64) if self.iscsd else None
 
         win_func = self.config["win_func"]
-        alpha    = self.config.get("alpha", None)
-        order    = int(self.config["order"])
-        fs       = float(self.fs)
-        N        = int(self.nx)
+        alpha = self.config.get("alpha", None)
+        order = int(self.config["order"])
+        fs = float(self.fs)
+        N = int(self.nx)
 
         # Import kernels & fallbacks once
-        from .core import (
-            _build_Q,
-            _stats_win_only_auto, _stats_win_only_csd,
-            _stats_detrend0_auto, _stats_detrend0_csd,
-            _stats_poly_auto, _stats_poly_csd,
-        )
 
         def _build_window(L: int) -> Tuple[np.ndarray, float, float]:
             """Return (w, S1, S2) for given L with current window config."""
@@ -757,42 +804,60 @@ class SpectrumAnalyzer:
             i = int(i)
             t0 = time.perf_counter()
 
-            L      = int(plan["L"][i])
+            L = int(plan["L"][i])
             starts = plan["D"][i]  # np.ndarray[int64] (validated in plan())
             # Optional extra guard (keeps crashes friendly if external schedulers are used)
             if (starts < 0).any() or (starts > (N - L)).any():
-                raise ValueError(f"D[{i}] contains out-of-bounds starts for L={L}, N={N}.")
+                raise ValueError(
+                    f"D[{i}] contains out-of-bounds starts for L={L}, N={N}."
+                )
 
             w, S1, S2 = _build_window(L)
 
             # Use frequency in Hz directly (clearer than b/L; both equivalent)
-            f_i   = float(plan["f"][i])
+            f_i = float(plan["f"][i])
             omega = 2.0 * np.pi * f_i / fs
 
             # Choose & run kernel
             if order == -1:
                 if self.iscsd:
                     if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(x1, x2, starts, L, w, omega)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(
+                            x1, x2, starts, L, w, omega
+                        )
                     else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd_np(x1, x2, starts, L, w, omega)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd_np(
+                            x1, x2, starts, L, w, omega
+                        )
                 else:
                     if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(x1, starts, L, w, omega)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(
+                            x1, starts, L, w, omega
+                        )
                     else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto_np(x1, starts, L, w, omega)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto_np(
+                            x1, starts, L, w, omega
+                        )
 
             elif order == 0:
                 if self.iscsd:
                     if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(x1, x2, starts, L, w, omega)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(
+                            x1, x2, starts, L, w, omega
+                        )
                     else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd_np(x1, x2, starts, L, w, omega)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd_np(
+                            x1, x2, starts, L, w, omega
+                        )
                 else:
                     if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(x1, starts, L, w, omega)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(
+                            x1, starts, L, w, omega
+                        )
                     else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto_np(x1, starts, L, w, omega)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto_np(
+                            x1, starts, L, w, omega
+                        )
 
             elif order in (1, 2):
                 key = (L, order)
@@ -802,30 +867,40 @@ class SpectrumAnalyzer:
                     Q_cache[key] = Q
                 if self.iscsd:
                     if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(x1, x2, starts, L, w, omega, Q)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(
+                            x1, x2, starts, L, w, omega, Q
+                        )
                     else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(
+                            x1, x2, starts, L, w, omega, Q
+                        )
                 else:
                     if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(x1, starts, L, w, omega, Q)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(
+                            x1, starts, L, w, omega, Q
+                        )
                     else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(x1, starts, L, w, omega, Q)
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(
+                            x1, starts, L, w, omega, Q
+                        )
             else:
                 raise ValueError(f"Unsupported detrend order: {order}.")
 
             XY = complex(mu_r, mu_i)
             elapsed = time.perf_counter() - t0
             # Append tuple in the order consumed by compute()
-            results_block.append([
-                i,
-                XY,
-                float(MXX),
-                float(MYY),
-                float(S1 * S1),
-                float(S2),
-                float(M2),
-                float(elapsed),
-            ])
+            results_block.append(
+                [
+                    i,
+                    XY,
+                    float(MXX),
+                    float(MYY),
+                    float(S1 * S1),
+                    float(S2),
+                    float(M2),
+                    float(elapsed),
+                ]
+            )
 
         return results_block
 
@@ -895,15 +970,21 @@ class SpectrumResult:
         # Enforce expected dtypes when present
         def _as_float64(name):
             if name in self._data:
-                self._data[name] = np.ascontiguousarray(self._data[name], dtype=np.float64)
+                self._data[name] = np.ascontiguousarray(
+                    self._data[name], dtype=np.float64
+                )
 
         def _as_complex128(name):
             if name in self._data:
-                self._data[name] = np.ascontiguousarray(self._data[name], dtype=np.complex128)
+                self._data[name] = np.ascontiguousarray(
+                    self._data[name], dtype=np.complex128
+                )
 
         def _as_int64(name):
             if name in self._data:
-                self._data[name] = np.ascontiguousarray(self._data[name], dtype=np.int64)
+                self._data[name] = np.ascontiguousarray(
+                    self._data[name], dtype=np.int64
+                )
 
         for k in ("f", "r", "b", "S12", "S2", "XX", "YY", "M2", "O", "compute_t"):
             _as_float64(k)
@@ -944,7 +1025,8 @@ class SpectrumResult:
             # 2 * XX / (fs * S2)
             XX, S2 = self._data["XX"], self._data["S2"]
             val = np.divide(
-                2.0 * XX, self.fs * S2,
+                2.0 * XX,
+                self.fs * S2,
                 out=np.zeros_like(XX),
                 where=(S2 != 0),
             )
@@ -952,7 +1034,8 @@ class SpectrumResult:
             if self.iscsd:
                 YY, S2 = self._data["YY"], self._data["S2"]
                 val = np.divide(
-                    2.0 * YY, self.fs * S2,
+                    2.0 * YY,
+                    self.fs * S2,
                     out=np.zeros_like(YY),
                     where=(S2 != 0),
                 )
@@ -963,7 +1046,8 @@ class SpectrumResult:
                 XY, S2 = self._data["XY"], self._data["S2"]
                 # Note: magnitude/phase derived from XY elsewhere; here it's scaled by S2 and fs.
                 val = np.divide(
-                    2.0 * XY, self.fs * S2,
+                    2.0 * XY,
+                    self.fs * S2,
                     out=np.zeros_like(XY),
                     where=(S2 != 0),
                 )
@@ -972,7 +1056,8 @@ class SpectrumResult:
         elif name == "ENBW":
             S2, S12 = self._data["S2"], self._data["S12"]
             val = np.divide(
-                self.fs * S2, S12,
+                self.fs * S2,
+                S12,
                 out=np.zeros_like(S2),
                 where=(S12 != 0),
             )
@@ -1086,7 +1171,7 @@ class SpectrumResult:
         # --- Empirical (non-parametric) uncertainties from segment scatter ---
         elif name in ("XY_emp_var", "XY_emp_dev", "Gxx_emp_dev", "Gxy_emp_dev"):
             navg = np.nan_to_num(self._data["navg"], nan=0.0, posinf=0.0, neginf=0.0)
-            m2   = np.nan_to_num(self._data["M2"],   nan=0.0, posinf=0.0, neginf=0.0)
+            m2 = np.nan_to_num(self._data["M2"], nan=0.0, posinf=0.0, neginf=0.0)
 
             # var of the averaged complex XY: Var(Ȳ) = M2 / navg
             if name == "XY_emp_var":
@@ -1100,9 +1185,13 @@ class SpectrumResult:
             else:
                 # Convert raw std of XY to one-sided spectral units via scale = 2 / (fs*S2)
                 S2 = np.nan_to_num(self._data["S2"], nan=0.0, posinf=0.0, neginf=0.0)
-                scale = np.divide(2.0, self.fs * S2, out=np.zeros_like(S2), where=(S2 > 0))
-                base  = np.sqrt(np.divide(m2, navg, out=np.zeros_like(m2), where=(navg > 0)))
-                base  = np.nan_to_num(base, nan=0.0, posinf=0.0, neginf=0.0)
+                scale = np.divide(
+                    2.0, self.fs * S2, out=np.zeros_like(S2), where=(S2 > 0)
+                )
+                base = np.sqrt(
+                    np.divide(m2, navg, out=np.zeros_like(m2), where=(navg > 0))
+                )
+                base = np.nan_to_num(base, nan=0.0, posinf=0.0, neginf=0.0)
 
                 if name == "Gxx_emp_dev":
                     val = scale * base if not self.iscsd else None
@@ -1121,13 +1210,22 @@ class SpectrumResult:
                 val = self.Gyy / np.sqrt(navg) if self.iscsd else self.Gxx_dev
             elif name == "Hxy_dev":
                 val = (
-                    np.abs(self.Hxy) * np.sqrt(np.abs(1 - coh)) / np.sqrt(coh * 2 * navg)
-                    if self.iscsd else None
+                    np.abs(self.Hxy)
+                    * np.sqrt(np.abs(1 - coh))
+                    / np.sqrt(coh * 2 * navg)
+                    if self.iscsd
+                    else None
                 )
             elif name == "Gxy_dev":
-                val = (np.sqrt(np.abs(self.Gxy) ** 2 / coh / navg) if self.iscsd else None)
+                val = (
+                    np.sqrt(np.abs(self.Gxy) ** 2 / coh / navg) if self.iscsd else None
+                )
             elif name == "coh_dev":
-                val = (np.sqrt(np.abs((2 * coh / navg) * (1 - coh) ** 2)) if self.iscsd else None)
+                val = (
+                    np.sqrt(np.abs((2 * coh / navg) * (1 - coh) ** 2))
+                    if self.iscsd
+                    else None
+                )
 
             # Normalized Random Errors
             elif name == "Gxx_error":
@@ -1139,19 +1237,22 @@ class SpectrumResult:
             elif name == "Hxy_mag_error":
                 val = (
                     np.sqrt(np.abs(1 - coh)) / (np.sqrt(coh * 2 * navg))
-                    if self.iscsd else None
+                    if self.iscsd
+                    else None
                 )
             elif name == "Hxy_rad_error":
                 val = (
                     np.arcsin(np.sqrt(np.abs(1 - coh))) / np.sqrt(coh * 2 * navg)
-                    if self.iscsd else None
+                    if self.iscsd
+                    else None
                 )
             elif name == "Hxy_deg_error":
                 val = np.rad2deg(self.Hxy_rad_error) if self.iscsd else None
             elif name == "coh_error":
                 val = (
                     np.sqrt(2) * (1 - coh) / (np.sqrt(coh) * np.sqrt(navg))
-                    if self.iscsd else None
+                    if self.iscsd
+                    else None
                 )
 
         elif name in self._data:
@@ -1163,7 +1264,6 @@ class SpectrumResult:
 
         self._cache[name] = val
         return val
-
 
     def __dir__(self) -> List[str]:
         """Enhances tab-completion to include dynamic attributes."""
@@ -1213,8 +1313,9 @@ class SpectrumResult:
             "Gxx_emp_dev",
             "Gxy_emp_dev",
         ]
-        return sorted(list(set(default_attrs + list(self._data.keys()) + dynamic_attrs)))
-    
+        return sorted(
+            list(set(default_attrs + list(self._data.keys()) + dynamic_attrs))
+        )
 
     def get_rms(self, pass_band: Optional[Tuple[float, float]] = None) -> float:
         """
@@ -1232,13 +1333,17 @@ class SpectrumResult:
             The computed RMS value.
         """
         if self.iscsd:
-            raise NotImplementedError("RMS calculation is only available for auto-spectra.")
+            raise NotImplementedError(
+                "RMS calculation is only available for auto-spectra."
+            )
 
         if pass_band is not None:
             try:
                 fmin, fmax = float(pass_band[0]), float(pass_band[1])
             except Exception as exc:
-                raise ValueError(f"Invalid pass_band {pass_band!r}; expected (f_min, f_max).") from exc
+                raise ValueError(
+                    f"Invalid pass_band {pass_band!r}; expected (f_min, f_max)."
+                ) from exc
             if not (np.isfinite(fmin) and np.isfinite(fmax)):
                 raise ValueError("pass_band must contain finite floats.")
             if fmax < fmin:
@@ -1249,7 +1354,6 @@ class SpectrumResult:
 
         # integral_rms handles None-band as full span
         return float(integral_rms(self.f, self.asd, band))
-
 
     def get_measurement(
         self, freq: Union[float, np.ndarray], which: str
@@ -1295,7 +1399,6 @@ class SpectrumResult:
 
         return out.item() if was_scalar else out
 
-
     def to_dataframe(self) -> pd.DataFrame:
         """
         Exports all computed spectral quantities to a pandas DataFrame.
@@ -1328,7 +1431,6 @@ class SpectrumResult:
 
         df = pd.DataFrame(df_dict).set_index("f")
         return df
-
 
     def plot(
         self,
@@ -1382,8 +1484,13 @@ class SpectrumResult:
             "psd": ("loglog", self.f, self.psd, "Power Spectral Density"),
             "asd": ("loglog", self.f, self.asd, "Amplitude Spectral Density"),
             "coh": ("semilogx", self.f, self.coh, "Coherence"),
-            "csd": ("loglog", self.f, np.abs(self.csd) if self.csd is not None else None, "|Cross Spectral Density|"),
-            "cf":  ("loglog", self.f, self.cf, "Coupling Factor Magnitude"),
+            "csd": (
+                "loglog",
+                self.f,
+                np.abs(self.csd) if self.csd is not None else None,
+                "|Cross Spectral Density|",
+            ),
+            "cf": ("loglog", self.f, self.cf, "Coupling Factor Magnitude"),
             "bode": "bode",
         }
 
@@ -1391,7 +1498,9 @@ class SpectrumResult:
             which = "bode" if self.iscsd else "asd"
 
         if which not in plot_options:
-            raise ValueError(f"Plot type '{which}' not recognized. Available: {list(plot_options.keys())}")
+            raise ValueError(
+                f"Plot type '{which}' not recognized. Available: {list(plot_options.keys())}"
+            )
 
         # --- Bode Plot Logic ---
         if which == "bode":
@@ -1414,7 +1523,14 @@ class SpectrumResult:
                     # Protect against log of nonpositive
                     lower = ct.mag2db(np.maximum(lower, 1e-300))
                     upper = ct.mag2db(np.maximum(upper, 1e-300))
-                ax_mag.fill_between(self.f, lower, upper, alpha=0.3, label=f"±{sigma}σ", color=kwargs.get("color"))
+                ax_mag.fill_between(
+                    self.f,
+                    lower,
+                    upper,
+                    alpha=0.3,
+                    label=f"±{sigma}σ",
+                    color=kwargs.get("color"),
+                )
                 ax_mag.legend()
 
             phase_data_rad = np.unwrap(self.cf_rad) if unwrap else self.cf_rad
@@ -1464,28 +1580,31 @@ class SpectrumResult:
                 "psd": self.Gxx_dev,
                 "coh": self.coh_dev,
                 "csd": self.Gxy_dev,
-                "cf":  self.Hxy_dev,
+                "cf": self.Hxy_dev,
             }
             err = error_map.get(which)
             if isinstance(err, np.ndarray) and err.shape == self.f.shape:
                 err = err[finite_mask]
-                ax1.fill_between(x, y - sigma * err, y + sigma * err, alpha=0.3, label=f"±{sigma}σ", color=kwargs.get("color"))
+                ax1.fill_between(
+                    x,
+                    y - sigma * err,
+                    y + sigma * err,
+                    alpha=0.3,
+                    label=f"±{sigma}σ",
+                    color=kwargs.get("color"),
+                )
                 ax1.legend()
 
         fig.tight_layout()
         return fig, ax1
 
 
-def lpsd(
-    data: np.ndarray, fs: float, **kwargs
-) -> SpectrumResult:
+def lpsd(data: np.ndarray, fs: float, **kwargs) -> SpectrumResult:
     """Same as compute_spectrum."""
     return compute_spectrum(data, fs, **kwargs)
 
 
-def compute_spectrum(
-    data: np.ndarray, fs: float, **kwargs
-) -> SpectrumResult:
+def compute_spectrum(data: np.ndarray, fs: float, **kwargs) -> SpectrumResult:
     """
     Computes spectral estimates for one or two time-series in a single call.
 

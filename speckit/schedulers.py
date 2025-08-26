@@ -327,14 +327,17 @@ def new_ltf_plan(**args):
         return None
 
     # --- 2. Generate the Main Plan (Identical to the successful version) ---
-    logfact = (fmax / fmin)**(1 / Jdes) - 1
-    if logfact <= 0: logfact = 1 / Jdes
-    
+    logfact = (fmax / fmin) ** (1 / Jdes) - 1
+    if logfact <= 0:
+        logfact = 1 / Jdes
+
     f_trans = fs / (Lmin * logfact)
     f_ideal_log, f_ideal_lin = np.array([]), np.array([])
 
     if f_trans > fmin:
-        num_log_pts = max(2, int(np.log(min(f_trans, fmax) / fmin) / np.log(1 + logfact)))
+        num_log_pts = max(
+            2, int(np.log(min(f_trans, fmax) / fmin) / np.log(1 + logfact))
+        )
         f_ideal_log = np.geomspace(fmin, min(f_trans, fmax), num=num_log_pts)
 
     if f_trans < fmax:
@@ -344,17 +347,19 @@ def new_ltf_plan(**args):
 
     f_ideal = np.unique(np.concatenate((f_ideal_log, f_ideal_lin)))
     f_ideal = f_ideal[f_ideal <= fmax]
-    
+
     if len(f_ideal) < 2:
-        logger.warning("Hybrid grid generation failed; falling back to simple logspace.")
+        logger.warning(
+            "Hybrid grid generation failed; falling back to simple logspace."
+        )
         f_ideal = np.geomspace(fmin, fmax, num=Jdes)
 
     r_ideal = np.append(np.diff(f_ideal), np.diff(f_ideal)[-1])
     r_max_avg = fs / Lmin
     r_blended = np.copy(r_ideal)
-    blend_mask = (f_ideal < f_trans)
+    blend_mask = f_ideal < f_trans
     r_blended[blend_mask] = np.sqrt(r_ideal[blend_mask] * r_max_avg)
-    
+
     L_float = fs / (r_blended + 1e-12)
     L = np.round(L_float).astype(int)
     L = np.clip(L, Lmin, N)
@@ -370,30 +375,38 @@ def new_ltf_plan(**args):
 
     valid_mask = (f <= fmax) & (b >= bmin) & (L <= N)
     f_main_plan, r_main_plan, b_main_plan, L_main_plan, K_main_plan = (
-        f[valid_mask], r[valid_mask], b[valid_mask], L[valid_mask], K[valid_mask]
+        f[valid_mask],
+        r[valid_mask],
+        b[valid_mask],
+        L[valid_mask],
+        K[valid_mask],
     )
 
     if len(f_main_plan) == 0:
         logger.error("Main vectorized plan returned zero valid frequencies.")
         return None
-        
+
     # --- 3. Prepend Low-Frequency Ramp with Offset Correction ---
-    
+
     if L_main_plan[0] < N:
         # Generate the L values for the patch ramp
-        L_patch = np.geomspace(N, L_main_plan[0], num=num_patch_pts, endpoint=False).astype(int)
-        L_patch = np.unique(L_patch)[::-1] # Ensure unique, sorted descending
+        L_patch = np.geomspace(
+            N, L_main_plan[0], num=num_patch_pts, endpoint=False
+        ).astype(int)
+        L_patch = np.unique(L_patch)[::-1]  # Ensure unique, sorted descending
 
         # Calculate all parameters for the patch, starting from the absolute fmin
-        K_patch = np.maximum(1, np.round((N - L_patch) / (xov * L_patch) + 1)).astype(int)
+        K_patch = np.maximum(1, np.round((N - L_patch) / (xov * L_patch) + 1)).astype(
+            int
+        )
         r_patch = fs / L_patch
-        f_patch_steps = np.insert(r_patch, 0, 0)[:-1] # Steps for cumsum
+        f_patch_steps = np.insert(r_patch, 0, 0)[:-1]  # Steps for cumsum
         f_patch = fmin + np.cumsum(f_patch_steps)
         b_patch = f_patch / r_patch
-        
+
         # Calculate the "seam": the correct frequency for the main plan to start
         f_seam = f_patch[-1] + r_patch[-1]
-        
+
         # Calculate and apply the offset needed to shift the main plan into place
         offset = f_seam - f_main_plan[0]
         f_main_shifted = f_main_plan + offset
@@ -401,7 +414,9 @@ def new_ltf_plan(**args):
         # Concatenate all arrays to form the final plan
         f = np.concatenate((f_patch, f_main_shifted))
         r = np.concatenate((r_patch, r_main_plan))
-        b = np.concatenate((b_patch, f_main_shifted / r_main_plan)) # Recalc b with shifted f
+        b = np.concatenate(
+            (b_patch, f_main_shifted / r_main_plan)
+        )  # Recalc b with shifted f
         L = np.concatenate((L_patch, L_main_plan))
         K = np.concatenate((K_patch, K_main_plan))
     else:
@@ -409,9 +424,9 @@ def new_ltf_plan(**args):
         # Just ensure the first point's parameters are exact.
         f, r, b, L, K = f_main_plan, r_main_plan, b_main_plan, L_main_plan, K_main_plan
         f[0], r[0], b[0] = fmin, fs / N, bmin
-    
+
     nf = len(f)
-    
+
     # --- 4. Calculate Final Outputs (Start Indices and Overlaps) ---
     D, O = [], []
     for j in range(nf):
@@ -428,6 +443,14 @@ def new_ltf_plan(**args):
     O = np.array(O)
 
     return {
-        "f": f, "r": r, "b": b, "m": b, "L": L, "K": K,
-        "navg": K, "D": D, "O": O, "nf": nf,
+        "f": f,
+        "r": r,
+        "b": b,
+        "m": b,
+        "L": L,
+        "K": K,
+        "navg": K,
+        "D": D,
+        "O": O,
+        "nf": nf,
     }

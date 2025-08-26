@@ -34,7 +34,6 @@
 # foreign countries or providing access to foreign persons.
 #
 import math
-from speckit.schedulers import lpsd_plan
 
 MIN_JDES = 100
 MAX_JDES = 1000000

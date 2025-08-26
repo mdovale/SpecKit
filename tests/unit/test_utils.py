@@ -34,7 +34,6 @@
 # foreign countries or providing access to foreign persons.
 #
 import pytest
-import numpy as np
 from speckit import utils
 from speckit import schedulers
 
@@ -67,8 +66,7 @@ def test_kaiser_rov(alpha, expected_olap):
 
 
 @pytest.mark.parametrize(
-    "val, expected",
-    [(3.5, 4), (3.49, 3), (3.0, 3), (-2.5, -2), (-2.51, -3)]
+    "val, expected", [(3.5, 4), (3.49, 3), (3.0, 3), (-2.5, -2), (-2.51, -3)]
 )
 def test_round_half_up(val, expected):
     """Tests the custom rounding function."""

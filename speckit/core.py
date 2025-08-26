@@ -47,6 +47,7 @@ Design notes
   where M2 is the mean squared distance of XY from its mean across segments.
 -----------------------------------------------------------------------------
 """
+
 __all__ = [
     "_NUMBA_ENABLED",
     "BinStats",
@@ -82,8 +83,8 @@ import numpy as np
 # Optional Numba integration ---------------------------------------------------
 
 try:
-    import numba as _nb
     from numba import njit as _njit, prange as _prange
+
     _NUMBA_ENABLED = True
 except Exception:  # pragma: no cover
     _NUMBA_ENABLED = False
@@ -91,6 +92,7 @@ except Exception:  # pragma: no cover
     def _njit(*args, **kwargs):
         def _decorator(f):
             return f
+
         return _decorator
 
     def _prange(*args, **kwargs):
@@ -98,6 +100,7 @@ except Exception:  # pragma: no cover
 
 
 # Typed container for readability (not used inside nopython regions) ----------
+
 
 class BinStats(NamedTuple):
     """
@@ -114,14 +117,16 @@ class BinStats(NamedTuple):
     M2 : float
         Mean squared distance of XY from its mean across segments.
     """
+
     MXX: float
     MYY: float
     mu_r: float
     mu_i: float
-    M2:  float
+    M2: float
 
 
 # Public helper: orthonormal polynomial detrend basis --------------------------
+
 
 def _build_Q(L: int, order: int) -> np.ndarray:
     """
@@ -161,8 +166,11 @@ def _build_Q(L: int, order: int) -> np.ndarray:
 
 # Reference Goertzel (optional helper; not used in hot JIT code) ---------------
 
+
 @_njit(cache=True, fastmath=True)
-def _goertzel_real_imag(y: np.ndarray, cosw: float, sinw: float, coeff: float) -> Tuple[float, float]:
+def _goertzel_real_imag(
+    y: np.ndarray, cosw: float, sinw: float, coeff: float
+) -> Tuple[float, float]:
     """
     Goertzel recurrence for a single DFT bin on an in-memory segment y.
 
@@ -196,7 +204,10 @@ def _goertzel_real_imag(y: np.ndarray, cosw: float, sinw: float, coeff: float) -
 
 # Pure-Python reducer (handy in fallbacks & tests) -----------------------------
 
-def _reduce_stats(xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarray) -> BinStats:
+
+def _reduce_stats(
+    xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarray
+) -> BinStats:
     """
     Reduce per-segment arrays into (MXX, MYY, mu_r, mu_i, M2).
     """
@@ -218,8 +229,11 @@ def _reduce_stats(xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarr
 
 # Numba-compatible helpers -----------------------------------------------------
 
+
 @_njit(cache=True, fastmath=True)
-def _reduce_stats_nb(xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarray) -> Tuple[float, float, float, float, float]:
+def _reduce_stats_nb(
+    xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarray
+) -> Tuple[float, float, float, float, float]:
     """
     Numba version of _reduce_stats returning 5 floats (not a NamedTuple).
     """
@@ -259,7 +273,9 @@ def _apply_detrend0_inplace_nb_val(xn: float, m: float) -> float:
 
 
 @_njit(cache=True, fastmath=True)
-def _apply_poly_detrend_inplace_nb_alpha(x: np.ndarray, Q: np.ndarray, s: int, L: int) -> np.ndarray:
+def _apply_poly_detrend_inplace_nb_alpha(
+    x: np.ndarray, Q: np.ndarray, s: int, L: int
+) -> np.ndarray:
     """
     Compute alpha = Q.T @ segment (Numba-friendly, tiny p ∈ {2,3}).
     """
@@ -274,7 +290,9 @@ def _apply_poly_detrend_inplace_nb_alpha(x: np.ndarray, Q: np.ndarray, s: int, L
 
 
 @_njit(cache=True, fastmath=True)
-def _apply_poly_detrend_inplace_nb_rowdot(Q: np.ndarray, n: int, alpha: np.ndarray) -> float:
+def _apply_poly_detrend_inplace_nb_rowdot(
+    Q: np.ndarray, n: int, alpha: np.ndarray
+) -> float:
     """
     Compute qdot = Q[n, :] @ alpha (scalar form for streaming).
     """
@@ -286,6 +304,7 @@ def _apply_poly_detrend_inplace_nb_rowdot(Q: np.ndarray, n: int, alpha: np.ndarr
 
 
 # JIT kernels (streaming window/detrend; SciPy CSD sign) -----------------------
+
 
 @_njit(parallel=True, fastmath=True, cache=True)
 def _stats_win_only_auto(x, starts, L, w, omega):
@@ -316,23 +335,26 @@ def _stats_win_only_auto(x, starts, L, w, omega):
     coeff = 2.0 * cosw
 
     # Per-segment arrays kept (fast & simple); can switch to online if desired.
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
+    xx = np.empty(K, np.float64)
+    yy = np.empty(K, np.float64)
     xyr = np.empty(K, np.float64)
     xyi = np.empty(K, np.float64)
 
     for j in _prange(K):
         s = int(starts[j])
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             v = x[s + n] * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r = s1 - s2 * cosw
         i = s2 * sinw
-        p = r*r + i*i
-        xx[j]  = p
-        yy[j]  = p
+        p = r * r + i * i
+        xx[j] = p
+        yy[j] = p
         xyr[j] = p
         xyi[j] = 0.0
 
@@ -351,8 +373,8 @@ def _stats_win_only_csd(x1, x2, starts, L, w, omega):
     sinw = np.sin(omega)
     coeff = 2.0 * cosw
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
+    xx = np.empty(K, np.float64)
+    yy = np.empty(K, np.float64)
     xyr = np.empty(K, np.float64)
     xyi = np.empty(K, np.float64)
 
@@ -360,27 +382,33 @@ def _stats_win_only_csd(x1, x2, starts, L, w, omega):
         s = int(starts[j])
 
         # X
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             v = x1[s + n] * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r1 = s1 - s2 * cosw
         i1 = s2 * sinw
 
         # Y
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             v = x2[s + n] * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r2 = s1 - s2 * cosw
         i2 = s2 * sinw
 
-        xx[j]  = r1*r1 + i1*i1
-        yy[j]  = r2*r2 + i2*i2
-        xyr[j] = r1*r2 + i1*i2          # Re{X * conj(Y)}
-        xyi[j] = i1*r2 - r1*i2          # Im{X * conj(Y)}
+        xx[j] = r1 * r1 + i1 * i1
+        yy[j] = r2 * r2 + i2 * i2
+        xyr[j] = r1 * r2 + i1 * i2  # Re{X * conj(Y)}
+        xyi[j] = i1 * r2 - r1 * i2  # Im{X * conj(Y)}
 
     return _reduce_stats_nb(xx, yy, xyr, xyi)
 
@@ -395,8 +423,8 @@ def _stats_detrend0_auto(x, starts, L, w, omega):
     sinw = np.sin(omega)
     coeff = 2.0 * cosw
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
+    xx = np.empty(K, np.float64)
+    yy = np.empty(K, np.float64)
     xyr = np.empty(K, np.float64)
     xyi = np.empty(K, np.float64)
 
@@ -407,17 +435,20 @@ def _stats_detrend0_auto(x, starts, L, w, omega):
         m = _apply_detrend0_inplace_nb_mean(x, s, L)
 
         # Goertzel on (x - m) * w
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             v = _apply_detrend0_inplace_nb_val(x[s + n], m) * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r = s1 - s2 * cosw
         i = s2 * sinw
 
-        p = r*r + i*i
-        xx[j]  = p
-        yy[j]  = p
+        p = r * r + i * i
+        xx[j] = p
+        yy[j] = p
         xyr[j] = p
         xyi[j] = 0.0
 
@@ -436,8 +467,8 @@ def _stats_detrend0_csd(x1, x2, starts, L, w, omega):
     sinw = np.sin(omega)
     coeff = 2.0 * cosw
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
+    xx = np.empty(K, np.float64)
+    yy = np.empty(K, np.float64)
     xyr = np.empty(K, np.float64)
     xyi = np.empty(K, np.float64)
 
@@ -449,27 +480,33 @@ def _stats_detrend0_csd(x1, x2, starts, L, w, omega):
         m2 = _apply_detrend0_inplace_nb_mean(x2, s, L)
 
         # X
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             v = _apply_detrend0_inplace_nb_val(x1[s + n], m1) * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r1 = s1 - s2 * cosw
         i1 = s2 * sinw
 
         # Y
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             v = _apply_detrend0_inplace_nb_val(x2[s + n], m2) * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r2 = s1 - s2 * cosw
         i2 = s2 * sinw
 
-        xx[j]  = r1*r1 + i1*i1
-        yy[j]  = r2*r2 + i2*i2
-        xyr[j] = r1*r2 + i1*i2
-        xyi[j] = i1*r2 - r1*i2
+        xx[j] = r1 * r1 + i1 * i1
+        yy[j] = r2 * r2 + i2 * i2
+        xyr[j] = r1 * r2 + i1 * i2
+        xyi[j] = i1 * r2 - r1 * i2
 
     return _reduce_stats_nb(xx, yy, xyr, xyi)
 
@@ -486,8 +523,8 @@ def _stats_poly_auto(x, starts, L, w, omega, Q):
     sinw = np.sin(omega)
     coeff = 2.0 * cosw
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
+    xx = np.empty(K, np.float64)
+    yy = np.empty(K, np.float64)
     xyr = np.empty(K, np.float64)
     xyi = np.empty(K, np.float64)
 
@@ -498,18 +535,21 @@ def _stats_poly_auto(x, starts, L, w, omega, Q):
         alpha = _apply_poly_detrend_inplace_nb_alpha(x, Q, s, L)
 
         # Goertzel on (x - Q[:, :] @ alpha) * w, streamed
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             qdot = _apply_poly_detrend_inplace_nb_rowdot(Q, n, alpha)
             v = (x[s + n] - qdot) * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r = s1 - s2 * cosw
         i = s2 * sinw
 
-        p = r*r + i*i
-        xx[j]  = p
-        yy[j]  = p
+        p = r * r + i * i
+        xx[j] = p
+        yy[j] = p
         xyr[j] = p
         xyi[j] = 0.0
 
@@ -528,8 +568,8 @@ def _stats_poly_csd(x1, x2, starts, L, w, omega, Q):
     sinw = np.sin(omega)
     coeff = 2.0 * cosw
 
-    xx  = np.empty(K, np.float64)
-    yy  = np.empty(K, np.float64)
+    xx = np.empty(K, np.float64)
+    yy = np.empty(K, np.float64)
     xyr = np.empty(K, np.float64)
     xyi = np.empty(K, np.float64)
 
@@ -540,29 +580,35 @@ def _stats_poly_csd(x1, x2, starts, L, w, omega, Q):
         alpha2 = _apply_poly_detrend_inplace_nb_alpha(x2, Q, s, L)
 
         # X
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             qdot = _apply_poly_detrend_inplace_nb_rowdot(Q, n, alpha1)
             v = (x1[s + n] - qdot) * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r1 = s1 - s2 * cosw
         i1 = s2 * sinw
 
         # Y
-        s0 = 0.0; s1 = 0.0; s2 = 0.0
+        s0 = 0.0
+        s1 = 0.0
+        s2 = 0.0
         for n in range(L):
             qdot = _apply_poly_detrend_inplace_nb_rowdot(Q, n, alpha2)
             v = (x2[s + n] - qdot) * w[n]
             s0 = v + coeff * s1 - s2
-            s2 = s1; s1 = s0
+            s2 = s1
+            s1 = s0
         r2 = s1 - s2 * cosw
         i2 = s2 * sinw
 
-        xx[j]  = r1*r1 + i1*i1
-        yy[j]  = r2*r2 + i2*i2
-        xyr[j] = r1*r2 + i1*i2
-        xyi[j] = i1*r2 - r1*i2
+        xx[j] = r1 * r1 + i1 * i1
+        yy[j] = r2 * r2 + i2 * i2
+        xyr[j] = r1 * r2 + i1 * i2
+        xyi[j] = i1 * r2 - r1 * i2
 
     return _reduce_stats_nb(xx, yy, xyr, xyi)
 
@@ -573,6 +619,7 @@ def _stats_poly_csd(x1, x2, starts, L, w, omega, Q):
 # Utilities
 # ----------------------------------------------------------------------
 
+
 def _check_starts_bounds(N: int, starts: np.ndarray, L: int) -> None:
     """Raise if any start index would overrun the signal."""
     if starts.size == 0:
@@ -581,8 +628,9 @@ def _check_starts_bounds(N: int, starts: np.ndarray, L: int) -> None:
     smax = int(starts.max())
     if smin < 0 or (smax + L) > N:
         raise ValueError(
-            f"Segment starts out of bounds: min={smin}, max+L={smax+L}, N={N}, L={L}"
+            f"Segment starts out of bounds: min={smin}, max+L={smax + L}, N={N}, L={L}"
         )
+
 
 def _gather_segments(x: np.ndarray, starts: np.ndarray, L: int) -> np.ndarray:
     """
@@ -592,9 +640,11 @@ def _gather_segments(x: np.ndarray, starts: np.ndarray, L: int) -> np.ndarray:
     segs = x[idx]  # (K, L)
     return np.nan_to_num(segs, copy=False)
 
+
 # ----------------------------------------------------------------------
 # NumPy fallbacks
 # ----------------------------------------------------------------------
+
 
 def _stats_win_only_auto_np(x, starts, L, w, omega, *, _chunk=32768):
     """Auto-spectral stats with windowing only (NumPy)."""
@@ -617,12 +667,12 @@ def _stats_win_only_auto_np(x, starts, L, w, omega, *, _chunk=32768):
             segs = _gather_segments(x, starts[j0:j1], L)
             X = (segs * w) @ e
             X = np.nan_to_num(X, copy=False)
-            p_all[j0:j1] = (X.real**2 + X.imag**2)
+            p_all[j0:j1] = X.real**2 + X.imag**2
 
     MXX = float(p_all.mean())
     mu_r = float(MXX)
     mu_i = 0.0
-    M2  = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
+    M2 = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
     return MXX, MXX, mu_r, mu_i, M2
 
 
@@ -657,8 +707,8 @@ def _stats_win_only_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
             X = np.nan_to_num(X, copy=False)
             Y = np.nan_to_num(Y, copy=False)
             Z = X * np.conj(Y)
-            p1[j0:j1] = (X.real**2 + X.imag**2)
-            p2[j0:j1] = (Y.real**2 + Y.imag**2)
+            p1[j0:j1] = X.real**2 + X.imag**2
+            p2[j0:j1] = Y.real**2 + Y.imag**2
             zr[j0:j1] = Z.real
             zi[j0:j1] = Z.imag
 
@@ -666,7 +716,7 @@ def _stats_win_only_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
     MYY = float(p2.mean())
     mu_r = float(zr.mean())
     mu_i = float(zi.mean())
-    M2  = float(np.mean((zr - mu_r)**2 + (zi - mu_i)**2)) if K >= 2 else 0.0
+    M2 = float(np.mean((zr - mu_r) ** 2 + (zi - mu_i) ** 2)) if K >= 2 else 0.0
     return MXX, MYY, mu_r, mu_i, M2
 
 
@@ -693,12 +743,12 @@ def _stats_detrend0_auto_np(x, starts, L, w, omega, *, _chunk=32768):
             segs = np.nan_to_num(segs, copy=False)
             X = (segs * w) @ e
             X = np.nan_to_num(X, copy=False)
-            p_all[j0:j1] = (X.real**2 + X.imag**2)
+            p_all[j0:j1] = X.real**2 + X.imag**2
 
     MXX = float(p_all.mean())
     mu_r = float(MXX)
     mu_i = 0.0
-    M2  = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
+    M2 = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
     return MXX, MXX, mu_r, mu_i, M2
 
 
@@ -737,8 +787,8 @@ def _stats_detrend0_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
             X = np.nan_to_num(X, copy=False)
             Y = np.nan_to_num(Y, copy=False)
             Z = X * np.conj(Y)
-            p1[j0:j1] = (X.real**2 + X.imag**2)
-            p2[j0:j1] = (Y.real**2 + Y.imag**2)
+            p1[j0:j1] = X.real**2 + X.imag**2
+            p2[j0:j1] = Y.real**2 + Y.imag**2
             zr[j0:j1] = Z.real
             zi[j0:j1] = Z.imag
 
@@ -746,7 +796,7 @@ def _stats_detrend0_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
     MYY = float(p2.mean())
     mu_r = float(zr.mean())
     mu_i = float(zi.mean())
-    M2  = float(np.mean((zr - mu_r)**2 + (zi - mu_i)**2)) if K >= 2 else 0.0
+    M2 = float(np.mean((zr - mu_r) ** 2 + (zi - mu_i) ** 2)) if K >= 2 else 0.0
     return MXX, MYY, mu_r, mu_i, M2
 
 
@@ -778,12 +828,12 @@ def _stats_poly_auto_np(x, starts, L, w, omega, Q, *, _chunk=16384):
             segs_dt = np.nan_to_num(segs_dt, copy=False)
             X = (segs_dt * w) @ e
             X = np.nan_to_num(X, copy=False)
-            p_all[j0:j1] = (X.real**2 + X.imag**2)
+            p_all[j0:j1] = X.real**2 + X.imag**2
 
     MXX = float(p_all.mean())
     mu_r = float(MXX)
     mu_i = 0.0
-    M2  = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
+    M2 = float(np.mean((p_all - mu_r) ** 2)) if K >= 2 else 0.0
     return MXX, MXX, mu_r, mu_i, M2
 
 
@@ -829,8 +879,8 @@ def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q, *, _chunk=8192):
             X = np.nan_to_num(X, copy=False)
             Y = np.nan_to_num(Y, copy=False)
             Z = X * np.conj(Y)
-            p1[j0:j1] = (X.real**2 + X.imag**2)
-            p2[j0:j1] = (Y.real**2 + Y.imag**2)
+            p1[j0:j1] = X.real**2 + X.imag**2
+            p2[j0:j1] = Y.real**2 + Y.imag**2
             zr[j0:j1] = Z.real
             zi[j0:j1] = Z.imag
 
@@ -838,5 +888,5 @@ def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q, *, _chunk=8192):
     MYY = float(p2.mean())
     mu_r = float(zr.mean())
     mu_i = float(zi.mean())
-    M2  = float(np.mean((zr - mu_r)**2 + (zi - mu_i)**2)) if K >= 2 else 0.0
+    M2 = float(np.mean((zr - mu_r) ** 2 + (zi - mu_i) ** 2)) if K >= 2 else 0.0
     return MXX, MYY, mu_r, mu_i, M2

@@ -39,6 +39,7 @@ from tqdm import trange
 
 from speckit import SpectrumAnalyzer
 
+
 def test_error_formulas_against_monte_carlo():
     """
     Validates the analytical error formulas for PSD and coherence by comparing
@@ -49,14 +50,12 @@ def test_error_formulas_against_monte_carlo():
     fs = 100.0
     n_samples = 20000
     target_freq = 20.0
-    freq_res = target_freq*0.5
+    freq_res = target_freq * 0.5
 
     rng = np.random.default_rng(seed=123)
 
     # --- Storage for estimates from each realization ---
-    estimates = {
-        "Gxx": [], "coh": [], "Hxy_mag": [], "Gxy_mag": []
-    }
+    estimates = {"Gxx": [], "coh": [], "Hxy_mag": [], "Gxy_mag": []}
     # --- Storage for analytical predictions from the first realization ---
     analytical_predictions = {}
 

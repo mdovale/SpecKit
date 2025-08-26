@@ -37,14 +37,13 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from speckit import compute_spectrum, SpectrumAnalyzer, SpectrumResult
-from speckit.analysis import SpectrumAnalyzer as _AnalyzerClass  # if needed
+from speckit import compute_spectrum, SpectrumAnalyzer
 from speckit.flattop import HFT95
 from scipy import signal
-import control as ct
 
 
 # --------- Utilities / Fixtures ---------------------------------------------
+
 
 @pytest.fixture
 def rand_seed():
@@ -70,6 +69,7 @@ def _two_channel_linear_system(N=200000, fs=100.0, tau=0.5, noise=0.0, seed=0):
 
 # --------- 1) NumPy vs Numba parity (functional) ----------------------------
 
+
 @pytest.mark.parametrize("order", [-1, 0, 1, 2])
 def test_numpy_vs_numba_parity(order, rand_seed, monkeypatch):
     """Ensure the NumPy fallback and Numba path produce close spectra."""
@@ -82,6 +82,7 @@ def test_numpy_vs_numba_parity(order, rand_seed, monkeypatch):
 
     # Force NumPy fallback
     import speckit.core as core
+
     monkeypatch.setattr(core, "_NUMBA_ENABLED", False, raising=True)
 
     res_np = compute_spectrum(x, fs=fs, order=order, Jdes=200, Kdes=40, win="hann")
@@ -96,6 +97,7 @@ def test_numpy_vs_numba_parity(order, rand_seed, monkeypatch):
 
 # --------- 2) CSD sign/phase matches SciPy ----------------------------------
 
+
 def test_csd_phase_matches_scipy(rand_seed):
     fs, x, y = _two_channel_linear_system(N=200000, fs=200.0, tau=0.7, seed=42)
     # SciPy reference (Welch/CSD style)
@@ -104,7 +106,9 @@ def test_csd_phase_matches_scipy(rand_seed):
     H_ref = Pxy / Pxx  # should follow X * conj(Y) convention
 
     # Our estimator
-    res = compute_spectrum(np.vstack([x, y]), fs=fs, win="hann", Jdes=250, Kdes=50, order=0)
+    res = compute_spectrum(
+        np.vstack([x, y]), fs=fs, win="hann", Jdes=250, Kdes=50, order=0
+    )
 
     # Compare phase where coherence is decent (to avoid noise-dominated bins)
     mask = res.coh > 0.2
@@ -117,6 +121,7 @@ def test_csd_phase_matches_scipy(rand_seed):
 
 
 # --------- 3) compute_single_bin vs pipeline consistency --------------------
+
 
 def test_single_bin_matches_multi(rand_seed):
     fs = 500.0
@@ -139,12 +144,15 @@ def test_single_bin_matches_multi(rand_seed):
 
 # --------- 4) Band filtering in plan() --------------------------------------
 
+
 def test_band_filtering_in_plan(rand_seed):
     fs = 1000.0
     x = _white_noise(200000)
     fmin, fmax = 10.0, 50.0
     res_full = compute_spectrum(x, fs=fs, win="hann", Jdes=300, Kdes=40)
-    res_band = compute_spectrum(x, fs=fs, win="hann", Jdes=300, Kdes=40, band=(fmin, fmax))
+    res_band = compute_spectrum(
+        x, fs=fs, win="hann", Jdes=300, Kdes=40, band=(fmin, fmax)
+    )
 
     assert res_band.f.min() >= fmin - 1e-9
     assert res_band.f.max() <= fmax + 1e-9
@@ -156,6 +164,7 @@ def test_band_filtering_in_plan(rand_seed):
 
 # --------- 5) Polynomial detrend effectiveness ------------------------------
 
+
 @pytest.mark.parametrize("order", [-1, 0, 1, 2])
 def test_polynomial_detrend_reduces_low_freq(rand_seed, order):
     """
@@ -164,8 +173,8 @@ def test_polynomial_detrend_reduces_low_freq(rand_seed, order):
     """
     N, fs = 200000, 200.0
     t = np.arange(N) / fs
-    trend = 0.5 + 0.2*t + 0.8*t**2
-    x = trend + 0.5*np.random.randn(N)
+    trend = 0.5 + 0.2 * t + 0.8 * t**2
+    x = trend + 0.5 * np.random.randn(N)
 
     res = compute_spectrum(x, fs=fs, win="hann", Jdes=256, Kdes=64, order=order)
     # average the lowest ~5% of bins as a proxy for low frequency power
@@ -192,6 +201,7 @@ def test_polynomial_detrend_ordering():
 
 # --------- 6) Empirical stats exposure & sanity -----------------------------
 
+
 def test_empirical_stats_exposed_and_finite(rand_seed):
     fs = 200.0
     x = _white_noise(100000)
@@ -210,10 +220,12 @@ def test_empirical_stats_exposed_and_finite(rand_seed):
 
 # --------- 7) Input validation & plan caching --------------------------------
 
+
 def test_invalid_input_shapes():
     fs = 100.0
     with pytest.raises(ValueError):
         SpectrumAnalyzer(np.zeros((3, 3)), fs=fs)  # 3x3 ambiguous
+
 
 def test_plan_caching(rand_seed):
     fs = 100.0
@@ -226,6 +238,7 @@ def test_plan_caching(rand_seed):
 
 
 # --------- 8) Interpolation & DataFrame smoke tests --------------------------
+
 
 def test_get_measurement_and_to_dataframe(rand_seed):
     fs = 200.0
@@ -242,6 +255,7 @@ def test_get_measurement_and_to_dataframe(rand_seed):
 
 
 # --------- 9) ENBW sanity ----------------------------------------------------
+
 
 def test_enbw_positive_and_reasonable(rand_seed):
     fs = 1000.0

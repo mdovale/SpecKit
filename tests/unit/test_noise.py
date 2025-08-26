@@ -39,6 +39,7 @@ from scipy.signal import welch
 from scipy.stats import linregress
 from speckit import noise
 
+
 @pytest.fixture
 def n_samples_large() -> int:
     """Provides a large number of samples (2^18) for robust statistical testing."""

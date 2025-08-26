@@ -36,7 +36,6 @@
 import pytest
 import numpy as np
 import multiprocessing as mp
-from scipy import signal
 
 from speckit.noise import butter_lowpass_filter
 

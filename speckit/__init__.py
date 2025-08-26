@@ -14,7 +14,7 @@
 
 # 3. Neither the name of the copyright holder nor the names of its
 #    contributors may be used to endorse or promote products derived from
-    #    this software without specific prior written permission.
+#    this software without specific prior written permission.
 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 # AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -34,6 +34,7 @@
 # foreign countries or providing access to foreign persons.
 #
 import os
+
 os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
 os.environ.setdefault("NUMBA_NUM_THREADS", str(max(1, (os.cpu_count() or 1))))
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -41,10 +42,10 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 from .analysis import (
-    compute_spectrum, 
-    compute_single_bin, 
-    lpsd, 
-    SpectrumAnalyzer, 
-    SpectrumResult
+    compute_spectrum,
+    compute_single_bin,
+    lpsd,
+    SpectrumAnalyzer,
+    SpectrumResult,
 )
 from .plotting import default_rc
