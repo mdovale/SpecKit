@@ -5,7 +5,7 @@
 <h1 align="center">SpecKit</h1>
 <p align="center">A Python toolkit for dynamic-resolution spectral analysis</p>
 
-# SpecKit: Python library for dynamic-resolution spectral analysis
+<!-- # SpecKit: Python library for dynamic-resolution spectral analysis -->
 [Miguel Dovale](https://orcid.org/0000-0002-6300-5226)  
 [Gerhard Heinzel](https://orcid.org/0000-0003-1661-7868)
 
