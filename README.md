@@ -84,14 +84,16 @@ f_welch, psd_welch = welch(x, fs, window="hann", nperseg=N // 8)
 result = compute_spectrum(x, fs=fs, Jdes=1000, Kdes=100, win="Kaiser", psll=200)
 
 fig, ax = plt.subplots(figsize=(8, 5), dpi=150)
-ax.loglog(f_welch, np.sqrt(psd_welch), label="Welch", color="gray", alpha=0.7)
-result.plot(which="asd", errors=True, sigma=1, ax=ax, label="SpecKit", color="crimson")
+ax.loglog(f_welch, np.sqrt(psd_welch), label="Welch", color="tomato", alpha=0.7)
+result.plot(which="asd", errors=True, sigma=3, ax=ax, label="SpecKit", color="royalblue")
 ax.set_xlabel("Frequency (Hz)")
 ax.set_ylabel(r"ASD (units / $\sqrt{\rm Hz}$)")
 ax.legend()
 ax.grid(True, which="both", linestyle="--", linewidth=0.5)
 plt.show()
 ```
+
+![Example spectrum](https://raw.githubusercontent.com/mdovale/spectools/main/docs/images/example.png)
 
 ---
 
