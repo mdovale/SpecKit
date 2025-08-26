@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=77", "wheel"]  # bump so docs+behavior match the warnings
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,28 +8,32 @@ version = "1.0.0"
 description = "A Python toolkit for Spectral Analysis."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.9"
-license = { file = "LICENSE" }
+
+license = "BSD-3-Clause"
+license-files = ["LICENSE", "AUTHORS"]  # <-- move here; not under [tool.setuptools]
+
 authors = [
   { name = "Miguel Dovale", email = "mikedovale@pm.me" },
   { name = "Gerhard Heinzel" }
 ]
+
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: BSD License",
   "Operating System :: OS Independent",
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Physics",
 ]
+
 dependencies = [
-  "numpy", 
-  "scipy", 
-  "pandas", 
-  "control", 
-  "matplotlib", 
-  "numba", 
+  "numpy",
+  "scipy",
+  "pandas",
+  "control",
+  "matplotlib",
+  "numba",
   "tqdm",
-  "py7zr"
-  ]
+  "py7zr",
+]
 
 [project.optional-dependencies]
 dev = ["pytest", "build", "twine", "ruff"]
@@ -43,7 +47,7 @@ Issues = "https://github.com/mdovale/spectools/issues"
 where = ["."]
 include = ["speckit*"]
 exclude = ["tests*", "notebooks*"]
- 
+
 [tool.ruff]
 line-length = 88
 
