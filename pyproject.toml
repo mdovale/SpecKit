@@ -20,7 +20,16 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Physics",
 ]
-dependencies = ["numpy", "scipy", "pandas", "matplotlib", "numba", "tqdm"]
+dependencies = [
+  "numpy", 
+  "scipy", 
+  "pandas", 
+  "control", 
+  "matplotlib", 
+  "numba", 
+  "tqdm",
+  "py7zr"
+  ]
 
 [project.optional-dependencies]
 dev = ["pytest", "build", "twine", "ruff"]
