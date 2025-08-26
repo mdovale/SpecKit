@@ -183,28 +183,32 @@ class SpectrumAnalyzer:
         x = np.asarray(data)
         if x.ndim == 2 and (x.shape[0] == 2 or x.shape[1] == 2):
             self.iscsd = True
-            # Ensure canonical shape == (2, N)
+            # Ensure shape == (2, N)
             if x.shape[0] == 2 and x.shape[1] != 2:
                 data_2n = x
             elif x.shape[1] == 2 and x.shape[0] != 2:
                 data_2n = x.T
             else:
-                # both dims are 2 (2x2) or ambiguous; prefer channels-first
                 data_2n = x if x.shape[0] == 2 else x.T
             self.data = np.ascontiguousarray(data_2n, dtype=np.float64)  # (2, N)
+            # Sanitize *after* stacking to ndarray
+            if not np.all(np.isfinite(self.data)):
+                logging.warning("Input data contains NaN/Inf; replacing non-finite samples with 0.")
+                np.nan_to_num(self.data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
             self.x1 = self.data[0]
             self.x2 = self.data[1]
-            N = self.data.shape[1]
             if self.verbose:
-                logging.info(f"Detected two-channel data with N={N}")
+                logging.info(f"Detected two-channel data with N={self.data.shape[1]}")
         elif x.ndim == 1:
             self.iscsd = False
-            self.data = np.ascontiguousarray(x, dtype=np.float64)       # (N,)
+            self.data = np.ascontiguousarray(x, dtype=np.float64)
+            # Sanitize *after* making ndarray
+            if not np.all(np.isfinite(self.data)):
+                logging.warning("Input data contains NaN/Inf; replacing non-finite samples with 0.")
+                np.nan_to_num(self.data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
             self.x1 = self.data
-            self.x2 = None
-            N = self.data.shape[0]
             if self.verbose:
-                logging.info(f"Detected single-channel data with N={N}")
+                logging.info(f"Detected single-channel data with N={self.data.shape[0]}")
         else:
             raise ValueError("Input data must be a 1D array or a 2xN/Nx2 array.")
 
@@ -673,6 +677,17 @@ class SpectrumAnalyzer:
                 M2[int(i)]  = m2
                 tms[int(i)] = tm
 
+        # Make results finite once, globally
+        np.nan_to_num(XX, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        np.nan_to_num(YY, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        # Complex: clean real/imag separately
+        xy_r = np.nan_to_num(np.real(XY), nan=0.0, posinf=0.0, neginf=0.0)
+        xy_i = np.nan_to_num(np.imag(XY), nan=0.0, posinf=0.0, neginf=0.0)
+        XY[:] = xy_r + 1j * xy_i
+        np.nan_to_num(S2,  copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        np.nan_to_num(S12, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        np.nan_to_num(M2,  copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
         final_results = {
             **plan,
             "XX": XX, "YY": YY, "XY": XY,
@@ -1057,41 +1072,41 @@ class SpectrumResult:
                     )
 
         # --- Errors and Deviations ---
-        # --- Exposed kernel statistics (segment-level means & scatter) ---
+        # --- Exposed kernel statistics (segment means and scatter) ---
         elif name == "XX_mean":
-            # mean per-segment |X|^2 (already averaged across segments by the kernels)
-            val = self._data["XX"]
+            # Mean per-segment |X|^2 (already finite in practice, but sanitize)
+            val = np.nan_to_num(self._data["XX"], nan=0.0, posinf=0.0, neginf=0.0)
         elif name == "YY_mean":
-            val = self._data["YY"] if self.iscsd else self._data["XX"]
+            src = self._data["YY"] if self.iscsd else self._data["XX"]
+            val = np.nan_to_num(src, nan=0.0, posinf=0.0, neginf=0.0)
         elif name == "XY_M2":
-            # mean over segments of |XY_seg - E[XY_seg]|^2
-            val = self._data["M2"]
+            m2 = self._data["M2"]
+            val = np.nan_to_num(m2, nan=0.0, posinf=0.0, neginf=0.0)
 
         # --- Empirical (non-parametric) uncertainties from segment scatter ---
         elif name in ("XY_emp_var", "XY_emp_dev", "Gxx_emp_dev", "Gxy_emp_dev"):
-            navg = self._data["navg"]
-            M2 = self._data["M2"]
+            navg = np.nan_to_num(self._data["navg"], nan=0.0, posinf=0.0, neginf=0.0)
+            m2   = np.nan_to_num(self._data["M2"],   nan=0.0, posinf=0.0, neginf=0.0)
 
+            # var of the averaged complex XY: Var(Ȳ) = M2 / navg
             if name == "XY_emp_var":
-                # variance of the averaged complex XY
-                val = np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0))
+                val = np.divide(m2, navg, out=np.zeros_like(m2), where=(navg > 0))
+                val = np.nan_to_num(val, nan=0.0, posinf=0.0, neginf=0.0)
 
             elif name == "XY_emp_dev":
-                val = np.sqrt(np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0)))
+                tmp = np.divide(m2, navg, out=np.zeros_like(m2), where=(navg > 0))
+                val = np.sqrt(np.nan_to_num(tmp, nan=0.0, posinf=0.0, neginf=0.0))
 
             else:
-                # Scale raw XY std-dev to one-sided spectral density units
-                scale = np.divide(
-                    2.0, self.fs * self._data["S2"],
-                    out=np.zeros_like(self._data["S2"]),
-                    where=(self._data["S2"] != 0),
-                )
-                base = np.sqrt(np.divide(M2, navg, out=np.zeros_like(M2), where=(navg != 0)))
+                # Convert raw std of XY to one-sided spectral units via scale = 2 / (fs*S2)
+                S2 = np.nan_to_num(self._data["S2"], nan=0.0, posinf=0.0, neginf=0.0)
+                scale = np.divide(2.0, self.fs * S2, out=np.zeros_like(S2), where=(S2 > 0))
+                base  = np.sqrt(np.divide(m2, navg, out=np.zeros_like(m2), where=(navg > 0)))
+                base  = np.nan_to_num(base, nan=0.0, posinf=0.0, neginf=0.0)
 
                 if name == "Gxx_emp_dev":
-                    # Meaningful for auto only (in auto, kernels set XY per-seg to power)
                     val = scale * base if not self.iscsd else None
-                else:  # "Gxy_emp_dev"
+                elif name == "Gxy_emp_dev":
                     val = scale * base if self.iscsd else None
 
         # --- Textbook errors and deviations (asymptotic formulas) ---
