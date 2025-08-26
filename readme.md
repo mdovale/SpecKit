@@ -1,5 +1,6 @@
 # SpecKit: Python library for dynamic-resolution spectral analysis
 [Miguel Dovale](https://orcid.org/0000-0002-6300-5226)
+[Gerhard Heinzel](https://orcid.org/0000-0003-1661-7868)
 
 **SpecKit** is a high-performance Python toolkit for advanced spectral analysis, designed for scientists and engineers who require high-fidelity, high-dynamic-range spectral estimates.
 

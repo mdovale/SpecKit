@@ -7,3 +7,4 @@ pytdi
 scipy
 tqdm
 requests
+numba
