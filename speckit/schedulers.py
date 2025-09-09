@@ -37,12 +37,12 @@
 import sys
 import math
 
+import numba
 import numpy as np
 
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 def _require_args(args_dict, required):
     missing = [k for k in required if k not in args_dict]
@@ -273,6 +273,98 @@ def ltf_plan(**args):
         "nf": nf,
     }
 
+    return output
+
+
+def vectorized_ltf_plan(**args):
+    """
+    Vectorized variant of the LTF scheduler.
+
+    This function implements the LTF scheduler using a two-pass, vectorized 
+    approach for significant performance gains over the traditional iterative loop. 
+
+    Phase 1. Pre-computation Pass: A dense, linear "candidate" frequency grid is
+        created. The complex conditional logic of the LTF scheduler is applied
+        to this entire grid at once using efficient NumPy operations. This
+        generates final "parameter maps" (`r_map`, `L_map`, `K_map`) that store
+        the correct parameters for any frequency in the dense grid.
+
+    2.  Selection Pass: A fast "walker" loop iterates through the pre-computed
+        maps. It starts at `f_min`, looks up the corresponding definitive
+        resolution `r[j]` from `r_map`, stores it, and takes a step of that
+        exact size to find `f[j+1]`. This process repeats, ensuring the critical
+        `r[j] = f[j+1] - f[j]` constraint is perfectly met.
+
+    This approach trades increased memory usage (for the dense maps) for a
+    significant reduction in computation time, especially for plans with a
+    large number of desired frequencies (`Jdes`). The results are nearly
+    identical to an iterative implementation, with minor differences arising
+    from the discrete nature of the pre-computed grid.
+    """
+    N, fs, olap, bmin, Lmin, Jdes, Kdes = _require_args(
+        args, ["N", "fs", "olap", "bmin", "Lmin", "Jdes", "Kdes"]
+    )
+    # --- Phase 1: Vectorized Pre-computation on a LOG grid ---
+    xov = 1 - olap
+    fmin = bmin * fs / N
+    fmax = fs / 2
+    rmin = fs / N
+    ravg = rmin * (1 + xov * (Kdes - 1))
+    clog = (N / 2) ** (1 / Jdes) - 1
+
+    num_grid_points = int(10*Jdes)  # A sufficiently dense grid for most cases.
+    f_grid = np.logspace(np.log10(fmin), np.log10(fmax), num_grid_points)
+
+    r_prime_grid = f_grid * clog
+    conditions = [
+        r_prime_grid >= ravg,
+        np.sqrt(ravg * r_prime_grid) > rmin
+    ]
+    choices = [
+        r_prime_grid,
+        np.sqrt(ravg * r_prime_grid)
+    ]
+    r_double_prime_grid = np.select(conditions, choices, default=rmin)
+    
+    mask = (f_grid / r_double_prime_grid) < bmin
+    r_double_prime_grid[mask] = f_grid[mask] / bmin
+
+    L_grid = np.round(fs / r_double_prime_grid)
+    L_grid = np.clip(L_grid, Lmin, N)
+    K_grid = np.round((N - L_grid) / (xov * L_grid) + 1)
+    L_grid[K_grid == 1] = N
+    
+    r_map = fs / L_grid
+    K_map = np.round((N - L_grid) / (xov * L_grid) + 1).astype(np.int64)
+    L_map = L_grid.astype(np.int64)
+
+    # --- Phase 2: Walk the map ---
+    f_out, r_out, L_out, K_out = [], [], [], []
+    current_f = fmin
+
+    while current_f < fmax:
+        idx = np.searchsorted(f_grid, current_f, side='left')
+        if idx >= len(r_map): break
+            
+        final_r, final_L, final_K = r_map[idx], L_map[idx], K_map[idx]
+        f_out.append(current_f)
+        r_out.append(final_r)
+        L_out.append(final_L)
+        K_out.append(final_K)
+        current_f += final_r
+    
+    # --- Phase 3: Finalize outputs ---
+    f, r, L, K, m = np.array(f_out), np.array(r_out), np.array(L_out, dtype=int), np.array(K_out, dtype=int), np.array(f_out) / np.array(r_out)
+    nf = len(f)
+    
+    shift = np.divide(N - L, K - 1, out=np.zeros_like(f, dtype=float), where=K > 1)
+    D = [np.round(np.arange(k) * s).astype(int) for k, s in zip(K, shift)]
+    O = np.divide(L - shift, L, out=np.zeros_like(f, dtype=float), where=K > 1)
+
+    output = {
+        "f": f, "r": r, "b": m, "m": m, "L": L, "K": K,
+        "D": D, "O": O, "nf": nf, "navg": K
+    }
     return output
 
 
