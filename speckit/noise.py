@@ -158,16 +158,6 @@ class white_noise:
         self, f_sample: float, psd: float = 1.0, seed: Optional[int] = None
     ) -> None:
         self._fs = f_sample
-        # The total power is integral(PSD df) over [-fs/2, fs/2].
-        # For a two-sided PSD, this is PSD * fs. Variance = Power. RMS = sqrt(Power).
-        # However, for a real signal, total power is integral over [0, fs/2], which is (PSD/2)*fs.
-        # Let's assume the user provides the one-sided ASD, so PSD = ASD^2.
-        # Total variance = ASD^2 * (fs/2). RMS = ASD * sqrt(fs/2).
-        # We will assume user provides ASD and call it that.
-        # Let's revert to the original logic to not break things: RMS = sqrt(psd_two_sided * fs)
-        # This seems to be a definition mismatch in the original docstring.
-        # A common convention: For a real signal, variance = integral(one_sided_psd, 0, fs/2)
-        # One-sided PSD = 2 * Two-sided PSD. So Var = 2*psd_two_sided*(fs/2) = psd_two_sided*fs
         self._rms = np.sqrt(psd * f_sample)
         self._rng = np.random.default_rng(seed)
         self._buffer: np.ndarray = np.array([])
