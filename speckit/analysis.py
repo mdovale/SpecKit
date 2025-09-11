@@ -49,7 +49,7 @@ from matplotlib.axes import Axes
 
 from speckit.flattop import olap_dict, win_dict
 from speckit.dsp import integral_rms
-from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan
+from speckit.schedulers import lpsd_plan, ltf_plan, vectorized_ltf_plan, new_ltf_plan
 from speckit.utils import (
     kaiser_alpha,
     kaiser_rov,
@@ -100,7 +100,7 @@ class SpectrumAnalyzer:
         order: int = 0,
         psll: Optional[float] = 200,
         win: Union[str, Callable] = np_kaiser,
-        scheduler: Union[str, Callable] = "ltf",
+        scheduler: Union[str, Callable] = "vectorized_ltf",
         band: Optional[Tuple[float, float]] = None,
         force_target_nf: Optional[bool] = False,
         verbose: bool = False,
@@ -145,7 +145,7 @@ class SpectrumAnalyzer:
             Window function to use. Can be a string name (e.g., 'kaiser', 'hann')
             or a callable function. Defaults to `np.kaiser`.
         scheduler : str or callable, optional
-            The scheduling algorithm to use ('lpsd', 'ltf', 'new_ltf') or a
+            The scheduling algorithm to use ('lpsd', 'ltf', 'vectorized_ltf', 'new_ltf') or a
             custom scheduler function. Defaults to 'ltf'.
         band : tuple of (float, float), optional
             Frequency band `(f_min, f_max)` to restrict the analysis to.
@@ -338,7 +338,7 @@ class SpectrumAnalyzer:
         """Resolve scheduler function and store a friendly name."""
         scheduler_param = self.config["scheduler"]
         if isinstance(scheduler_param, str):
-            sched_map = {"lpsd": lpsd_plan, "ltf": ltf_plan, "new_ltf": new_ltf_plan}
+            sched_map = {"lpsd": lpsd_plan, "ltf": ltf_plan, "vectorized_ltf":vectorized_ltf_plan, "new_ltf": new_ltf_plan}
             try:
                 self.config["scheduler_func"] = sched_map[scheduler_param]
             except KeyError as exc:

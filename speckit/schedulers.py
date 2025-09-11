@@ -370,180 +370,111 @@ def vectorized_ltf_plan(**args):
 
 def new_ltf_plan(**args):
     """
-    Creates a high-performance blueprint for spectral analysis.
+    High-performance, multi-stage LTF-like scheduler with a unified loop.
 
-    **WORK IN PROGRESS**
+    This function implements a robust version of the multi-stage scheduling
+    algorithm. It transitions between three distinct regimes:
+    1. A low-frequency/transition region using standard LTF compromise logic.
+    2. A mid-frequency region that smoothly decreases segment length (L)
+       exponentially to target a total number of points near Jdes.
+    3. A high-frequency region where L is clamped to Lmin, resulting in a
+       linear frequency ramp.
 
-    This function generates a detailed plan for performing a windowed, overlapped,
-    segmented spectral analysis on a time series. The resulting frequency grid is
-    logarithmically-spaced at low frequencies for high resolution, transitions
-    to a regime of aggressive averaging for statistical stability in the mid-range,
-    and handles high-Lmin scenarios gracefully to ensure full coverage up to the
-    Nyquist frequency.
-
-    The logic is:
-    1.  A high-performance vectorized engine generates a "main plan" (`f_main`,
-        `r_main`, etc.) for the bulk of the spectrum. This plan uses a hybrid
-        log-linear grid and a resolution-blending technique to ensure both
-        aggressive averaging and full coverage up to Nyquist.
-    2.  A low-frequency "patch" is then generated to ensure a smooth,
-        high-resolution ramp down from the maximum segment length (L=N).
-    3.  The main plan's frequency vector (`f_main`) is then shifted by a
-        calculated offset so that it seamlessly stitches onto the end of the
-        patch, preserving the `f[i] = f[i-1] + r[i-1]` rule across the seam.
-    4.  All corresponding arrays are then concatenated to form the final plan.
-
-    Args:
-        N (int): Total length of the input time series.
-        fs (float): Sampling frequency of the time series in Hz.
-        olap (float): Desired fractional overlap between segments (e.g., 0.5 for 50%).
-        bmin (float): Minimum bin number to use, discarding lower, biased bins.
-        Lmin (int): Smallest allowable segment length.
-        Jdes (int): The desired number of frequencies in the final plan.
-
-    Returns:
-        dict: A dictionary containing all the necessary parameters for analysis.
-              Returns None on failure.
+    The logic is unified into a single iterative loop. State flags determine
+    which regime's logic is used to calculate the resolution for the current
+    step. This architecture guarantees that all physical constraints are
+    perfectly met across the stage boundaries, eliminating stitching errors.
     """
-    # Unpack & validate
-    N, fs, olap, bmin, Lmin, Jdes, num_patch_pts = _require_args(
-        args, ["N", "fs", "olap", "bmin", "Lmin", "Jdes", "num_patch_pts"]
+    # --- 1. Unpack Arguments and Initialize Constants ---
+    N, fs, olap, bmin, Lmin, Jdes, Kdes = _require_args(
+        args, ["N", "fs", "olap", "bmin", "Lmin", "Jdes", "Kdes"]
     )
-
-    # --- 1. Initialization and Core Constants ---
     xov = 1 - olap
     fmin = fs / N * bmin
     fmax = fs / 2
+    fresmin = fs / N
+    freslim = fresmin * (1 + xov * (Kdes - 1))
+    logfact = (N / 2)**(1 / Jdes) - 1
 
-    if fmin >= fmax:
-        logger.error("fmin >= fmax. Check input parameters (N, fs, bmin).")
-        return None
+    # --- 2. Initialize Lists and State Variables for the Unified Loop ---
+    f, r, b, L, K = [], [], [], [], []
+    dftlen_crossover = 0
+    stage2, stage3 = False, False
+    alpha, k_stage2 = 0, 0
+    j = 0
+    fi = fmin
 
-    # --- 2. Generate the Main Plan (Identical to the successful version) ---
-    logfact = (fmax / fmin) ** (1 / Jdes) - 1
-    if logfact <= 0:
-        logfact = 1 / Jdes
-
-    f_trans = fs / (Lmin * logfact)
-    f_ideal_log, f_ideal_lin = np.array([]), np.array([])
-
-    if f_trans > fmin:
-        num_log_pts = max(
-            2, int(np.log(min(f_trans, fmax) / fmin) / np.log(1 + logfact))
-        )
-        f_ideal_log = np.geomspace(fmin, min(f_trans, fmax), num=num_log_pts)
-
-    if f_trans < fmax:
-        r_lin = fs / Lmin
-        lin_start = f_trans if f_trans > fmin else fmin
-        f_ideal_lin = np.arange(lin_start + r_lin, fmax + r_lin, r_lin)
-
-    f_ideal = np.unique(np.concatenate((f_ideal_log, f_ideal_lin)))
-    f_ideal = f_ideal[f_ideal <= fmax]
-
-    if len(f_ideal) < 2:
-        logger.warning(
-            "Hybrid grid generation failed; falling back to simple logspace."
-        )
-        f_ideal = np.geomspace(fmin, fmax, num=Jdes)
-
-    r_ideal = np.append(np.diff(f_ideal), np.diff(f_ideal)[-1])
-    r_max_avg = fs / Lmin
-    r_blended = np.copy(r_ideal)
-    blend_mask = f_ideal < f_trans
-    r_blended[blend_mask] = np.sqrt(r_ideal[blend_mask] * r_max_avg)
-
-    L_float = fs / (r_blended + 1e-12)
-    L = np.round(L_float).astype(int)
-    L = np.clip(L, Lmin, N)
-
-    K = np.maximum(1, np.round((N - L) / (xov * L) + 1)).astype(int)
-    L[K == 1] = N
-
-    r = fs / L
-    f_steps = np.insert(r[:-1], 0, 0)
-    f_start = r[0] * bmin
-    f = f_start + np.cumsum(f_steps)
-    b = f / r
-
-    valid_mask = (f <= fmax) & (b >= bmin) & (L <= N)
-    f_main_plan, r_main_plan, b_main_plan, L_main_plan, K_main_plan = (
-        f[valid_mask],
-        r[valid_mask],
-        b[valid_mask],
-        L[valid_mask],
-        K[valid_mask],
-    )
-
-    if len(f_main_plan) == 0:
-        logger.error("Main vectorized plan returned zero valid frequencies.")
-        return None
-
-    # --- 3. Prepend Low-Frequency Ramp with Offset Correction ---
-
-    if L_main_plan[0] < N:
-        # Generate the L values for the patch ramp
-        L_patch = np.geomspace(
-            N, L_main_plan[0], num=num_patch_pts, endpoint=False
-        ).astype(int)
-        L_patch = np.unique(L_patch)[::-1]  # Ensure unique, sorted descending
-
-        # Calculate all parameters for the patch, starting from the absolute fmin
-        K_patch = np.maximum(1, np.round((N - L_patch) / (xov * L_patch) + 1)).astype(
-            int
-        )
-        r_patch = fs / L_patch
-        f_patch_steps = np.insert(r_patch, 0, 0)[:-1]  # Steps for cumsum
-        f_patch = fmin + np.cumsum(f_patch_steps)
-        b_patch = f_patch / r_patch
-
-        # Calculate the "seam": the correct frequency for the main plan to start
-        f_seam = f_patch[-1] + r_patch[-1]
-
-        # Calculate and apply the offset needed to shift the main plan into place
-        offset = f_seam - f_main_plan[0]
-        f_main_shifted = f_main_plan + offset
-
-        # Concatenate all arrays to form the final plan
-        f = np.concatenate((f_patch, f_main_shifted))
-        r = np.concatenate((r_patch, r_main_plan))
-        b = np.concatenate(
-            (b_patch, f_main_shifted / r_main_plan)
-        )  # Recalc b with shifted f
-        L = np.concatenate((L_patch, L_main_plan))
-        K = np.concatenate((K_patch, K_main_plan))
-    else:
-        # No patch needed; the main plan already starts at maximum resolution.
-        # Just ensure the first point's parameters are exact.
-        f, r, b, L, K = f_main_plan, r_main_plan, b_main_plan, L_main_plan, K_main_plan
-        f[0], r[0], b[0] = fmin, fs / N, bmin
-
-    nf = len(f)
-
-    # --- 4. Calculate Final Outputs (Start Indices and Overlaps) ---
-    D, O = [], []
-    for j in range(nf):
-        L_j, K_j = L[j], K[j]
-        if K_j > 1:
-            # Use dtype=int for clean index arrays
-            indices = np.linspace(0, N - L_j, K_j, dtype=int)
-            step = indices[1] - indices[0]
-            O.append((L_j - step) / L_j)
+    # --- 3. The Unified Loop ---
+    while fi < fmax:
+        # --- A. Determine dftlen based on the current stage ---
+        if stage3:
+            # Stage 3: L is clamped to Lmin
+            dftlen = Lmin
+        elif stage2:
+            # Stage 2: L decays exponentially
+            dftlen = int(np.round(dftlen_crossover * np.exp(alpha * k_stage2)))
+            k_stage2 += 1 # Increment stage 2 step counter
         else:
-            indices = np.array([0], dtype=int)
-            O.append(0.0)
-        D.append(indices)
-    O = np.array(O)
+            # Stage 1: Compromise logic
+            fres_ideal = fi * logfact
+            if fres_ideal >= freslim:
+                stage2 = True # Transition to stage 2 on the NEXT iteration
+                # Calculate alpha for the upcoming stage 2
+                pts_left = Jdes - j
+                if pts_left > 1:
+                    alpha = np.log(Lmin / dftlen_crossover) / (pts_left - 1)
+                dftlen = int(np.round(fs / fres_ideal)) # Use the ideal fres for this step
+            elif (freslim * fres_ideal)**0.5 > fresmin:
+                fres = (freslim * fres_ideal)**0.5
+                dftlen = int(np.round(fs / fres))
+            else:
+                fres = fresmin
+                dftlen = int(np.round(fs / fres))
+            dftlen_crossover = dftlen # Continuously update crossover point
 
-    return {
-        "f": f,
-        "r": r,
-        "b": b,
-        "m": b,
-        "L": L,
-        "K": K,
-        "navg": K,
-        "D": D,
-        "O": O,
-        "nf": nf,
-    }
+        # --- B. Apply universal constraints and calculate final parameters ---
+        if stage2 and dftlen < Lmin:
+            stage3 = True # Transition to stage 3 on the NEXT iteration
+            dftlen = Lmin
+
+        # Clamp to physical and user limits
+        if dftlen > N: dftlen = N
+        if dftlen < Lmin: dftlen = Lmin
+        
+        # If only one segment possible, use the full data length
+        nseg = int(np.round((N - dftlen) / (xov * dftlen) + 1))
+        if nseg == 1:
+            dftlen = N
+
+        # Final resolution bandwidth and bin number for this step
+        fres = fs / dftlen
+        fbin = fi / fres
+        
+        # The bmin constraint must always be respected
+        if fbin < bmin:
+            fres = fi / bmin
+            dftlen = int(fs/fres) # Recalculate L if bmin was enforced
+            fbin = bmin
+            nseg = int(np.round((N - dftlen) / (xov * dftlen) + 1))
+
+
+        # --- C. Store results and update state for the next iteration ---
+        f.append(fi)
+        r.append(fres)
+        b.append(fbin)
+        L.append(dftlen)
+        K.append(nseg)
+        
+        fi += fres # Go to the next frequency
+        j += 1
+
+    # --- 4. Finalize and Post-process (Vectorized) ---
+    f, r, b, L, K = np.array(f), np.array(r), np.array(b), np.array(L), np.array(K)
+    nf = len(f)
+    
+    shift = np.divide(N - L, K - 1, out=np.zeros_like(f, dtype=float), where=K > 1)
+    D = [np.round(np.arange(k) * s).astype(int) for k, s in zip(K, shift)]
+    O = np.divide(L - shift, L, out=np.zeros_like(f, dtype=float), where=K > 1)
+
+    output = {"f": f, "r": r, "b": b, "m": b, "L": L, "K": K, "D": D, "O": O, "nf": nf, "navg": K}
+    return output

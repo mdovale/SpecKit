@@ -11,7 +11,7 @@
 
 **SpecKit** is a high-performance Python toolkit for advanced spectral analysis, designed for scientists and engineers who require high-fidelity, high-dynamic-range spectral estimates.
 
-The library's core feature is its **logarithmically-spaced frequency scheduling algorithm**. Unlike traditional methods such as Welch’s, which use a fixed segment length and resolution across all frequencies, SpecKit dynamically adjusts the frequency resolution. The result is that, for a given dataset, this method provides many more high-resolution spectral estimates at low frequencies, while minimizing statistical uncertainty (via more averages) at high frequencies. This method is ideally suited for ana...
+The library's core feature is its **logarithmically-spaced frequency scheduling algorithm**. Unlike traditional methods such as Welch’s, which use a fixed segment length and resolution across all frequencies, SpecKit dynamically adjusts the frequency resolution. The result is that, for a given dataset, this method provides many more high-resolution spectral estimates at low frequencies, while minimizing statistical uncertainty (via more averages) at high frequencies. This method is ideally suited for analyzing signals that span many decades in frequency.
 
 Built on rigorous, textbook-backed theory, SpecKit also provides **comprehensive error analysis** for all its estimates, making it a reliable tool for scientific research.
 

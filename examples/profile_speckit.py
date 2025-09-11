@@ -57,7 +57,7 @@ def main():
 
     # --- 2. Run the function under cProfile ---
     # The command to execute is a single call to your main function.
-    command = "compute_spectrum(data, fs=fs, win='hann', Jdes=1000, order=0, scheduler='new_ltf')"
+    command = "compute_spectrum(data, fs=fs, win='hann', Jdes=1000, order=-1, scheduler='vectorized_ltf')"
 
     # Define the context for the profiler
     # It needs access to the variables used in `command`.
