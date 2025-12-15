@@ -252,31 +252,85 @@ def MISO_analytic_optimal_spectral_analysis(
     logger.info(f"Solution: {solution}")
     logger.info("Computing all spectral estimates...")
     result = {}
+    
+    # First, compute all auto-spectra explicitly to establish consistent frequency grid
+    # Use the first input to establish the reference frequency grid
+    obj_ref = ltf(input_arrays[0], fs, **kwargs)
+    result["f"] = obj_ref.f
+    result[f"T11"] = obj_ref.Gxx
+    f_ref = obj_ref.f  # Reference frequency grid
+    
+    # Compute remaining auto-spectra and verify they use the same frequency grid
+    for i in range(1, q):
+        obj = ltf(input_arrays[i], fs, **kwargs)
+        if not np.allclose(obj.f, f_ref, rtol=1e-10):
+            raise ValueError(
+                f"Frequency grid mismatch for input {i+1}. "
+                f"This suggests inconsistent scheduler behavior. "
+                f"All ltf calls must produce identical frequency grids."
+            )
+        result[f"T{i + 1}{i + 1}"] = obj.Gxx
+    
+    # Compute cross-spectra between inputs
     for i in range(q):
         for j in range(i + 1, q):
             obj = ltf([input_arrays[i], input_arrays[j]], fs, **kwargs)
-            result.setdefault(f"T{i + 1}{j + 1}", obj.Gxy)
-            result.setdefault(f"T{j + 1}{i + 1}", np.conj(obj.Gxy))
-            result.setdefault(f"T{i + 1}{i + 1}", obj.Gxx)
-            result.setdefault(f"T{j + 1}{j + 1}", obj.Gyy)
+            if not np.allclose(obj.f, f_ref, rtol=1e-10):
+                raise ValueError(
+                    f"Frequency grid mismatch for cross-spectrum T{i+1}{j+1}. "
+                    f"This suggests inconsistent scheduler behavior. "
+                    f"All ltf calls must produce identical frequency grids."
+                )
+            result[f"T{i + 1}{j + 1}"] = obj.Gxy
+            result[f"T{j + 1}{i + 1}"] = np.conj(obj.Gxy)
 
+    # Compute cross-spectra between inputs and output
     for i in range(q):
         obj = ltf([input_arrays[i], output_arr], fs, **kwargs)
+        if not np.allclose(obj.f, f_ref, rtol=1e-10):
+            raise ValueError(
+                f"Frequency grid mismatch for cross-spectrum S{i+1}0. "
+                f"This suggests inconsistent scheduler behavior. "
+                f"All ltf calls must produce identical frequency grids."
+            )
         result[f"S{i + 1}0"] = obj.Gxy
         result[f"S0{i + 1}"] = np.conj(obj.Gxy)
 
-    result["S00"] = obj.Gyy
-    result["f"] = obj.f
+    # Compute auto-spectrum of output
+    obj_output = ltf(output_arr, fs, **kwargs)
+    if not np.allclose(obj_output.f, f_ref, rtol=1e-10):
+        raise ValueError(
+            f"Frequency grid mismatch for output auto-spectrum S00. "
+            f"This suggests inconsistent scheduler behavior. "
+            f"All ltf calls must produce identical frequency grids."
+        )
+    result["S00"] = obj_output.Gxx
+    
+    # Final verification: ensure all arrays have the same length
+    nf_ref = len(result["f"])
+    for key, value in result.items():
+        if key != "f" and isinstance(value, np.ndarray):
+            if len(value) != nf_ref:
+                raise ValueError(
+                    f"Array {key} has length {len(value)} but expected {nf_ref}. "
+                    f"This should not happen if frequency grids match."
+                )
 
     logger.info("Computing solution...")
     for Hi_symbol, Hi_expr in solution.items():
         try:
+            # Extract the free symbols from the expression (symbols it actually uses)
+            free_symbols = sorted(Hi_expr.free_symbols, key=str)
+            
             # Convert the symbolic expression to a numerical lambda function
-            # Pass keys from `result` as symbols for substitution
-            Hi_numeric_func = sp.lambdify(list(result.keys()), Hi_expr, modules="numpy")
+            # Pass symbols in sorted order for consistency
+            Hi_numeric_func = sp.lambdify(free_symbols, Hi_expr, modules="numpy")
 
-            # Evaluate the numerical function using the numpy arrays in `result`
-            Hi_numeric_value = Hi_numeric_func(*result.values())
+            # Extract the corresponding values from result in the same order
+            symbol_values = [result[str(sym)] for sym in free_symbols]
+
+            # Evaluate the numerical function using the arrays in the correct order
+            Hi_numeric_value = Hi_numeric_func(*symbol_values)
 
             # Store the evaluated numerical value in the result dictionary
             result[str(Hi_symbol)] = np.asarray(Hi_numeric_value, dtype=complex)
