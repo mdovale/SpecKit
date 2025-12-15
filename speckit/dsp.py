@@ -53,19 +53,41 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def frequency2phase(f, fs):
+def frequency2phase(f, fs, subtract_mean=True):
     """
     Integrate frequency in Hz to find phase in radians.
 
     Parameters
     ----------
-        f (numpy.ndarray): The input signal frequency in Hz.
+    f : numpy.ndarray
+        The input signal frequency in Hz.
+    fs : float
+        The sampling frequency in Hz. Must be positive.
+    subtract_mean : bool, optional
+        If True, subtract the mean frequency before integration (default behavior).
+        If False, integrate the frequency directly, resulting in a ramp for constant
+        frequency. Default is True.
 
     Returns
     -------
-        numpy.ndarray: The phase in radians.
+    numpy.ndarray
+        The phase in radians.
+
+    Raises
+    ------
+    ValueError
+        If `fs` is not positive or if `f` is empty.
     """
-    return (2 * np.pi / fs) * np.cumsum(np.array(f - np.mean(f)))
+    f = np.asarray(f)
+    if f.size == 0:
+        raise ValueError("Input frequency array `f` must not be empty.")
+    if not np.isfinite(fs) or fs <= 0:
+        raise ValueError(f"Sampling frequency `fs` must be positive, got {fs!r}.")
+    if subtract_mean:
+        f_integrate = f - np.mean(f)
+    else:
+        f_integrate = f
+    return (2 * np.pi / fs) * np.cumsum(f_integrate)
 
 
 def polynomial_detrend(x, order=1):
@@ -74,15 +96,34 @@ def polynomial_detrend(x, order=1):
 
     Parameters
     ----------
-        x (numpy.ndarray): The input signal to be detrended.
-        order (int): The order of the polynomial fit.
+    x : numpy.ndarray
+        The input signal to be detrended.
+    order : int, optional
+        The order of the polynomial fit. Must be non-negative. Default is 1.
 
     Returns
     -------
-        numpy.ndarray: The detrended signal.
+    numpy.ndarray
+        The detrended signal.
+
+    Raises
+    ------
+    ValueError
+        If `x` is empty or if `order` is negative.
     """
+    x = np.asarray(x)
+    if x.size == 0:
+        raise ValueError("Input signal `x` must not be empty.")
     if order < 0:
-        return x
+        raise ValueError(f"Polynomial order must be non-negative, got {order}.")
+    if order == 0:
+        return x - np.mean(x)
+    if len(x) < order + 1:
+        logger.warning(
+            f"Signal length ({len(x)}) is less than order+1 ({order+1}). "
+            f"Using order={len(x)-1} instead."
+        )
+        order = len(x) - 1
     t = np.arange(len(x))
     # Use the numerically stable polyfit to find coefficients
     coeffs = np.polyfit(t, x, deg=order)
@@ -92,17 +133,44 @@ def polynomial_detrend(x, order=1):
 
 
 def crop_data(x, y, xmin, xmax):
-    """Crop data.
+    """
+    Crop data to a specified range in x.
 
     Parameters
     ----------
-        x: data in x
-        y: data in y
-        xmin: lower bound of x
-        xmax: upper bound of x
+    x : array-like
+        The x-axis data (e.g., frequency, time).
+    y : array-like
+        The y-axis data corresponding to x.
+    xmin : float
+        Lower bound for cropping (inclusive).
+    xmax : float
+        Upper bound for cropping (inclusive).
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        A tuple (x_cropped, y_cropped) containing the cropped arrays.
+
+    Raises
+    ------
+    ValueError
+        If `x` and `y` have different lengths, or if `xmin > xmax`.
     """
-    x = np.array(x)
-    y = np.array(y)
+    x = np.asarray(x)
+    y = np.asarray(y)
+    
+    if len(x) != len(y):
+        raise ValueError(
+            f"Arrays `x` and `y` must have the same length, "
+            f"got {len(x)} and {len(y)}."
+        )
+    if xmin > xmax:
+        raise ValueError(
+            f"`xmin` ({xmin}) must be <= `xmax` ({xmax})."
+        )
+    if x.size == 0:
+        return x, y
 
     # Create a boolean mask for the range condition
     mask = (x >= xmin) & (x <= xmax)
@@ -139,22 +207,71 @@ def truncation(x: np.ndarray, n_trunc: int) -> np.ndarray:
 
 
 def integral_rms(fourier_freq, asd, pass_band=None):
-    """Compute the RMS as integral of an ASD.
+    """
+    Compute the RMS as integral of an Amplitude Spectral Density (ASD).
 
     Parameters
     ----------
-        fourier_freq: fourier frequency (Hz)
-        asd: amplitude spectral density from which RMS is computed
-        pass_band: [0] = min, [1] = max
+    fourier_freq : array-like
+        Fourier frequency array in Hz.
+    asd : array-like
+        Amplitude spectral density from which RMS is computed.
+    pass_band : tuple of float, optional
+        Frequency band for integration as (fmin, fmax). If None, integrates
+        over the entire frequency range. Default is None.
+
+    Returns
+    -------
+    float
+        The RMS value computed from the integral of the squared ASD.
+
+    Raises
+    ------
+    ValueError
+        If `fourier_freq` and `asd` have different lengths, or if `pass_band`
+        is invalid.
     """
+    fourier_freq = np.asarray(fourier_freq)
+    asd = np.asarray(asd)
+    
+    if len(fourier_freq) != len(asd):
+        raise ValueError(
+            f"Arrays `fourier_freq` and `asd` must have the same length, "
+            f"got {len(fourier_freq)} and {len(asd)}."
+        )
+    if fourier_freq.size == 0:
+        raise ValueError("Input arrays must not be empty.")
+    
     if pass_band is None:
         pass_band = [-np.inf, np.inf]
+    else:
+        if len(pass_band) != 2:
+            raise ValueError(
+                f"`pass_band` must be a tuple of length 2, got {len(pass_band)}."
+            )
+        if pass_band[0] > pass_band[1]:
+            raise ValueError(
+                f"`pass_band[0]` ({pass_band[0]}) must be <= `pass_band[1]` ({pass_band[1]})."
+            )
 
     integral_range_min = max(np.min(fourier_freq), pass_band[0])
     integral_range_max = min(np.max(fourier_freq), pass_band[1])
+    
+    if integral_range_min >= integral_range_max:
+        logger.warning(
+            f"No valid frequency range for integration. "
+            f"Returning 0.0."
+        )
+        return 0.0
+    
     f_tmp, asd_tmp = crop_data(
         fourier_freq, asd, integral_range_min, integral_range_max
     )
+    
+    if len(f_tmp) == 0:
+        logger.warning("No data points in the specified frequency band. Returning 0.0.")
+        return 0.0
+    
     integral_rms2 = cumulative_trapezoid(asd_tmp**2, f_tmp, initial=0)
     return np.sqrt(integral_rms2[-1])
 
@@ -171,12 +288,15 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
         The measurement array where peaks are to be detected.
     cnr : float, optional
         Carrier-to-noise density ratio in dB. Peaks must exceed this ratio to be considered valid.
-    edge : bool, optional, default=True
+        Default is 10.
+    edge : bool, optional
         If True, consider peaks that are on the boundary of the spectrum.
+        Default is True.
     freq_band : tuple of (float, float), optional
-        Frequency band to search for peaks, specified as (low_freq, high_freq). Only frequencies within this range are considered.
-    rtol : float, optional, default=1e-2
-        Relative tolerance for identifying flat peaks.
+        Frequency band to search for peaks, specified as (low_freq, high_freq).
+        Only frequencies within this range are considered. Default is None.
+    rtol : float, optional
+        Relative tolerance for identifying flat peaks. Default is 1e-2.
 
     Returns
     -------
@@ -185,26 +305,52 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     peak_measurements : ndarray
         Array of measurement values at the detected peak frequencies.
 
+    Raises
+    ------
+    ValueError
+        If `frequency` and `measurement` have different lengths, or if `freq_band`
+        is invalid, or if `rtol` is not positive.
+
     Notes
     -----
-    The function first applies an optional frequency band filter and then manually detects peaks by identifying points that are higher than their immediate neighbors.
-    Peaks that do not meet the specified carrier-to-noise density ratio are discarded. The function returns the frequencies and measurements of the detected peaks.
+    The function first applies an optional frequency band filter and then manually
+    detects peaks by identifying points that are higher than their immediate neighbors.
+    Peaks that do not meet the specified carrier-to-noise density ratio are discarded.
+    The function returns the frequencies and measurements of the detected peaks.
     """
 
     def noise_model(x, a, b, alpha):
         return a + b * x**alpha
 
-    frequency = np.array(frequency)
-    measurement = np.array(measurement)
+    frequency = np.asarray(frequency)
+    measurement = np.asarray(measurement)
+    
+    if len(frequency) != len(measurement):
+        raise ValueError(
+            f"Arrays `frequency` and `measurement` must have the same length, "
+            f"got {len(frequency)} and {len(measurement)}."
+        )
+    if frequency.size == 0:
+        raise ValueError("Input arrays must not be empty.")
+    if rtol <= 0:
+        raise ValueError(f"`rtol` must be positive, got {rtol}.")
 
     if freq_band is not None:
+        if len(freq_band) != 2:
+            raise ValueError(
+                f"`freq_band` must be a tuple of length 2, got {len(freq_band)}."
+            )
         low_freq, high_freq = freq_band
+        if low_freq > high_freq:
+            raise ValueError(
+                f"`freq_band[0]` ({low_freq}) must be <= `freq_band[1]` ({high_freq})."
+            )
         mask = (frequency >= low_freq) & (frequency <= high_freq)
         frequency = frequency[mask]
         measurement = measurement[mask]
 
     if len(frequency) == 0:
-        return
+        return np.array([]), np.array([])
 
     # Initial peak finding
     peaks = []
@@ -273,19 +419,71 @@ def optimal_linear_combination(
 
     Parameters
     ----------
-        df (DataFrame): Data from signals.
-        inputs (list of str): Labels of the input signal columns in the input DataFrame.
-        output (str): Label of the output signal column in the input DataFrame.
-        timeshifts (bool, optional): Whether the input signals should be timeshifted. Default is False.
-        gradient (bool, optional): Whether to minimize rms in the time series or on its derivative.
-        domain (str, optional): Whether to compute RMS in the time domain or in the frequency domain
-        method (str, optional): The minimizer method.
-        tol (float, optional): The minimizer tolerance parameter.
+    df : pd.DataFrame
+        Data from signals.
+    inputs : list of str
+        Labels of the input signal columns in the input DataFrame.
+    output : str
+        Label of the output signal column in the input DataFrame.
+    timeshifts : bool, optional
+        Whether the input signals should be timeshifted. Default is False.
+    gradient : bool, optional
+        Whether to minimize rms in the time series or on its derivative. Default is False.
+    domain : str, optional
+        Whether to compute RMS in the time domain or in the frequency domain.
+        Must be 'time' or 'frequency'. Default is 'time'.
+    method : str, optional
+        The minimizer method. Default is 'TNC'.
+    tol : float, optional
+        The minimizer tolerance parameter. Must be positive. Default is 1e-9.
+    *args
+        Additional positional arguments passed to `welch` when domain='frequency'.
+    **kwargs
+        Additional keyword arguments passed to `welch` when domain='frequency'.
 
-    Returns:
-        OptimizeResult: The optimization result object.
-        np.ndarray: The output with optimal combination of inputs subtracted
+    Returns
+    -------
+    OptimizeResult
+        The optimization result object from scipy.optimize.minimize.
+    np.ndarray
+        The output with optimal combination of inputs subtracted.
+
+    Raises
+    ------
+    ValueError
+        If `df` is empty, if required columns are missing, if `domain` is invalid,
+        or if `tol` is not positive.
+    TypeError
+        If `df` is not a pandas DataFrame, or if `inputs` is not a list.
     """
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"`df` must be a pandas DataFrame, got {type(df).__name__}.")
+    if df.empty:
+        raise ValueError("Input DataFrame `df` must not be empty.")
+    if not isinstance(inputs, (list, tuple)):
+        raise TypeError(f"`inputs` must be a list or tuple, got {type(inputs).__name__}.")
+    if len(inputs) == 0:
+        raise ValueError("`inputs` must not be empty.")
+    if not isinstance(output, str):
+        raise TypeError(f"`output` must be a string, got {type(output).__name__}.")
+    if domain not in ["time", "frequency"]:
+        raise ValueError(f"`domain` must be 'time' or 'frequency', got {domain!r}.")
+    if tol <= 0:
+        raise ValueError(f"`tol` must be positive, got {tol}.")
+    
+    # Check that all required columns exist
+    missing_inputs = [inp for inp in inputs if inp not in df.columns]
+    if missing_inputs:
+        raise ValueError(f"Input columns not found in DataFrame: {missing_inputs}.")
+    if output not in df.columns:
+        raise ValueError(f"Output column '{output}' not found in DataFrame.")
+    
+    # Check that columns are numeric
+    for inp in inputs:
+        if df[inp].dtype.kind not in "biufc":
+            raise ValueError(f"Input column '{inp}' must be numeric, got dtype {df[inp].dtype}.")
+    if df[output].dtype.kind not in "biufc":
+        raise ValueError(f"Output column '{output}' must be numeric, got dtype {df[output].dtype}.")
 
     def print_optimization_result(res):
         logger.info("Optimization Results:")
@@ -361,19 +559,43 @@ def df_timeshift(
 
     Parameters
     ----------
-        df (pd.DataFrame): The input DataFrame.
-        fs (float): The sampling frequency of the data.
-        seconds (float): Amount of seconds to shift the data by.
-        columns (list or None): List of columns to shift. If None, all columns are shifted.
-        truncate (bool or int or None): If True, truncate the resulting DataFrame based on the shift.
-                                        If int, specify the exact number of rows to truncate at both ends.
-        inplace (bool): If True, overwrite the original columns. If False, add shifted columns with suffix.
-        suffix (str): Suffix to add to column names when inplace is False.
+    df : pd.DataFrame
+        The input DataFrame.
+    fs : float
+        The sampling frequency of the data. Must be positive.
+    seconds : float
+        Amount of seconds to shift the data by.
+    columns : list or None, optional
+        List of columns to shift. If None, all columns are shifted.
+        Default is None.
+    truncate : bool or int or None, optional
+        If True, truncate the resulting DataFrame based on the shift.
+        If int, specify the exact number of rows to truncate at both ends.
+        Default is None.
+    inplace : bool, optional
+        If True, overwrite the original columns. If False, add shifted columns with suffix.
+        Default is False.
+    suffix : str, optional
+        Suffix to add to column names when inplace is False. Default is "_shifted".
 
     Returns
     -------
-        pd.DataFrame: The timeshifted DataFrame.
+    pd.DataFrame
+        The timeshifted DataFrame.
+
+    Raises
+    ------
+    ValueError
+        If `df` is empty, if `fs` is not positive, or if specified columns don't exist.
+    TypeError
+        If `df` is not a pandas DataFrame.
     """
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"`df` must be a pandas DataFrame, got {type(df).__name__}.")
+    if df.empty:
+        raise ValueError("Input DataFrame `df` must not be empty.")
+    if not np.isfinite(fs) or fs <= 0:
+        raise ValueError(f"Sampling frequency `fs` must be positive, got {fs!r}.")
 
     if seconds == 0.0:
         return df
@@ -381,9 +603,20 @@ def df_timeshift(
     df_shifted = df.copy()
 
     if columns is None:
-        columns = df.columns
+        columns = df.columns.tolist()
+    else:
+        missing_cols = [col for col in columns if col not in df.columns]
+        if missing_cols:
+            raise ValueError(
+                f"Columns not found in DataFrame: {missing_cols}."
+            )
 
     for c in columns:
+        if df[c].dtype.kind not in "biufc":
+            logger.warning(
+                f"Column '{c}' is not numeric (dtype: {df[c].dtype}), skipping timeshift."
+            )
+            continue
         shifted = timeshift(df[c].to_numpy(), seconds * fs)
         if inplace:
             df_shifted[c] = shifted
@@ -394,8 +627,18 @@ def df_timeshift(
         if isinstance(truncate, bool):
             n_trunc = int(2 * abs(seconds * fs))
         else:
+            if not isinstance(truncate, (int, np.integer)):
+                raise ValueError(
+                    f"`truncate` must be bool, int, or None, got {type(truncate).__name__}."
+                )
             n_trunc = int(truncate)
         if n_trunc > 0:
+            if n_trunc * 2 >= len(df_shifted):
+                logger.warning(
+                    f"Truncation amount ({n_trunc}) is too large for DataFrame length "
+                    f"({len(df_shifted)}). Returning empty DataFrame."
+                )
+                return df_shifted.iloc[0:0]
             df_shifted = df_shifted.iloc[n_trunc:-n_trunc]
 
     return df_shifted
@@ -407,19 +650,47 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix="_detrended"):
 
     Parameters
     ----------
-        df (pd.DataFrame): The input DataFrame.
-        columns (list, optional): List of column names to detrend. If None, all columns are detrended.
-        order (int): The order of the polynomial fit.
-        inplace (bool): If True, overwrite the original columns. If False, create new columns with suffix.
-        suffix (str): Suffix to add to column names when inplace is False.
+    df : pd.DataFrame
+        The input DataFrame.
+    columns : list, optional
+        List of column names to detrend. If None, all columns are detrended.
+        Default is None.
+    order : int, optional
+        The order of the polynomial fit. Must be non-negative. Default is 1.
+    inplace : bool, optional
+        If True, overwrite the original columns. If False, create new columns with suffix.
+        Default is False.
+    suffix : str, optional
+        Suffix to add to column names when inplace is False. Default is "_detrended".
 
     Returns
     -------
-        pd.DataFrame: A DataFrame with detrended data.
+    pd.DataFrame
+        A DataFrame with detrended data.
+
+    Raises
+    ------
+    ValueError
+        If `df` is empty, if specified columns don't exist, or if `order` is negative.
+    TypeError
+        If `df` is not a pandas DataFrame.
     """
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"`df` must be a pandas DataFrame, got {type(df).__name__}.")
+    if df.empty:
+        raise ValueError("Input DataFrame `df` must not be empty.")
+    if order < 0:
+        raise ValueError(f"Polynomial order must be non-negative, got {order}.")
+    
     df_detrended = df.copy()
     if columns is None:
-        columns = df.columns
+        columns = df.columns.tolist()
+    else:
+        missing_cols = [col for col in columns if col not in df.columns]
+        if missing_cols:
+            raise ValueError(
+                f"Columns not found in DataFrame: {missing_cols}."
+            )
 
     for col in columns:
         if df[col].dtype.kind in "biufc":  # Check if the column is numeric
@@ -428,6 +699,10 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix="_detrended"):
                 df_detrended[col] = detrended_data
             else:
                 df_detrended[f"{col}{suffix}"] = detrended_data
+        else:
+            logger.warning(
+                f"Column '{col}' is not numeric (dtype: {df[col].dtype}), skipping detrend."
+            )
 
     return df_detrended
 
