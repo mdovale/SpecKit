@@ -121,7 +121,7 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     q = len(inputs)
     if q > 5:
         logger.warning(
-            f"The problem dimension ({q}) is too large for the analytic solver, you may want to use MISO_numeric_optimal_spectral_analysis."
+            f"The problem dimension ({q}) is very large for the analytic solver, you may want to use MISO_numeric_optimal_spectral_analysis."
         )
 
     N = len(inputs[0])
@@ -283,20 +283,27 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     )  # Cross-spectral densities of inputs and output
 
     logger.info("Computing all other spectral estimates...")
+    # Compute cross-spectra between inputs (this also gives us diagonal elements)
     for i in range(q):
         for j in range(i + 1, q):
             obj = get_ltf_result(
                 f"T{i + 1}{j + 1}", [inputs[i], inputs[j]], fs, **kwargs
             )
-            if not np.any(Tmat[i, j, :]):
-                Tmat[i, j, :] = obj.Gxy
-            if not np.any(Tmat[j, i, :]):
-                Tmat[j, i, :] = np.conj(obj.Gxy)
+            Tmat[i, j, :] = obj.Gxy
+            Tmat[j, i, :] = np.conj(obj.Gxy)
+            # Diagonal elements: Gxx is auto-spectrum of first input, Gyy is auto-spectrum of second
             if not np.any(Tmat[i, i, :]):
                 Tmat[i, i, :] = obj.Gxx
             if not np.any(Tmat[j, j, :]):
                 Tmat[j, j, :] = obj.Gyy
-
+    
+    # For single input case (q=1), compute diagonal separately
+    if q == 1:
+        obj = get_ltf_result("T11", [inputs[0], inputs[0]], fs, **kwargs)
+        Tmat[0, 0, :] = obj.Gxx
+    
+    # Compute cross-spectra between inputs and output
+    for i in range(q):
         obj = get_ltf_result(f"S{i + 1}0", [inputs[i], output], fs, **kwargs)
         Svec[i, :] = obj.Gxy
 
@@ -304,7 +311,20 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     # Solve for the optimal transfer functions numerically:
     Hvec = np.zeros((q, nf), dtype=complex)
     for k in range(nf):
-        Hvec[:, k] = np.linalg.solve(Tmat[:, :, k], Svec[:, k])
+        Tk = Tmat[:, :, k]
+        Sk = Svec[:, k]
+        # Check condition number to detect near-singular matrices
+        try:
+            cond = np.linalg.cond(Tk)
+            if cond > 1e12:  # Very ill-conditioned, use pinv
+                Tmat_pinv = np.linalg.pinv(Tk)
+                Hvec[:, k] = Tmat_pinv @ Sk
+            else:
+                Hvec[:, k] = np.linalg.solve(Tk, Sk)
+        except np.linalg.LinAlgError:
+            # Matrix is singular, use pseudo-inverse
+            Tmat_pinv = np.linalg.pinv(Tk)
+            Hvec[:, k] = Tmat_pinv @ Sk
 
     # Compute the optimal spectral density
     Sum1 = np.sum(Hvec * Svec.conj(), axis=0)
