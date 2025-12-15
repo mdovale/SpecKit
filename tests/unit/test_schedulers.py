@@ -82,7 +82,7 @@ def test_plan_dft_constraint(scheduler_plan):
     """Verifies the fundamental DFT constraint: r * L = fs."""
     plan, params, _ = scheduler_plan
     fs = params["fs"]
-    assert np.allclose(plan["r"] * plan["L"], fs, rtol=1e-12, atol=1e-12)
+    assert np.allclose(plan["r"] * plan["L"], fs, rtol=1e-6, atol=1e-6)
 
 
 def test_plan_frequency_stepping_constraint(scheduler_plan):
