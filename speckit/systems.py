@@ -36,13 +36,17 @@
 #
 import numpy as np
 import sympy as sp
+from typing import List, Tuple, Any
+from numpy.typing import ArrayLike
 from speckit import compute_spectrum as ltf
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def SISO_optimal_spectral_analysis(input, output, fs, **kwargs):
+def SISO_optimal_spectral_analysis(
+    input: ArrayLike, output: ArrayLike, fs: float, **kwargs: Any
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Performs optimal spectral analysis on a Single-Input Single-Output (SISO) system
     using an exact solution to estimate the amplitude spectral density (ASD) of the output,
@@ -51,37 +55,80 @@ def SISO_optimal_spectral_analysis(input, output, fs, **kwargs):
     Parameters
     ----------
     input : array-like
-        The input time series signal.
+        The input time series signal. Must be a 1D array-like object with finite values.
 
     output : array-like
-        The output time series signal.
+        The output time series signal. Must be a 1D array-like object with finite values
+        and the same length as `input`.
 
     fs : float
-        The sampling frequency of the input and output time series.
+        The sampling frequency of the input and output time series. Must be a positive,
+        finite value.
 
     **kwargs : dict, optional
         Additional keyword arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
-    np.ndarray
-        Fourier frequencies at which the analysis is performed.
+    Tuple[np.ndarray, np.ndarray]
+        A tuple containing:
+        - Fourier frequencies at which the analysis is performed.
+        - The amplitude spectral density of the output signal, calculated using the
+          optimal spectral analysis method.
 
-    np.ndarray
-        The amplitude spectral density of the output signal, calculated using the
-        optimal spectral analysis method.
+    Raises
+    ------
+    ValueError
+        If `fs` is not positive and finite, if `input` or `output` are empty, if they
+        have different lengths, if they are not 1D arrays, or if they contain non-finite values.
+    TypeError
+        If `input` or `output` cannot be converted to numpy arrays.
     """
+    # Validate fs
+    if not np.isfinite(fs) or fs <= 0:
+        raise ValueError(f"`fs` must be a positive finite float, got {fs!r}.")
+
+    # Convert to numpy arrays and validate
+    input_arr = np.asarray(input)
+    output_arr = np.asarray(output)
+
+    # Validate dimensions
+    if input_arr.ndim != 1:
+        raise ValueError(f"`input` must be a 1D array, got {input_arr.ndim}D array.")
+    if output_arr.ndim != 1:
+        raise ValueError(f"`output` must be a 1D array, got {output_arr.ndim}D array.")
+
+    # Validate non-empty
+    if input_arr.size == 0:
+        raise ValueError("`input` must not be empty.")
+    if output_arr.size == 0:
+        raise ValueError("`output` must not be empty.")
+
+    # Validate lengths match
+    if len(input_arr) != len(output_arr):
+        raise ValueError(
+            f"`input` and `output` must have the same length, "
+            f"got {len(input_arr)} and {len(output_arr)}."
+        )
+
+    # Validate finite values
+    if not np.all(np.isfinite(input_arr)):
+        raise ValueError("`input` must contain only finite values.")
+    if not np.all(np.isfinite(output_arr)):
+        raise ValueError("`output` must contain only finite values.")
 
     logger.info("Computing all spectral estimates and optimal solution...")
 
-    csd = ltf([input, output], fs, **kwargs)
+    csd = ltf([input_arr, output_arr], fs, **kwargs)
 
     logger.info("Done.")
 
     return csd.f, np.sqrt(csd.GyySx)
 
 
-def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
+def MISO_analytic_optimal_spectral_analysis(
+    inputs: List[ArrayLike], output: ArrayLike, fs: float, **kwargs: Any
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system
     using an exact analytic solution to the system of linear equations involving the
@@ -97,40 +144,90 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
 
     Parameters
     ----------
-    inputs : array-like
-        List of multiple input time series signals.
+    inputs : List[array-like]
+        List of multiple input time series signals. Each input must be a 1D array-like
+        object with finite values. All inputs must have the same length.
 
     output : array-like
-        The output time series signal.
+        The output time series signal. Must be a 1D array-like object with finite values
+        and the same length as all inputs.
 
     fs : float
-        Sampling frequency of the input and output time series.
+        Sampling frequency of the input and output time series. Must be a positive,
+        finite value.
 
     **kwargs : dict, optional
         Additional keyword arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
-    np.ndarray
-        Fourier frequencies at which the analysis is performed.
+    Tuple[np.ndarray, np.ndarray]
+        A tuple containing:
+        - Fourier frequencies at which the analysis is performed.
+        - Amplitude spectral density of the output signal, calculated using the
+          optimal spectral analysis method.
 
-    np.ndarray
-        Amplitude spectral density of the output signal, calculated using the
-        optimal spectral analysis method.
+    Raises
+    ------
+    ValueError
+        If `fs` is not positive and finite, if `inputs` is empty, if any input or `output`
+        are empty, if they have different lengths, if they are not 1D arrays, or if they
+        contain non-finite values.
+    TypeError
+        If `inputs` is not a list/sequence, or if any input or `output` cannot be converted
+        to numpy arrays.
     """
+    # Validate fs
+    if not np.isfinite(fs) or fs <= 0:
+        raise ValueError(f"`fs` must be a positive finite float, got {fs!r}.")
+
+    # Validate inputs is a non-empty sequence
+    if not isinstance(inputs, (list, tuple)):
+        raise TypeError(f"`inputs` must be a list or tuple, got {type(inputs).__name__}.")
     q = len(inputs)
+    if q == 0:
+        raise ValueError("`inputs` must not be empty.")
+
     if q > 5:
         logger.warning(
-            f"The problem dimension ({q}) is very large for the analytic solver, you may want to use MISO_numeric_optimal_spectral_analysis."
+            f"The problem dimension ({q}) is very large for the analytic solver, "
+            f"you may want to use MISO_numeric_optimal_spectral_analysis."
         )
 
-    N = len(inputs[0])
-    for input in inputs:
-        if len(input) != N:
-            raise ValueError("All input time series must be of equal length")
-    if len(output) != N:
+    # Convert to numpy arrays and validate
+    input_arrays = []
+    for i, inp in enumerate(inputs):
+        inp_arr = np.asarray(inp)
+        if inp_arr.ndim != 1:
+            raise ValueError(
+                f"`inputs[{i}]` must be a 1D array, got {inp_arr.ndim}D array."
+            )
+        if inp_arr.size == 0:
+            raise ValueError(f"`inputs[{i}]` must not be empty.")
+        if not np.all(np.isfinite(inp_arr)):
+            raise ValueError(f"`inputs[{i}]` must contain only finite values.")
+        input_arrays.append(inp_arr)
+
+    output_arr = np.asarray(output)
+    if output_arr.ndim != 1:
+        raise ValueError(f"`output` must be a 1D array, got {output_arr.ndim}D array.")
+    if output_arr.size == 0:
+        raise ValueError("`output` must not be empty.")
+    if not np.all(np.isfinite(output_arr)):
+        raise ValueError("`output` must contain only finite values.")
+
+    # Validate all have the same length
+    N = len(input_arrays[0])
+    for i, inp_arr in enumerate(input_arrays):
+        if len(inp_arr) != N:
+            raise ValueError(
+                f"All input time series must be of equal length, "
+                f"got length {len(inp_arr)} for `inputs[{i}]` but expected {N}."
+            )
+    if len(output_arr) != N:
         raise ValueError(
-            "The output time series must have the same length as the inputs"
+            f"The output time series must have the same length as the inputs, "
+            f"got {len(output_arr)} but expected {N}."
         )
 
     logger.info(f"Solving {q}-dimensional symbolic problem...")
@@ -157,14 +254,14 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     result = {}
     for i in range(q):
         for j in range(i + 1, q):
-            obj = ltf([inputs[i], inputs[j]], fs, **kwargs)
+            obj = ltf([input_arrays[i], input_arrays[j]], fs, **kwargs)
             result.setdefault(f"T{i + 1}{j + 1}", obj.Gxy)
             result.setdefault(f"T{j + 1}{i + 1}", np.conj(obj.Gxy))
             result.setdefault(f"T{i + 1}{i + 1}", obj.Gxx)
             result.setdefault(f"T{j + 1}{j + 1}", obj.Gyy)
 
     for i in range(q):
-        obj = ltf([inputs[i], output], fs, **kwargs)
+        obj = ltf([input_arrays[i], output_arr], fs, **kwargs)
         result[f"S{i + 1}0"] = obj.Gxy
         result[f"S0{i + 1}"] = np.conj(obj.Gxy)
 
@@ -210,7 +307,9 @@ def MISO_analytic_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     return result["f"], result["optimal_asd"]
 
 
-def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
+def MISO_numeric_optimal_spectral_analysis(
+    inputs: List[ArrayLike], output: ArrayLike, fs: float, **kwargs: Any
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system
     using by numerically solving the system of linear equations involving the
@@ -226,36 +325,84 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
 
     Parameters
     ----------
-    inputs : array-like
-        List of multiple input time series signals.
+    inputs : List[array-like]
+        List of multiple input time series signals. Each input must be a 1D array-like
+        object with finite values. All inputs must have the same length.
 
     output : array-like
-        The output time series signal.
+        The output time series signal. Must be a 1D array-like object with finite values
+        and the same length as all inputs.
 
     fs : float
-        Sampling frequency of the input and output time series.
+        Sampling frequency of the input and output time series. Must be a positive,
+        finite value.
 
-    **kwargs : tuple, optional
+    **kwargs : dict, optional
         Additional keyword arguments passed to the `ltf` function for spectral analysis.
 
     Returns
     -------
-    np.ndarray
-        Fourier frequencies at which the analysis is performed.
+    Tuple[np.ndarray, np.ndarray]
+        A tuple containing:
+        - Fourier frequencies at which the analysis is performed.
+        - Amplitude spectral density of the output signal, calculated using the
+          optimal spectral analysis method.
 
-    np.ndarray
-        Amplitude spectral density of the output signal, calculated using the
-        optimal spectral analysis method.
+    Raises
+    ------
+    ValueError
+        If `fs` is not positive and finite, if `inputs` is empty, if any input or `output`
+        are empty, if they have different lengths, if they are not 1D arrays, or if they
+        contain non-finite values.
+    TypeError
+        If `inputs` is not a list/sequence, or if any input or `output` cannot be converted
+        to numpy arrays.
     """
-    q = len(inputs)
+    # Validate fs
+    if not np.isfinite(fs) or fs <= 0:
+        raise ValueError(f"`fs` must be a positive finite float, got {fs!r}.")
 
-    N = len(inputs[0])
-    for input in inputs:
-        if len(input) != N:
-            raise ValueError("All input time series must be of equal length")
-    if len(output) != N:
+    # Validate inputs is a non-empty sequence
+    if not isinstance(inputs, (list, tuple)):
+        raise TypeError(f"`inputs` must be a list or tuple, got {type(inputs).__name__}.")
+    q = len(inputs)
+    if q == 0:
+        raise ValueError("`inputs` must not be empty.")
+
+    # Convert to numpy arrays and validate
+    input_arrays = []
+    for i, inp in enumerate(inputs):
+        inp_arr = np.asarray(inp)
+        if inp_arr.ndim != 1:
+            raise ValueError(
+                f"`inputs[{i}]` must be a 1D array, got {inp_arr.ndim}D array."
+            )
+        if inp_arr.size == 0:
+            raise ValueError(f"`inputs[{i}]` must not be empty.")
+        if not np.all(np.isfinite(inp_arr)):
+            raise ValueError(f"`inputs[{i}]` must contain only finite values.")
+        input_arrays.append(inp_arr)
+
+    output_arr = np.asarray(output)
+    if output_arr.ndim != 1:
+        raise ValueError(f"`output` must be a 1D array, got {output_arr.ndim}D array.")
+    if output_arr.size == 0:
+        raise ValueError("`output` must not be empty.")
+    if not np.all(np.isfinite(output_arr)):
+        raise ValueError("`output` must contain only finite values.")
+
+    # Validate all have the same length
+    N = len(input_arrays[0])
+    for i, inp_arr in enumerate(input_arrays):
+        if len(inp_arr) != N:
+            raise ValueError(
+                f"All input time series must be of equal length, "
+                f"got length {len(inp_arr)} for `inputs[{i}]` but expected {N}."
+            )
+    if len(output_arr) != N:
         raise ValueError(
-            "The output time series must have the same length as the inputs"
+            f"The output time series must have the same length as the inputs, "
+            f"got {len(output_arr)} but expected {N}."
         )
 
     logger.info(f"Solving {q}-dimensional problem...")
@@ -271,7 +418,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
         return result[key]
 
     logger.info("Computing the auto-spectrum of the output...")
-    obj = get_ltf_result("S00", output, fs, **kwargs)
+    obj = get_ltf_result("S00", output_arr, fs, **kwargs)
     S00 = obj.Gxx
     frequencies = obj.f
     nf = obj.nf
@@ -287,7 +434,7 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     for i in range(q):
         for j in range(i + 1, q):
             obj = get_ltf_result(
-                f"T{i + 1}{j + 1}", [inputs[i], inputs[j]], fs, **kwargs
+                f"T{i + 1}{j + 1}", [input_arrays[i], input_arrays[j]], fs, **kwargs
             )
             Tmat[i, j, :] = obj.Gxy
             Tmat[j, i, :] = np.conj(obj.Gxy)
@@ -299,12 +446,12 @@ def MISO_numeric_optimal_spectral_analysis(inputs, output, fs, **kwargs):
     
     # For single input case (q=1), compute diagonal separately
     if q == 1:
-        obj = get_ltf_result("T11", [inputs[0], inputs[0]], fs, **kwargs)
+        obj = get_ltf_result("T11", [input_arrays[0], input_arrays[0]], fs, **kwargs)
         Tmat[0, 0, :] = obj.Gxx
     
     # Compute cross-spectra between inputs and output
     for i in range(q):
-        obj = get_ltf_result(f"S{i + 1}0", [inputs[i], output], fs, **kwargs)
+        obj = get_ltf_result(f"S{i + 1}0", [input_arrays[i], output_arr], fs, **kwargs)
         Svec[i, :] = obj.Gxy
 
     logger.info("Computing solution...")
