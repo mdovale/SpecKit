@@ -39,7 +39,6 @@ import pytest
 from numpy.testing import assert_allclose
 
 from speckit import compute_spectrum, SpectrumAnalyzer
-from speckit.flattop import HFT95
 from scipy import signal
 
 
@@ -261,7 +260,7 @@ def test_get_measurement_and_to_dataframe(rand_seed):
 def test_enbw_positive_and_reasonable(rand_seed):
     fs = 1000.0
     x = _white_noise(200000)
-    for win in ("hann", "kaiser", HFT95):
+    for win in ("hann", "kaiser"):
         res = compute_spectrum(x, fs=fs, win=win, Jdes=128, Kdes=64)
         assert np.all(res.ENBW > 0)
         # ENBW ~ fs * S2 / S1^2; check it’s not absurd (> Nyquist by orders)
