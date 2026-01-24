@@ -51,8 +51,10 @@ Design notes
 
 __all__ = [
     "_NUMBA_ENABLED",
+    "_CUDA_ENABLED",
     "BinStats",
     "_build_Q",
+    "_select_backend",
     # helpers
     "_goertzel_real_imag",
     "_reduce_stats",
@@ -98,6 +100,63 @@ except Exception:  # pragma: no cover
 
     def _prange(*args, **kwargs):
         return range(*args)
+
+
+# Optional CUDA integration -----------------------------------------------------
+
+try:
+    from numba import cuda as _cuda
+
+    _CUDA_ENABLED = _cuda.is_available()
+    if _CUDA_ENABLED:
+        from .core_cuda import (
+            _stats_win_only_auto_cuda,
+            _stats_win_only_csd_cuda,
+            _stats_detrend0_auto_cuda,
+            _stats_detrend0_csd_cuda,
+            _stats_poly_auto_cuda,
+            _stats_poly_csd_cuda,
+        )
+except Exception:  # pragma: no cover
+    _CUDA_ENABLED = False
+
+
+# Backend selection helper -------------------------------------------------------
+
+
+def _select_backend(K, backend_hint="auto"):
+    """
+    Select compute backend based on availability and problem size.
+
+    Parameters
+    ----------
+    K : int
+        Number of segments
+    backend_hint : str
+        'auto', 'cuda', 'numba', or 'numpy'
+
+    Returns
+    -------
+    str : 'cuda', 'numba', or 'numpy'
+    """
+    if backend_hint == "cuda":
+        if not _CUDA_ENABLED:
+            raise RuntimeError("CUDA backend requested but not available")
+        return "cuda"
+    elif backend_hint == "numba":
+        if not _NUMBA_ENABLED:
+            raise RuntimeError("Numba backend requested but not available")
+        return "numba"
+    elif backend_hint == "numpy":
+        return "numpy"
+    else:  # 'auto'
+        # Heuristic: use CUDA for large K (>1000 segments)
+        if _CUDA_ENABLED and K > 1000:
+            return "cuda"
+        elif _NUMBA_ENABLED:
+            return "numba"
+        else:
+            return "numpy"
 
 
 # Typed container for readability (not used inside nopython regions) ----------

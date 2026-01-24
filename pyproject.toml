@@ -36,6 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cuda = ["numba[cuda]"]
 dev = ["pytest", "build", "twine", "ruff"]
 
 [project.urls]

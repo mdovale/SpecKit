@@ -60,7 +60,9 @@ from speckit.utils import (
 )
 from .core import (
     _NUMBA_ENABLED,
+    _CUDA_ENABLED,
     _build_Q,
+    _select_backend,
     _stats_win_only_auto,
     _stats_win_only_csd,
     _stats_detrend0_auto,
@@ -74,6 +76,17 @@ from .core import (
     _stats_poly_auto_np,
     _stats_poly_csd_np,
 )
+
+# Import CUDA functions if available
+if _CUDA_ENABLED:
+    from .core_cuda import (
+        _stats_win_only_auto_cuda,
+        _stats_win_only_csd_cuda,
+        _stats_detrend0_auto_cuda,
+        _stats_detrend0_csd_cuda,
+        _stats_poly_auto_cuda,
+        _stats_poly_csd_cuda,
+    )
 
 
 class SpectrumAnalyzer:
@@ -103,6 +116,7 @@ class SpectrumAnalyzer:
         scheduler: Union[str, Callable] = "vectorized_ltf",
         band: Optional[Tuple[float, float]] = None,
         force_target_nf: Optional[bool] = False,
+        backend: str = "auto",
         verbose: bool = False,
     ):
         """
@@ -154,6 +168,10 @@ class SpectrumAnalyzer:
             If True, performs a search to find the `Jdes` value that
             produces a plan with this target number of frequency bins.
             Defaults to False.
+        backend : str, optional
+            Compute backend to use: 'auto', 'cuda', 'numba', or 'numpy'.
+            'auto' selects CUDA if available and K > 1000, otherwise Numba if available.
+            Defaults to 'auto'.
         verbose : bool, optional
             If True, prints progress and diagnostic information. Defaults to False.
         """
@@ -179,6 +197,7 @@ class SpectrumAnalyzer:
             "scheduler": scheduler,
             "band": band,
             "force_target_nf": bool(force_target_nf),
+            "backend": str(backend),
         }
 
         # --- Process and validate input data ---
@@ -628,33 +647,92 @@ class SpectrumAnalyzer:
 
         # -------- Run kernel ----------
         t0 = _time.perf_counter()
+        
+        # Select backend based on segment count and user preference
+        K = len(starts)
+        backend_selected = _select_backend(K, self.config["backend"])
+        
         if detrend_mode == "win":
             if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(
-                    x1, x2, starts, segL, w, omega
-                )
+                if backend_selected == "cuda":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd_cuda(
+                        x1, x2, starts, segL, w, omega
+                    )
+                elif backend_selected == "numba":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(
+                        x1, x2, starts, segL, w, omega
+                    )
+                else:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd_np(
+                        x1, x2, starts, segL, w, omega
+                    )
             else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(
-                    x1, starts, segL, w, omega
-                )
+                if backend_selected == "cuda":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto_cuda(
+                        x1, starts, segL, w, omega
+                    )
+                elif backend_selected == "numba":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(
+                        x1, starts, segL, w, omega
+                    )
+                else:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto_np(
+                        x1, starts, segL, w, omega
+                    )
         elif detrend_mode == "mean0":
             if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(
-                    x1, x2, starts, segL, w, omega
-                )
+                if backend_selected == "cuda":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd_cuda(
+                        x1, x2, starts, segL, w, omega
+                    )
+                elif backend_selected == "numba":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(
+                        x1, x2, starts, segL, w, omega
+                    )
+                else:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd_np(
+                        x1, x2, starts, segL, w, omega
+                    )
             else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(
-                    x1, starts, segL, w, omega
-                )
+                if backend_selected == "cuda":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto_cuda(
+                        x1, starts, segL, w, omega
+                    )
+                elif backend_selected == "numba":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(
+                        x1, starts, segL, w, omega
+                    )
+                else:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto_np(
+                        x1, starts, segL, w, omega
+                    )
         else:  # poly
             if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(
-                    x1, x2, starts, segL, w, omega, Q
-                )
+                if backend_selected == "cuda":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_cuda(
+                        x1, x2, starts, segL, w, omega, Q
+                    )
+                elif backend_selected == "numba":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(
+                        x1, x2, starts, segL, w, omega, Q
+                    )
+                else:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(
+                        x1, x2, starts, segL, w, omega, Q
+                    )
             else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(
-                    x1, starts, segL, w, omega, Q
-                )
+                if backend_selected == "cuda":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_cuda(
+                        x1, starts, segL, w, omega, Q
+                    )
+                elif backend_selected == "numba":
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(
+                        x1, starts, segL, w, omega, Q
+                    )
+                else:
+                    MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(
+                        x1, starts, segL, w, omega, Q
+                    )
         tm = _time.perf_counter() - t0
 
         # -------- Package SpectrumResult ----------
@@ -819,10 +897,18 @@ class SpectrumAnalyzer:
             f_i = float(plan["f"][i])
             omega = 2.0 * np.pi * f_i / fs
 
+            # Select backend based on segment count and user preference
+            K = len(starts)
+            backend_selected = _select_backend(K, self.config["backend"])
+
             # Choose & run kernel
             if order == -1:
                 if self.iscsd:
-                    if _NUMBA_ENABLED:
+                    if backend_selected == "cuda":
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd_cuda(
+                            x1, x2, starts, L, w, omega
+                        )
+                    elif backend_selected == "numba":
                         MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(
                             x1, x2, starts, L, w, omega
                         )
@@ -831,7 +917,11 @@ class SpectrumAnalyzer:
                             x1, x2, starts, L, w, omega
                         )
                 else:
-                    if _NUMBA_ENABLED:
+                    if backend_selected == "cuda":
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto_cuda(
+                            x1, starts, L, w, omega
+                        )
+                    elif backend_selected == "numba":
                         MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(
                             x1, starts, L, w, omega
                         )
@@ -842,7 +932,11 @@ class SpectrumAnalyzer:
 
             elif order == 0:
                 if self.iscsd:
-                    if _NUMBA_ENABLED:
+                    if backend_selected == "cuda":
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd_cuda(
+                            x1, x2, starts, L, w, omega
+                        )
+                    elif backend_selected == "numba":
                         MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(
                             x1, x2, starts, L, w, omega
                         )
@@ -851,7 +945,11 @@ class SpectrumAnalyzer:
                             x1, x2, starts, L, w, omega
                         )
                 else:
-                    if _NUMBA_ENABLED:
+                    if backend_selected == "cuda":
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto_cuda(
+                            x1, starts, L, w, omega
+                        )
+                    elif backend_selected == "numba":
                         MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(
                             x1, starts, L, w, omega
                         )
@@ -867,7 +965,11 @@ class SpectrumAnalyzer:
                     Q = _build_Q(L, order)
                     Q_cache[key] = Q
                 if self.iscsd:
-                    if _NUMBA_ENABLED:
+                    if backend_selected == "cuda":
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_cuda(
+                            x1, x2, starts, L, w, omega, Q
+                        )
+                    elif backend_selected == "numba":
                         MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(
                             x1, x2, starts, L, w, omega, Q
                         )
@@ -876,7 +978,11 @@ class SpectrumAnalyzer:
                             x1, x2, starts, L, w, omega, Q
                         )
                 else:
-                    if _NUMBA_ENABLED:
+                    if backend_selected == "cuda":
+                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_cuda(
+                            x1, starts, L, w, omega, Q
+                        )
+                    elif backend_selected == "numba":
                         MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(
                             x1, starts, L, w, omega, Q
                         )
