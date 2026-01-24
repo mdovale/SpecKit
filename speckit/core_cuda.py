@@ -59,8 +59,9 @@ __all__ = [
 ]
 
 import numpy as np
+import math
 from numba import cuda
-from numba.cuda import math as cuda_math
+from numba import types
 
 from .core import _reduce_stats_nb
 
@@ -75,8 +76,8 @@ def _stats_win_only_auto_cuda_kernel(x, starts, L, w, omega, xx, yy, xyr, xyi):
     j = cuda.grid(1)  # Thread index = segment index
     if j < starts.shape[0]:
         s = int(starts[j])
-        cosw = cuda_math.cos(omega)
-        sinw = cuda_math.sin(omega)
+        cosw = math.cos(omega)
+        sinw = math.sin(omega)
         coeff = 2.0 * cosw
 
         # Goertzel recurrence with streaming window application
@@ -159,8 +160,8 @@ def _stats_win_only_csd_cuda_kernel(x1, x2, starts, L, w, omega, xx, yy, xyr, xy
     j = cuda.grid(1)
     if j < starts.shape[0]:
         s = int(starts[j])
-        cosw = cuda_math.cos(omega)
-        sinw = cuda_math.sin(omega)
+        cosw = math.cos(omega)
+        sinw = math.sin(omega)
         coeff = 2.0 * cosw
 
         # X channel
@@ -240,8 +241,8 @@ def _stats_detrend0_auto_cuda_kernel(x, starts, L, w, omega, xx, yy, xyr, xyi):
             m += x[s + n]
         m = m / float(L)
 
-        cosw = cuda_math.cos(omega)
-        sinw = cuda_math.sin(omega)
+        cosw = math.cos(omega)
+        sinw = math.sin(omega)
         coeff = 2.0 * cosw
 
         # Goertzel on (x - m) * w
@@ -311,8 +312,8 @@ def _stats_detrend0_csd_cuda_kernel(x1, x2, starts, L, w, omega, xx, yy, xyr, xy
         m1 = m1 / float(L)
         m2 = m2 / float(L)
 
-        cosw = cuda_math.cos(omega)
-        sinw = cuda_math.sin(omega)
+        cosw = math.cos(omega)
+        sinw = math.sin(omega)
         coeff = 2.0 * cosw
 
         # X channel
@@ -388,15 +389,15 @@ def _stats_poly_auto_cuda_kernel(x, starts, L, w, omega, Q, xx, yy, xyr, xyi):
 
         # Compute alpha = Q.T @ x_seg
         p1 = Q.shape[1]
-        alpha = cuda.local.array(3, dtype=cuda.types.float64)  # Max 3 for order=2
+        alpha = cuda.local.array(3, dtype=types.float64)  # Max 3 for order=2
         for k in range(p1):
             acc = 0.0
             for n in range(L):
                 acc += Q[n, k] * x[s + n]
             alpha[k] = acc
 
-        cosw = cuda_math.cos(omega)
-        sinw = cuda_math.sin(omega)
+        cosw = math.cos(omega)
+        sinw = math.sin(omega)
         coeff = 2.0 * cosw
 
         # Goertzel on (x - Q @ alpha) * w, streamed
@@ -465,8 +466,8 @@ def _stats_poly_csd_cuda_kernel(x1, x2, starts, L, w, omega, Q, xx, yy, xyr, xyi
         s = int(starts[j])
 
         p1 = Q.shape[1]
-        alpha1 = cuda.local.array(3, dtype=cuda.types.float64)
-        alpha2 = cuda.local.array(3, dtype=cuda.types.float64)
+        alpha1 = cuda.local.array(3, dtype=types.float64)
+        alpha2 = cuda.local.array(3, dtype=types.float64)
 
         # Compute alpha1 = Q.T @ x1_seg
         for k in range(p1):
@@ -482,8 +483,8 @@ def _stats_poly_csd_cuda_kernel(x1, x2, starts, L, w, omega, Q, xx, yy, xyr, xyi
                 acc += Q[n, k] * x2[s + n]
             alpha2[k] = acc
 
-        cosw = cuda_math.cos(omega)
-        sinw = cuda_math.sin(omega)
+        cosw = math.cos(omega)
+        sinw = math.sin(omega)
         coeff = 2.0 * cosw
 
         # X channel

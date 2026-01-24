@@ -55,6 +55,7 @@ __all__ = [
     "BinStats",
     "_build_Q",
     "_select_backend",
+    "diagnose_cuda",
     # helpers
     "_goertzel_real_imag",
     "_reduce_stats",
@@ -104,21 +105,67 @@ except Exception:  # pragma: no cover
 
 # Optional CUDA integration -----------------------------------------------------
 
+_CUDA_ERROR = None  # Will be set if there's an error during CUDA detection
+
 try:
     from numba import cuda as _cuda
-
-    _CUDA_ENABLED = _cuda.is_available()
-    if _CUDA_ENABLED:
-        from .core_cuda import (
-            _stats_win_only_auto_cuda,
-            _stats_win_only_csd_cuda,
-            _stats_detrend0_auto_cuda,
-            _stats_detrend0_csd_cuda,
-            _stats_poly_auto_cuda,
-            _stats_poly_csd_cuda,
-        )
-except Exception:  # pragma: no cover
+    _cuda_import_successful = True
+except ImportError:
+    # numba.cuda module not available (numba[cuda] not installed)
     _CUDA_ENABLED = False
+    _CUDA_ERROR = "numba.cuda module not found. Install with: pip install 'numba[cuda]'"
+    _cuda_import_successful = False
+except Exception as e:  # pragma: no cover
+    _CUDA_ENABLED = False
+    _CUDA_ERROR = f"Error importing numba.cuda: {str(e)}"
+    _cuda_import_successful = False
+
+if _cuda_import_successful:
+    # Try to detect CUDA availability
+    # Note: is_available() may return False even if CUDA libraries are present
+    # if the GPU cannot be initialized (e.g., CUDA_ERROR_OPERATING_SYSTEM)
+    try:
+        _CUDA_ENABLED = _cuda.is_available()
+        # If False, try to get more diagnostic info by attempting initialization
+        if not _CUDA_ENABLED:
+            try:
+                # Try to initialize the driver to get a more specific error message
+                driver_obj = _cuda.cudadrv.driver.driver
+                driver_obj.init()
+            except AttributeError as e:
+                # If driver object doesn't exist, capture that
+                _CUDA_ERROR = f"CUDA driver object not accessible: {type(e).__name__}: {str(e)}"
+            except Exception as e:
+                # Capture the full error message, including exception type
+                error_msg = str(e)
+                # Handle edge case where str(e) might be incomplete
+                if not error_msg or len(error_msg) < 10:
+                    # Fallback: use repr to get more details
+                    error_msg = repr(e)
+                _CUDA_ERROR = error_msg
+    except Exception as e:
+        # If is_available() itself raises an exception, CUDA is not usable
+        _CUDA_ENABLED = False
+        error_msg = str(e)
+        if not error_msg:
+            error_msg = f"{type(e).__name__}: {repr(e)}"
+        _CUDA_ERROR = error_msg
+
+    if _CUDA_ENABLED:
+        try:
+            from .core_cuda import (
+                _stats_win_only_auto_cuda,
+                _stats_win_only_csd_cuda,
+                _stats_detrend0_auto_cuda,
+                _stats_detrend0_csd_cuda,
+                _stats_poly_auto_cuda,
+                _stats_poly_csd_cuda,
+            )
+        except ImportError as e:
+            # If core_cuda import fails, CUDA functions won't be available
+            # but this doesn't mean CUDA itself is unavailable
+            if not _CUDA_ERROR:
+                _CUDA_ERROR = f"Failed to import CUDA functions from core_cuda: {str(e)}"
 
 
 # Backend selection helper -------------------------------------------------------
@@ -141,7 +188,10 @@ def _select_backend(K, backend_hint="auto"):
     """
     if backend_hint == "cuda":
         if not _CUDA_ENABLED:
-            raise RuntimeError("CUDA backend requested but not available")
+            error_msg = "CUDA backend requested but not available"
+            if _CUDA_ERROR:
+                error_msg += f": {_CUDA_ERROR}"
+            raise RuntimeError(error_msg)
         return "cuda"
     elif backend_hint == "numba":
         if not _NUMBA_ENABLED:
@@ -157,6 +207,105 @@ def _select_backend(K, backend_hint="auto"):
             return "numba"
         else:
             return "numpy"
+
+
+def diagnose_cuda():
+    """
+    Diagnose CUDA availability and provide troubleshooting information.
+
+    Returns
+    -------
+    dict
+        Dictionary with diagnostic information including:
+        - cuda_enabled: bool
+        - cuda_error: str or None
+        - numba_version: str or None
+        - cuda_module_available: bool
+        - recommendations: list of str
+    """
+    import os
+    diagnostics = {
+        "cuda_enabled": _CUDA_ENABLED,
+        "cuda_error": _CUDA_ERROR,
+        "numba_version": None,
+        "cuda_module_available": False,
+        "recommendations": [],
+    }
+
+    try:
+        import numba
+        diagnostics["numba_version"] = numba.__version__
+    except ImportError:
+        diagnostics["recommendations"].append("Install numba: pip install numba")
+        return diagnostics
+
+    try:
+        from numba import cuda
+        diagnostics["cuda_module_available"] = True
+
+        if not _CUDA_ENABLED:
+            # Use stored error if available, otherwise try to get more info
+            current_error = _CUDA_ERROR
+            
+            # Try to get more detailed error information if we don't have a good one
+            if not current_error or len(current_error) < 20:
+                try:
+                    # Attempt to initialize the driver to get a specific error
+                    cuda.cudadrv.driver.driver.init()
+                except AttributeError as e:
+                    # Driver object structure issue
+                    current_error = f"CUDA driver object not accessible: {type(e).__name__}: {str(e)}"
+                except Exception as e:
+                    error_str = str(e)
+                    # Use repr if str is too short or incomplete
+                    if not error_str or len(error_str) < 10:
+                        error_str = repr(e)
+                    current_error = error_str or current_error
+            
+            diagnostics["cuda_error"] = current_error
+
+            # Check common error patterns
+            error_str_lower = (current_error or "").lower()
+            if "cuda_error_operating_system" in error_str_lower or "304" in current_error:
+                diagnostics["recommendations"].extend([
+                    "CUDA driver initialization failed (Error 304: OPERATING_SYSTEM).",
+                    "Common causes:",
+                    "  - GPU is in use by another process (e.g., X server, display manager)",
+                    "  - Insufficient permissions to access GPU",
+                    "  - Driver/library version mismatch",
+                    "",
+                    "Troubleshooting steps:",
+                    "  1. Check if GPU is accessible: nvidia-smi",
+                    "  2. Try setting driver path: export NUMBA_CUDA_DRIVER=/usr/lib/x86_64-linux-gnu/libcuda.so",
+                    "  3. Check GPU processes: nvidia-smi",
+                    "  4. Ensure you have permission to access /dev/nvidia* devices",
+                    "  5. On some systems, CUDA may not work when X server is using the GPU",
+                ])
+            elif "driver library cannot be found" in error_str_lower or "libcuda" in error_str_lower:
+                diagnostics["recommendations"].extend([
+                    "CUDA driver library not found.",
+                    "Try setting: export NUMBA_CUDA_DRIVER=/usr/lib/x86_64-linux-gnu/libcuda.so",
+                ])
+            elif current_error and current_error != "init":
+                # Only show generic error if we have a meaningful error message
+                diagnostics["recommendations"].append(
+                    f"CUDA initialization error: {current_error}"
+                )
+            
+            # General recommendations if no specific error was captured or error is too short
+            if not current_error or len(current_error) < 10:
+                diagnostics["recommendations"].extend([
+                    "CUDA is not available. Check:",
+                    "  - NVIDIA drivers: nvidia-smi should work",
+                    "  - CUDA toolkit is installed",
+                    "  - numba[cuda] is installed: pip install 'numba[cuda]'",
+                ])
+    except ImportError:
+        diagnostics["recommendations"].append(
+            "numba.cuda module not available. Install with: pip install 'numba[cuda]'"
+        )
+
+    return diagnostics
 
 
 # Typed container for readability (not used inside nopython regions) ----------
