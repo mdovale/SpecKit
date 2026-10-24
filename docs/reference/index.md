@@ -2,8 +2,10 @@
 
 These notes describe the behavior in `speckit/` and the tests that lock it.
 `compute_spectrum` returns one-sided spectral densities. Noise-generator `psd`
-arguments are two-sided. A cross-spectrum follows SciPy: `Pxy = X * conj(Y)`,
-with channel 0 as `X` and channel 1 as `Y`.
+arguments are two-sided. A cross-spectrum is `Gxy = X * conj(Y)`, with
+channel 0 as `X` and channel 1 as `Y`. That is the complex conjugate of
+`scipy.signal.csd(x, y)`, which forms `conj(X) * Y`. `Hxy` matches SciPy's
+`csd(x, y) / csd(x, x)`. See `docs/handoffs/20261024_csd-convention-vs-scipy.md`.
 
 ## Goal
 
