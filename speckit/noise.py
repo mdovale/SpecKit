@@ -54,6 +54,25 @@ This implementation is highly optimized for performance and stability:
 
 Requires the `numba` library (`pip install numba`).
 
+PSD conventions
+---------------
+Generator levels are **two-sided** power spectral densities ``S2(f)`` in
+(signal units)^2 / Hz, defined on ``[-fs/2, fs/2]`` so that
+``var(x) = integral of S2(f) df``. For white noise this gives
+``var(x) = S2 * fs``.
+
+`speckit.compute_spectrum` returns **one-sided** densities (``Gxx``, ``Gyy``,
+``Gxy``) on ``[0, fs/2]``. For a real signal, ``Gxx(f) = 2 * S2(f)`` for
+``0 < f < fs/2``. A generate/estimate round trip therefore reads:
+
+>>> import numpy as np
+>>> import speckit
+>>> from speckit.noise import white_noise
+>>> x = white_noise(f_sample=10.0, psd=4.0, seed=0).get_series(2**20)
+>>> sp = speckit.compute_spectrum(x, 10.0, order=0, win="kaiser", psll=200)
+>>> float(np.median(sp.Gxx / 2.0))  # doctest: +SKIP
+4.0
+
 References
 ----------
 GENERATING LONG STREAMS OF $1/f^{alpha}$ NOISE
@@ -140,8 +159,10 @@ class white_noise:
         Sampling frequency in Hz.
     psd : float, optional
         The desired two-sided Power Spectral Density (PSD) in units of
-        (signal units)^2 / Hz. The RMS value of the generated time-series
-        will be `sqrt(psd * f_sample / 2)`. Defaults to 1.0.
+        (signal units)^2 / Hz. The variance is ``psd * f_sample``, so the
+        RMS value of the generated time-series is ``sqrt(psd * f_sample)``.
+        The one-sided PSD reported by `speckit.compute_spectrum` is
+        ``2 * psd``. Defaults to 1.0.
     seed : int, optional
         Seed for the random number generator to ensure reproducibility.
         If None, a seed is drawn from system entropy. Defaults to None.
@@ -247,7 +268,9 @@ class red_noise(_base_colored_noise):
 
     Generates noise with a PSD proportional to 1/f^2. The spectrum is
     whitened below `f_min`. The output is scaled such that the two-sided
-    PSD is 1.0 at f=1 Hz.
+    PSD is ``f**-2`` (f in Hz), i.e. 1.0 at f=1 Hz, for
+    ``f_min << f << f_sample / 2``. The one-sided PSD reported by
+    `speckit.compute_spectrum` is twice that.
 
     Parameters
     ----------
@@ -316,9 +339,15 @@ class alpha_noise(_base_colored_noise):
     """Colored noise generator (1/f^alpha power spectrum).
 
     This generator uses a Numba-accelerated cascade of first-order filters
-    to achieve a stable and high-performance simulation. The two-sided PSD
-    is scaled to be 1.0 at f=1 Hz. The spectrum is whitened below `f_min`
-    and above `f_max`.
+    to achieve a stable and high-performance simulation. Between `f_min`
+    and `f_max` the two-sided PSD is ``f**-alpha`` (f in Hz), i.e. 1.0 at
+    f=1 Hz. The level is the log-average of the cascade's own transfer
+    function over one pole spacing at the centre of the band. From a decade
+    above `f_min` to a decade below `f_max` (and well below Nyquist) the
+    transfer function is within 1% of ``f**-alpha``; closer in, the
+    first-order corners pull the PSD below the power law. The one-sided PSD
+    reported by `speckit.compute_spectrum` is twice the two-sided PSD. The
+    spectrum is whitened below `f_min` and above `f_max`.
 
     Parameters
     ----------
@@ -385,7 +414,9 @@ class alpha_noise(_base_colored_noise):
         self._b_coeffs = np.vstack([np.ones_like(b1), -b1]).T.copy()
         self._zi_states = np.zeros((self._num_spectra, 1), dtype=np.float64)
 
-        self._scaling = 1.0 / np.power(self.fmax, self.alpha / 2.0)
+        self._scaling = 1.0 / np.sqrt(
+            self._power_law_level(0.5 * (log_w_min + log_w_max), dp)
+        )
 
         if init_filter:
             self._settle_filter_state()
@@ -420,6 +451,22 @@ class alpha_noise(_base_colored_noise):
             w_noise, self._a_coeffs, self._b_coeffs, self._zi_states
         )
         return samples * self._scaling
+
+    def _power_law_level(self, log_w_center: float, dp: float) -> float:
+        """Level ``C`` of the unscaled cascade, ``|H(f)|^2 ~= C * f**-alpha``.
+
+        The section ripple is periodic in ``log10(omega)`` with period ``dp``,
+        so the log-average of ``|H(f)|^2 * f**alpha`` over one period centred
+        on the cascade is the intercept of the best-fit power law at 1 Hz.
+        ``H`` is the digital transfer function the cascade actually applies.
+        """
+        log_w = log_w_center + dp * (np.arange(64) / 64.0 - 0.5)
+        f = np.power(10.0, log_w) / (2.0 * np.pi)
+        z1 = np.exp(-2j * np.pi * f / self.fs)
+        num = self._a_coeffs[:, :1] + self._a_coeffs[:, 1:] * z1
+        den = self._b_coeffs[:, :1] + self._b_coeffs[:, 1:] * z1
+        log_h2 = 2.0 * np.sum(np.log(np.abs(num / den)), axis=0)
+        return float(np.exp(np.mean(log_h2 + self.alpha * np.log(f))))
 
     def _calc_filter_coeffs(
         self, f_min: np.ndarray, f_max: np.ndarray

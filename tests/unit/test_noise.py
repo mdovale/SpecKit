@@ -148,6 +148,53 @@ def test_alpha_noise_spectral_slope(alpha, n_samples_large):
     assert result.slope == pytest.approx(expected_slope, abs=0.15)
 
 
+def _two_sided_level(series, f_samp, alpha, band):
+    """Mean of the two-sided Welch PSD times f**alpha over ``band``.
+
+    Welch returns a one-sided density, so the two-sided PSD is half of it.
+    The arithmetic mean keeps the estimator unbiased, unlike the median.
+    """
+    freqs, psd_one_sided = welch(series, fs=f_samp, nperseg=2**15)
+    mask = (freqs >= band[0]) & (freqs <= band[1])
+    return np.mean(psd_one_sided[mask] / 2.0 * freqs[mask] ** alpha)
+
+
+@pytest.mark.parametrize("alpha", [0.01, 0.5, 1.0, 1.5, 2.0])
+def test_alpha_noise_absolute_level(alpha):
+    """
+    The two-sided PSD of alpha_noise is f**-alpha, i.e. 1.0 at 1 Hz.
+
+    The band starts a decade above f_min, where the first-order corner is
+    negligible, and stops at fs / 40, where bilinear warping is negligible.
+    """
+    f_samp = 1000.0
+    gen = noise.alpha_noise(f_samp, 0.1, 500.0, alpha=alpha, seed=7)
+    series = gen.get_series(2**21)
+
+    level = _two_sided_level(series, f_samp, alpha, band=(1.0, 25.0))
+    assert level == pytest.approx(1.0, rel=0.03)
+
+
+def test_pink_noise_absolute_level():
+    """The two-sided PSD of pink_noise is 1/f, i.e. 1.0 at 1 Hz."""
+    f_samp = 1000.0
+    gen = noise.pink_noise(f_samp, 0.1, 500.0, seed=8)
+    series = gen.get_series(2**21)
+
+    level = _two_sided_level(series, f_samp, 1.0, band=(1.0, 25.0))
+    assert level == pytest.approx(1.0, rel=0.03)
+
+
+def test_red_noise_absolute_level():
+    """The two-sided PSD of red_noise is 1/f**2, i.e. 1.0 at 1 Hz."""
+    f_samp = 1000.0
+    gen = noise.red_noise(f_samp, 0.1, seed=9)
+    series = gen.get_series(2**21)
+
+    level = _two_sided_level(series, f_samp, 2.0, band=(1.0, 25.0))
+    assert level == pytest.approx(1.0, rel=0.03)
+
+
 def test_red_noise_spectral_slope(n_samples_large):
     """
     Tests that the specialized red_noise generator produces a spectrum with
