@@ -28,13 +28,31 @@ Plus one trivial packaging nit: `pyproject.toml` `[project.urls]` still points a
 
 ## Current status
 
-Not fixed. Reproducible with the snippets below against v1.0.2 as installed from
-PyPI (also present in the working tree at commit `4f81ae2`).
+**2026-10-24: defects 1–4 fixed in the working tree (uncommitted, except the
+`compute_spectrum` note, which landed in `0ab8ba4`). The release
+step for defect 2 is still open; see "Recommended next steps" at the end.**
 
-The downstream project works around item 2 by widening its own test tolerance and
-by using only `alpha = 2` in shipped instrument models (the accurate end of the
-range); it does not compensate for the bias numerically, because a documented
-generator normalization is the right place to fix it.
+- Defect 1: `white_noise` docstring now states `var = psd * f_sample`,
+  `RMS = sqrt(psd * f_sample)`, and that the one-sided estimate is `2 * psd`.
+- Defect 2: `alpha_noise` now normalizes from its own digital transfer
+  function (`_power_law_level`). Root cause and verification are in "Work log
+  2026-10-24" below. `pink_noise` inherits the fix; `red_noise` was already
+  correct and is now covered by a level test.
+- Defect 3: a "PSD conventions" section in the `speckit.noise` module
+  docstring and a Notes section in `compute_spectrum`, both with the
+  white-noise round trip (`median(Gxx / 2) = 3.9989` for `psd = 4`).
+- Defect 4: `pyproject.toml` already pointed at `mdovale/SpecKit` when this
+  session started. No change needed.
+
+Original status (2026-09-05), kept for the record:
+
+> Not fixed. Reproducible with the snippets below against v1.0.2 as installed
+> from PyPI (also present in the working tree at commit `4f81ae2`).
+>
+> The downstream project works around item 2 by widening its own test
+> tolerance and by using only `alpha = 2` in shipped instrument models (the
+> accurate end of the range); it does not compensate for the bias numerically,
+> because a documented generator normalization is the right place to fix it.
 
 ---
 
@@ -286,3 +304,100 @@ metadata for 1.0.2 therefore points at the old project name.
 - Downstream consumer and its workaround: `gravnav/sensor/noise.py` in the
   GravNav repository (`_AlphaGenerator`, and the tolerance comment in
   `tests/test_noise_models.py`).
+- `docs/reference/noise-generators.md` — current description of the cascade,
+  its level, and the level tests.
+
+---
+
+## Work log 2026-10-24
+
+### Root cause of defect 2
+
+Each section is the bilinear transform of `(s + ω_z) / (s + ω_p)`: unit gain
+above both corners and `ω_z / ω_p = 10^(dp α / 2)` below them. The poles sit
+at `log10 ω_min + dp (i + 1/2 - α/4)` and the zeros `dp α / 2` above them,
+with `dp = log10(ω_max / ω_min) / n`. Treat each section as a log-gain step of
+`dp α / 2` at its log-midpoint `log10 ω_min + dp (i + 1/2)`. The staircase
+then follows `|H|² = (F / f)^α` with
+
+    log10 F = log10 f_max_eff + (dp / 2) (1 - α / 2)
+
+where `f_max_eff` is the last zero (`self.fmax`). The old scale
+`1 / f_max_eff^(α/2)` therefore leaves a PSD factor `10^(α dp (1 - α/2) / 2)`.
+That is about 1.13 at `α = 1`, 1.10 at `α = 0.5` and `1.5`, and 1 at `α = 2`.
+It also explains why the bias did not depend on the number of decades: `dp`
+stays near `1/4.5`. The handoff's repro (1.088 / 1.120 / 1.085 / 0.988) agrees
+with the cascade's own `|H|²` (1.095 / 1.127 / 1.089 / 0.988 log-average), so
+the bias was in the scale constant, not in the estimator.
+
+### Fix
+
+Option 1 from "Recommended approach", with one change: the evaluation point is
+not 1 Hz. 1 Hz is often outside `[f_min, f_max]` (the unit test uses 20 Hz to
+4 kHz), and "1.0 at 1 Hz" means the power-law intercept, not the filter
+response at 1 Hz. `alpha_noise._power_law_level` evaluates the digital
+cascade `H(z)` on 64 points across one pole spacing `dp`, centred on the
+log-midpoint of the band. It returns the log-average `C` of `|H|² f^α`, and
+the scale becomes `1 / sqrt(C)`. The Numba cascade kernel is unchanged; only
+the constant it is multiplied by moves.
+
+### What was tried and checked
+
+- Transfer-function sweep: `α` from 0.01 to 2 (12 values) on six
+  `(fs, f_min, f_max)` configurations, spanning 0.5 to 6.7 decades. From a
+  decade above `f_min` to `min(f_max / 10, fs / 40)`, `|H|² s² f^α` lies in
+  `[0.990, 1.000]` everywhere. The true section ripple is under 0.3%. The
+  "p5/p95 spread" in the table above came mostly from the first-order corners:
+  at `sqrt(10) f_min` with `α = 2` the PSD is `1 / 1.1 = 0.909` of the law.
+  This is real filter shape, not ripple.
+- Short cascades (3 to 8 sections, no decade-wide interior): at the band
+  centre the level is within 0.6% of 1.
+- Handoff repro after the fix (`compute_spectrum`, median over 5 mHz to 2 Hz):
+  0.991 / 0.989 / 0.988 / 0.988 for `α` = 0.5 / 1 / 1.5 / 2. The roughly 1%
+  shortfall is the median of a chi-square estimate sitting below its mean.
+  Bilinear warping toward 2 Hz (`fs / 5`) adds to it. The transfer-function
+  median on the same band is 0.997 to 0.999.
+- Tolerance basis for the new tests: the Welch estimate is averaged (mean,
+  not median) over 1 to 25 Hz. The band starts a decade above `f_min = 0.1`
+  and stops at `fs / 40`, so the corners and warping stay below 0.5%. The
+  statistical scatter is about 0.3%. Measured values are 0.9995 to 0.9999 for
+  `alpha_noise`, and 1.002 for `red_noise`. The old scale gives 1.098 / 1.133 /
+  1.098 at `α` = 0.5 / 1 / 1.5. A 3% tolerance therefore catches the bug with
+  a factor of 3 margin.
+
+### Files touched
+
+- `speckit/noise.py` — module "PSD conventions" section; `white_noise`,
+  `red_noise`, `alpha_noise` docstrings; `alpha_noise._power_law_level` and
+  the new `_scaling`.
+- `speckit/analysis.py` — `compute_spectrum` Notes section on one-sided
+  versus two-sided, with the round trip. Docstring only. A parallel docstring
+  session included it in commit `0ab8ba4`.
+- `tests/unit/test_noise.py` — `test_alpha_noise_absolute_level`
+  (`α` in `{0.01, 0.5, 1, 1.5, 2}`), `test_pink_noise_absolute_level`,
+  `test_red_noise_absolute_level`.
+- `docs/reference/noise-generators.md` — updated to the new normalization.
+
+### Verification
+
+- `.venv/bin/python -m pytest tests/unit tests/integration/test_analysis_api.py -q`
+  — 129 passed.
+- `ruff check` on `speckit/noise.py` and `tests/unit/test_noise.py` reports the
+  same 11 typing and import-order findings as `HEAD`, with nothing new.
+  `ruff format --check` is clean on both.
+
+### Recommended next steps
+
+1. **Release (needs the maintainer's decision).** For a given seed,
+   `alpha_noise` and `pink_noise` amplitudes drop by up to about 6% (PSD up to
+   13%). Bump to a minor version (1.1.0) and add a changelog note saying it is
+   a behavioral change. The note is now in `CHANGELOG.md` under "Unreleased".
+   The version bump is deferred until the next release is cut, so it can
+   batch the other 2026-10-24 handoffs.
+2. Regenerate the noise validation figure (`notebooks/0.4_noise.ipynb`,
+   `fig_noise_validation.pdf`) if the manuscript uses it. The pink curve
+   should now sit on the theory line instead of about 6% above it in ASD.
+3. Downstream (GravNav): once a release with this fix is pinned, the widened
+   tolerance in `tests/test_noise_models.py` can be tightened back.
+4. Not done, and kept separate as the original note asks: an optional
+   one-sided `psd=` on the generators.

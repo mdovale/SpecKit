@@ -23,8 +23,13 @@ Nyquist.
 ## Current status
 
 Not started. `fftnoise` colors a full Hermitian FFT vector, not a log-grid
-one-sided ASD. `alpha_noise` does not meet its documented level (see the
-noise handoff). No partial-fraction fitter exists in `speckit/noise.py`.
+one-sided ASD. No partial-fraction fitter exists in `speckit/noise.py`.
+
+Unblocked 2026-10-24: the noise-generator handoff is fixed. `alpha_noise`
+now meets its documented two-sided level, `f**-alpha`, to within 1% inside
+its band. The `white_noise` docstring matches `rms = sqrt(psd * fs)`. The
+`noise` module and `compute_spectrum` both document `Gxx = 2 * S2`. The
+"Blocked by" paragraph below is kept as the record of what was wrong.
 
 ## Context
 
@@ -45,7 +50,8 @@ must call those same coefficients. Do not fit in both places.
 `SpectrumResult.psd` is. `white_noise` and `alpha_noise` take a two-sided
 `psd`. Convert between those conventions in one place inside `noise.py`.
 
-**Blocked by.** `docs/handoffs/20260905_noise-generator-normalization.md`.
+**Blocked by** (resolved 2026-10-24, see Current status).
+`docs/handoffs/20260905_noise-generator-normalization.md`.
 
 - `white_noise` sets `rms = sqrt(psd * fs)`. The docstring says
   `sqrt(psd * fs / 2)`. The code is the two-sided formula and is the one to

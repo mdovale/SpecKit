@@ -79,7 +79,9 @@ Unrelated dirty tree at the time of writing: modified `.gitignore`, untracked
 - Noise-generator `psd` arguments are **two-sided**. See
   `docs/handoffs/20260905_noise-generator-normalization.md`. A generate /
   estimate round trip is off by 2 until that handoff is fixed. Item 2 depends
-  on it.
+  on it. (2026-10-24: fixed. The factor 2 is now documented as
+  `Gxx = 2 * S2` in `speckit.noise` and `compute_spectrum`. It is a convention,
+  not a bug, and `alpha_noise` meets its level.)
 - CSD follows SciPy: `Pxy = X * conj(Y)`. LTPDA is not consistent with this.
   `ao/delayEstimate.m` forms `conj(fft(x1)).*fft(x2)`, which is the conjugate
   of the SciPy CSD. Port the lag **sign** by test, not by copying that line.
@@ -211,7 +213,9 @@ partial-fraction fit. Applying the filter to an existing series can live in
 `speckit/dsp.py` and must call the same coefficients. Do not fit in both
 places.
 
-**Blocked by.** `docs/handoffs/20260905_noise-generator-normalization.md`.
+**Blocked by** (resolved 2026-10-24: the `white_noise` docstring and the
+`alpha_noise` level are fixed; `fftnoise` is unchanged).
+`docs/handoffs/20260905_noise-generator-normalization.md`.
 `white_noise` code uses two-sided `rms = sqrt(psd * fs)`. Its docstring says
 `sqrt(psd * fs / 2)`. `alpha_noise` misses its documented level by up to
 about 13% in an alpha-dependent way. `fftnoise` expects a full FFT-length
