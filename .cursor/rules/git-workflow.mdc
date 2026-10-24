@@ -1,0 +1,35 @@
+---
+description: Single-agent trunk workflow — linear history, small commits when asked
+alwaysApply: true
+---
+
+# Git workflow (single agent, trunk)
+
+Assume one agent session at a time on this repo. Avoid parallel agents and long-lived topic branches unless the user asks for them.
+
+## Trunk and linear history
+
+- Work on the default branch (`main`).
+- If the remote has moved and the user asked you to integrate it, use `git pull --rebase`.
+- Keep history linear. Do not merge unrelated local branches into `main`.
+- Do not force-push the default branch, and do not rewrite published history.
+
+## When to commit
+
+Commit only when the user asks. `git status` and `git diff` are always fine.
+
+When they ask:
+
+1. One logical concern per commit, in small steps.
+2. Stage explicit paths. Leave unrelated edits unstaged. Split a mixed file before staging it.
+3. Follow `.cursor/rules/commit-message.mdc`.
+4. Run the checks that cover the change before committing:
+   - `python -m pytest <narrowest test path> -q`
+   - `ruff check` and `ruff format --check` on the touched Python when style matters
+5. Skip the commit if those checks fail. An incomplete change needs an honest `wip` subject, and only if the user still wants it committed.
+
+Do not commit `.venv/`, `__pycache__/`, `.pytest_cache/`, `build/`, `dist/`, `*.egg-info`, editor junk, `.env`, data products (`*.npy`, `*.npz`, `*.h5`, `*.pkl`), notebook checkpoints, or TeX intermediates (`.aux`, `.log`, `.synctex.gz`, `.texpadtmp/`).
+
+## Session hygiene
+
+Leave the package importable. Say which tests you ran and which failed. For an unfinished numerical investigation, update or add a handoff in `docs/handoffs/` rather than abandoning a silent half-fix.

@@ -1,0 +1,21 @@
+---
+description: Keep authored documentation, handoffs, notebooks, and the manuscript
+alwaysApply: true
+---
+
+# No Deleting Documentation
+
+Do not delete authored documentation during cleanup, refactors, or “tidying.”
+
+That covers:
+
+- `docs/handoffs/` and `docs/reference/`
+- `docs/paper/` sources (`.tex`, `.bib`) and figures the manuscript uses
+- `notebooks/` tutorials
+- `README.md` and other markdown
+
+Handoffs and reference notes stay after a fix lands. They are the record of why a convention or formula was chosen. When a note is obsolete, add a short superseded banner and point at the current code or the newer note.
+
+Remove a doc only when the user asks to delete that file or names the paths to remove.
+
+Generated TeX intermediates (`.aux`, `.log`, `.blg`, `.synctex.gz`, `.texpadtmp/`) are build products. Leave committed ones in place unless the user asks for them to be removed.

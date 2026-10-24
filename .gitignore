@@ -120,3 +120,5 @@ Desktop.ini
 # ==============================
 # Ignore local experiment notebooks but keep tutorial ones
 notebooks/__playground.ipynb
+ltpda/
+docs/paper/.texpadtmp

@@ -1,0 +1,66 @@
+---
+description: Handoff format for unfinished numerical, API, or performance work
+alwaysApply: false
+---
+
+# Handoff Documents
+
+When stopping mid-investigation or handing a feature to another session, add a handoff in `docs/handoffs/` so the next session can continue without re-deriving the convention.
+
+Use one for an open numerical discrepancy, a partial API or kernel change, a performance investigation, or a design choice that later code must keep.
+
+## File name
+
+`docs/handoffs/YYYYMMDD_<topic-slug>.md`
+
+If that path exists, use a letter suffix: `YYYYMMDDb_<topic-slug>.md`.
+
+## Required sections
+
+- **Current status** — reproducible or not, what is implemented, what is deferred
+- **Problem or goal** — the discrepancy or behavior, and a repro (snippet, seed, `N`, `fs`, expected vs actual)
+- **Context** — modules, formulas, PSD convention (one-sided estimate vs two-sided generator), Numba and NumPy paths, constraints
+- **Success criteria** — the quantity that must match, the tolerance basis, and which tests must pass
+- **References** — README sections, notebooks, `docs/paper/`, Bendat & Piersol, Tröbs & Heinzel, or prior handoffs
+
+## Add when they help
+
+- **What was tried** — approach, result, why it was dropped
+- **Recommended next steps** — ordered, with any stop-and-ask gate
+- **Files touched** and **test gaps**
+- **Settled decisions** — conventions the next session must keep
+
+Keep historical sections. Revise **Current status** in place when work continues.
+
+## Bug skeleton
+
+```markdown
+# Handoff: <topic>
+
+## Scope
+## Problem
+## Current status
+## Repro
+## What was tried
+## Context
+## Success criteria
+## Recommended next steps
+## References
+```
+
+## Feature skeleton
+
+```markdown
+# Handoff: <feature>
+
+## Scope
+## Goal
+## Current status
+## Context
+## Settled decisions
+## Success criteria
+## Recommended next steps
+## References
+```
+
+See `docs/handoffs/20260905_noise-generator-normalization.md` and `.cursor/rules/no-hacky-workarounds.mdc`.

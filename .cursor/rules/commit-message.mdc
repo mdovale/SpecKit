@@ -1,0 +1,43 @@
+---
+description: Conventional Commits, vim-ready plaintext, SpecKit scopes
+alwaysApply: false
+---
+
+# Commit messages
+
+When asked to propose or write a commit message, follow this.
+
+## Inspect changes
+
+1. Run `git status` and `git diff --cached` (or `git diff` if nothing is staged).
+2. Summarize the staged diff. Mention only files and behavior that are in it.
+
+## Format
+
+Output one plaintext fenced block containing the full message only, ready to paste into vim or pass to `git commit -F -`.
+
+- Subject: one line, about 50 characters, at most 72. Imperative.
+- Blank line, then body bullets hard-wrapped at 72 characters.
+
+```
+type(scope): brief description
+
+- Change 1
+- Change 2 that runs long and continues on the next
+  line, indented under the bullet text
+```
+
+`type` is `feat`, `fix`, `refactor`, `docs`, `test`, `perf`, or `chore`. `scope` is the area: `analysis`, `core`, `schedulers`, `dsp`, `noise`, `systems`, `plotting`, `flattop`, `utils`, `tests`, `docs`, `benchmarks`.
+
+Leave a URL, path, or formula intact on its own line when wrapping it would be worse.
+
+## Traceability
+
+When the change continues a handoff, cite it in the body, for example `Handoff: docs/handoffs/20260905_noise-generator-normalization.md`.
+
+## Repo policy
+
+Follow `.cursor/rules/git-workflow.mdc`.
+
+- Drafting a message does not include `git add` or `git commit`.
+- Create the commit only when the user asked for one, or when they invoked a commit command (`commit-step`, `commit-all-focused`).

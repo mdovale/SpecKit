@@ -1,0 +1,37 @@
+---
+description: Prefer a correct numerical fix or a handoff over patches that hide a discrepancy
+alwaysApply: true
+---
+
+# No Hacky Workarounds
+
+Ship a fix that preserves the spectral definition, the Numba/NumPy agreement, and the documented units.
+
+A narrow, explained change is appropriate when it:
+
+- lives in the module that owns the quantity
+- matches an existing kernel, scheduler, or window table
+- states the PSD convention and the formula it implements
+- keeps the NumPy fallback on the same statistic as the Numba kernel
+
+Stop when the only patch hides the discrepancy:
+
+- a scale factor (`2`, `sqrt(2)`, ENBW) applied at one call site so a plot or notebook lines up
+- a wider `pytest.approx` tolerance that absorbs a systematic bias
+- a special case for one `alpha`, one frequency, or one window
+- a second copy of a kernel or scheduler that diverges from the maintained one
+- disabling Numba, swallowing JIT errors, or skipping the fallback so a single path passes
+- changing a docstring to match a wrong formula, or a formula to match a wrong docstring, without checking the integral
+
+## Instead: handoff
+
+Write `docs/handoffs/YYYYMMDD_<topic-slug>.md` using `.cursor/rules/handoff-documents.mdc` when the correct fix needs a convention choice, a literature check, or a kernel redesign. Include the repro, the formula you expected, what you tried, the files involved, and what a correct result must satisfy.
+
+## Example to avoid
+
+```python
+# Hides a one-sided / two-sided mismatch in the plot helper.
+ax.loglog(result.f, np.sqrt(result.psd) * 2)
+```
+
+Fix the generator, the estimator, or the stated convention, and test the scale that users are promised.
