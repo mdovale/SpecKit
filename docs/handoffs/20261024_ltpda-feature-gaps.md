@@ -1,5 +1,22 @@
 # Handoff: LTPDA features to add to SpecKit
 
+Each item now has its own handoff. Work from that file. This note stays the
+ranking and the cross-item order. `new_ltf_plan` is not one of these items
+and has no handoff.
+
+| Item | Handoff |
+|------|---------|
+| 1 PSD-weighted gap filling | `docs/handoffs/20261024_psd-weighted-gap-filling.md` |
+| 2 Color and whiten a one-sided spectrum | `docs/handoffs/20261024_color-whiten-spectrum.md` |
+| 3 Shared-plan N-channel matrix | `docs/handoffs/20261024_nchannel-cross-spectral-matrix.md` |
+| 4 Overlap-corrected degrees of freedom | `docs/handoffs/20261024_overlap-degrees-of-freedom.md` |
+| 5 Coherent line fit and subtraction | `docs/handoffs/20261024_coherent-line-subtraction.md` |
+| 6 Delay estimate | `docs/handoffs/20261024_delay-estimate.md` |
+| 7 Component noise projection | `docs/handoffs/20261024_component-noise-projection.md` |
+| 8 Continuum and transfer-function fits | `docs/handoffs/20261024_continuum-tf-model-fits.md` |
+| 9 Logarithmic rebinning | `docs/handoffs/20261024_logarithmic-rebinning.md` |
+| 10 Units | `docs/handoffs/20261024_spectrum-units.md` |
+
 ## Scope
 
 Ten analysis features present in the vendored LTPDA tree and absent from
@@ -38,11 +55,15 @@ docstring. Tests lock the scale. A plot helper must not multiply by 2,
 
 ## Current status
 
-Not started. No SpecKit code implements these ten features. The ranking and
-the LTPDA entry points below were read from the vendored tree. No numerical
-gold values have been generated yet. Where a formula in LTPDA is internally
-inconsistent, that is called out and the next session must resolve it before
-coding the scale.
+Not started. No SpecKit code implements these ten features. Each item has its
+own handoff, listed at the top of this file. The ranking and the LTPDA entry
+points below were read from the vendored tree. No numerical gold values have
+been generated yet.
+
+Item 4's original note said `psdconf.m` skips the `sqrt(ws2)` normalization.
+A reread on 24 Oct 2026 shows both `psdconf.m` and `overlapCorr.m` divide by
+`sqrt(ws2)`. The remaining disagreement is the segment length, not the
+algebra. The item 4 handoff is the record to follow.
 
 Unrelated dirty tree at the time of writing: modified `.gitignore`, untracked
 `docs/paper/`. Leave both alone unless the user asks.
@@ -70,8 +91,9 @@ Unrelated dirty tree at the time of writing: modified `.gitignore`, untracked
   may be used for Bode data in item 7. Do not grow a second SSM class beside
   it.
 - Window overlap defaults live in `speckit/flattop.py` `olap_dict` (Heinzel
-  flat-tops, Kaiser, Nuttall, Hann). `win_dict` is empty. Segment overlap for
-  a named window already comes from `SpectrumAnalyzer._process_window_config`.
+  flat-tops, Kaiser, Nuttall, Hann). `win_dict` maps those flat-top names to
+  the callables in the same module. Segment overlap for a named window already
+  comes from `SpectrumAnalyzer._process_window_config`.
 
 ### What SpecKit already does
 
@@ -269,17 +291,24 @@ until a follow-up wires them to the matrix.
   `2 * sum_{j=1}^{navs-1} (1 - j/navs) |w_0 · w_j|² / navs`.
 - `ltpda/classes/@ao/getdof.m` sets `dof = 2 * navs / (R * navs + 1)` with
   that `R`, and rounds. For `navs == 1`, `dof = 2`.
-- `ltpda/classes/@ao/psdconf.m` accumulates a raw window dot product `sm`
-  **without** the `sqrt(ws2)` normalization and sets
-  `dof = 2 * navs / (1 + 2 * sm)`, then rounds. Confidence level default is
+- `ltpda/classes/@ao/psdconf.m` also divides the window by `sqrt(ws2)`, then
+  sets `dof = 2 * navs / (1 + 2 * sm)` and rounds. Confidence level default is
   95%. With `alpha = 1 - conf`,
   `c = dof / chi2inv([1 - alpha/2, alpha/2], dof)` and the lower and upper
   levels are `S * c[0]` and `S * c[1]`. Reported variance is `S² * 2 / dof`.
+  An earlier draft of this note said `psdconf` skipped that normalization.
+  It does not.
 
-Those two `dof` expressions agree only if `sm` equals `R * navs / 2` and the
-window normalization matches. The `sqrt(ws2)` step means a raw-window `sm`
-does not. **Do not copy `psdconf.m`'s `sm` loop and `getdof.m`'s formula into
-two helpers.**
+A reread on 24 Oct 2026: `psdconf.m` does divide the window by `sqrt(ws2)`
+before the `sm` loop (PSD branch near the `win ./ sqrt(w.ws2)` line, LPSD
+branch at `owin = w.win ./ sqrt(w.ws2)`). With that normalization,
+`dof = 2*navs/(R*navs+1)` and `dof = 2*navs/(1+2*sm)` are the same expression.
+What still differs is the segment length. `getdof`'s LPSD path asks
+`overlapCorr` to invent one `L` for the whole record. `psdconf`'s LPSD path
+uses the bin length and `floor(shift)`. SpecKit must use the plan's `L` and
+the actual hop. Details and the Hann overlap Monte Carlo are in
+`docs/handoffs/20261024_overlap-degrees-of-freedom.md`. Do not copy either
+MATLAB path unchanged.
 
 **Owner.** `speckit/analysis.py`, on `SpectrumResult`. The inputs are already
 on the result: per-bin `L`, `navg`, the window, and the overlap.
