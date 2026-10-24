@@ -116,9 +116,30 @@ Desktop.ini
 *.log
 
 # ==============================
+# TeX / LaTeX build artifacts
+# ==============================
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.dvi
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.nav
+*.run.xml
+*.snm
+*.spl
+*.synctex.gz
+*.toc
+*.vrb
+*.xdv
+.texpadtmp/
+
+# ==============================
 # Project-specific ignores
 # ==============================
 # Ignore local experiment notebooks but keep tutorial ones
 notebooks/__playground.ipynb
 ltpda/
-docs/paper/.texpadtmp
