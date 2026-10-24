@@ -43,6 +43,10 @@ Design notes
      Im{Pxy} = i1*r2 - r1*i2
 - Hot JIT kernels avoid per-segment temporaries by streaming windowing and
   detrending inside the Goertzel recurrence. Pure-NumPy fallbacks are provided.
+- Both families use the DFT kernel exp(-i ω n). The Goertzel output carries an
+  extra common phase exp(i ω (L-1)) per segment, which cancels in |X|^2 and
+  X * conj(Y), so the two families return the same statistics.
+- `_bin_stats` is the single dispatcher; it reads `_NUMBA_ENABLED` at call time.
 - Returns follow the "sufficient statistics" 5-tuple:
     (MXX, MYY, mu_r, mu_i, M2)
   where M2 is the mean squared distance of XY from its mean across segments.
@@ -76,6 +80,9 @@ __all__ = [
     "_stats_detrend0_csd_np",
     "_stats_poly_auto_np",
     "_stats_poly_csd_np",
+    # dispatch and segment-layout statistics
+    "_bin_stats",
+    "_overlap_dof",
 ]
 
 from typing import NamedTuple, Tuple
@@ -659,7 +666,7 @@ def _stats_win_only_auto_np(x, starts, L, w, omega, *, _chunk=32768):
     _check_starts_bounds(x.shape[0], starts, L)
 
     n = np.arange(L, dtype=np.float64)
-    e = np.exp(1j * omega * n)
+    e = np.exp(-1j * omega * n)
 
     p_all = np.empty(K, dtype=np.float64)
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
@@ -691,7 +698,7 @@ def _stats_win_only_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
     _check_starts_bounds(x2.shape[0], starts, L)
 
     n = np.arange(L, dtype=np.float64)
-    e = np.exp(1j * omega * n)
+    e = np.exp(-1j * omega * n)
 
     p1 = np.empty(K, dtype=np.float64)
     p2 = np.empty(K, dtype=np.float64)
@@ -733,7 +740,7 @@ def _stats_detrend0_auto_np(x, starts, L, w, omega, *, _chunk=32768):
     _check_starts_bounds(x.shape[0], starts, L)
 
     n = np.arange(L, dtype=np.float64)
-    e = np.exp(1j * omega * n)
+    e = np.exp(-1j * omega * n)
 
     p_all = np.empty(K, dtype=np.float64)
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
@@ -767,7 +774,7 @@ def _stats_detrend0_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
     _check_starts_bounds(x2.shape[0], starts, L)
 
     n = np.arange(L, dtype=np.float64)
-    e = np.exp(1j * omega * n)
+    e = np.exp(-1j * omega * n)
 
     p1 = np.empty(K, dtype=np.float64)
     p2 = np.empty(K, dtype=np.float64)
@@ -816,7 +823,7 @@ def _stats_poly_auto_np(x, starts, L, w, omega, Q, *, _chunk=16384):
     _check_starts_bounds(x.shape[0], starts, L)
 
     n = np.arange(L, dtype=np.float64)
-    e = np.exp(1j * omega * n)
+    e = np.exp(-1j * omega * n)
 
     p_all = np.empty(K, dtype=np.float64)
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
@@ -855,7 +862,7 @@ def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q, *, _chunk=8192):
     _check_starts_bounds(x2.shape[0], starts, L)
 
     n = np.arange(L, dtype=np.float64)
-    e = np.exp(1j * omega * n)
+    e = np.exp(-1j * omega * n)
 
     p1 = np.empty(K, dtype=np.float64)
     p2 = np.empty(K, dtype=np.float64)
@@ -891,3 +898,94 @@ def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q, *, _chunk=8192):
     mu_i = float(zi.mean())
     M2 = float(np.mean((zr - mu_r) ** 2 + (zi - mu_i) ** 2)) if K >= 2 else 0.0
     return MXX, MYY, mu_r, mu_i, M2
+
+
+# ----------------------------------------------------------------------
+# Dispatch
+# ----------------------------------------------------------------------
+
+
+def _bin_stats(x1, x2, starts, L, w, omega, order, Q=None):
+    """
+    Run the kernel for detrend `order` on one bin and return `BinStats` fields.
+
+    `x2 is None` selects the auto-spectral kernel. `order` is -1 (window
+    only), 0 (mean removal), or 1/2 (polynomial; `Q` from `_build_Q`).
+
+    The module-level `_NUMBA_ENABLED` is read on every call, so assigning
+    `speckit.core._NUMBA_ENABLED = False` switches every caller to the NumPy
+    fallbacks.
+    """
+    nb = _NUMBA_ENABLED
+    if order == -1:
+        if x2 is None:
+            fn = _stats_win_only_auto if nb else _stats_win_only_auto_np
+            return fn(x1, starts, L, w, omega)
+        fn = _stats_win_only_csd if nb else _stats_win_only_csd_np
+        return fn(x1, x2, starts, L, w, omega)
+    if order == 0:
+        if x2 is None:
+            fn = _stats_detrend0_auto if nb else _stats_detrend0_auto_np
+            return fn(x1, starts, L, w, omega)
+        fn = _stats_detrend0_csd if nb else _stats_detrend0_csd_np
+        return fn(x1, x2, starts, L, w, omega)
+    if order in (1, 2):
+        if Q is None:
+            raise ValueError("Polynomial detrend needs Q from _build_Q.")
+        if x2 is None:
+            fn = _stats_poly_auto if nb else _stats_poly_auto_np
+            return fn(x1, starts, L, w, omega, Q)
+        fn = _stats_poly_csd if nb else _stats_poly_csd_np
+        return fn(x1, x2, starts, L, w, omega, Q)
+    raise ValueError(f"Unsupported detrend order: {order}.")
+
+
+# ----------------------------------------------------------------------
+# Segment-layout statistics
+# ----------------------------------------------------------------------
+
+
+def _overlap_dof(w: np.ndarray, starts: np.ndarray) -> float:
+    """
+    Equivalent degrees of freedom of a segment-averaged periodogram.
+
+    For K segments with starts ``s_j`` and window ``w`` of length L,
+
+        nu = 2 K**2 / sum_{j,k} rho(|s_j - s_k|)**2
+        rho(d) = sum_n w[n] w[n + d] / sum_n w[n]**2,  rho(d) = 0 for d >= L
+
+    so that ``std(G) = G * sqrt(2 / nu)``. With an even hop ``D`` this is
+    Percival & Walden (1993), eq. 292b,
+    ``nu = 2 K / (1 + 2 sum_{m=1}^{K-1} (1 - m/K) rho(m D)**2)``.
+    Segments that do not overlap give ``nu = 2 K``. Using the actual starts
+    keeps the per-start rounding of the schedulers.
+
+    The covariance model is a Gaussian process whose spectrum is flat across
+    the window bandwidth, away from DC and Nyquist. Detrending is ignored.
+    The result is not rounded.
+    """
+    starts = np.sort(np.asarray(starts, dtype=np.int64))
+    K = int(starts.shape[0])
+    if K == 0:
+        return 0.0
+    w = np.asarray(w, dtype=np.float64)
+    L = int(w.shape[0])
+    S2 = float(np.dot(w, w))
+    if K == 1 or S2 <= 0.0:
+        return 2.0 * K
+
+    rho2: dict = {}
+    total = float(K)  # j == k terms, rho(0) = 1
+    for m in range(1, K):
+        d = starts[m:] - starts[:-m]
+        near = d[d < L]
+        if near.size == 0:
+            break
+        lags, counts = np.unique(near, return_counts=True)
+        for lag, count in zip(lags.tolist(), counts.tolist()):
+            r2 = rho2.get(lag)
+            if r2 is None:
+                r = float(np.dot(w[: L - lag], w[lag:])) / S2
+                r2 = rho2[lag] = r * r
+            total += 2.0 * count * r2
+    return 2.0 * K * K / total
