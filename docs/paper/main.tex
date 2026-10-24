@@ -437,7 +437,7 @@ plt.show()
     
     \item \textbf{Mathematical Core (\texttt{core.py}):} The numerical heavy lifting is isolated in this module. It contains Just-In-Time (JIT) compiled kernels for the Goertzel algorithm, polynomial detrending, and windowing. These kernels are written to be compatible with \texttt{Numba}~\cite{Numba}, allowing them to bypass the Python Global Interpreter Lock (GIL) and achieve C-like performance through automatic parallelization across data segments.
     
-    \item \textbf{Utilities and Visualization:} Helper modules for signal generation (\texttt{noise.py}), signal processing (\texttt{dsp.py}), window function definitions (\texttt{flattop.py}), and publication-quality plotting (\texttt{plotting.py}).
+    \item \textbf{Utilities and Visualization:} Helper modules for signal generation (\texttt{noise.py}), signal processing (\texttt{dsp.py}, with fractional delay in \texttt{lagrange.py}), window function definitions (\texttt{flattop.py}), and publication-quality plotting (\texttt{plotting.py}).
 \end{enumerate}
 
 The typical workflow involves instantiating a \texttt{SpectrumAnalyzer} with the time-series data and desired configuration (\eg, window type, overlap, detrending order). The analyzer then generates a ``plan'' using the selected scheduler. This plan is passed to the computation engine, which executes the parallelized kernels to produce a \texttt{SpectrumResult}.
@@ -609,7 +609,7 @@ A fundamental challenge in cross-spectral analysis is the bias introduced when a
 \end{align}
 This effect causes a systematic underestimation of both quantities, quantified by their normalized bias error (NBE).
 
-To verify \speckit{}'s cross-spectral engine against these analytical predictions, we simulated a system with a known delay using the \texttt{timeshift} utility from~\cite{pytdi}, which is included in \texttt{speckit.dsp}. We generated a white noise source signal $x(t)$ ($N=10^6$, $f_s=1$\,MHz) and a delayed output $y(t) = x(t - \tau_0)$ with $\tau_0 = 100\,\mu$s.
+To verify \speckit{}'s cross-spectral engine against these analytical predictions, we simulated a system with a known delay using the \texttt{timeshift} utility from~\cite{pytdi}. That routine lives in \texttt{speckit.lagrange} and is re-exported as \texttt{speckit.dsp.timeshift}. We generated a white noise source signal $x(t)$ ($N=10^6$, $f_s=1$\,MHz) and a delayed output $y(t) = x(t - \tau_0)$ with $\tau_0 = 100\,\mu$s.
 
 Using \speckit{}, we performed a parametric sweep of the segment length $L$ (and consequently $T = L/f_s$). For each length, we computed the spectral estimates at the Nyquist frequency using the efficient \texttt{compute\_single\_bin} interface, which avoids the computational overhead of full broadband analysis. A boxcar window was selected to match the theoretical derivation.
 
@@ -679,7 +679,7 @@ The correctness and reliability of scientific software are essential for produci
 
 \paragraph{Software Testing} The codebase includes an extensive test suite implemented with the \texttt{pytest} framework, consisting of more than TBD unit, integration, and regression tests. Unit tests assess individual components in isolation, including the mathematical accuracy of the routines in \texttt{core.py}, \texttt{dsp.py}, or \texttt{systems.py},  and the statistical behavior of the noise generators in \texttt{noise.py}. Integration tests ensure that different modules interact correctly. In addition, a ``golden file'' regression test executes a full, non-trivial experiment and compares its numerical output against a version-controlled reference, safeguarding against unintended changes to scientific results as the code evolves. Together, these complementary testing layers provide strong confidence in the correctness and robustness of the software.
 
-\paragraph{Code availability} \speckit{} is released as open-source software. Its full source code, example scripts, documentation, and complete test suite are publicly available on GitHub at \href{https://github.com/mdovale/SpecKit}{https://github.com/mdovale/SpecKit}. The library is distributed under the permissive BSD 3-Clause license, enabling use in both academic and commercial contexts. It can be installed directly from the Python Package Index (PyPI) at \href{https://pypi.org/project/speckit/}{https://pypi.org/project/speckit/}.
+\paragraph{Code availability} \speckit{} is released as open-source software. Its full source code, example scripts, documentation, and complete test suite are publicly available on GitHub at \href{https://github.com/mdovale/SpecKit}{https://github.com/mdovale/SpecKit}. The library is distributed under the permissive BSD 3-Clause license, enabling use in both academic and commercial contexts. Fractional-delay interpolation adapted from PyTDI remains under that project's copyright; see the NOTICE file shipped with the source. It can be installed directly from the Python Package Index (PyPI) at \href{https://pypi.org/project/speckit/}{https://pypi.org/project/speckit/}.
 
 
 \section{Summary and Outlook}

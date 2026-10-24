@@ -22,7 +22,7 @@ type(scope): brief description
 - Subject: one line, about 50 characters, at most 72.
 - Body: hard-wrap at 72 characters. Indent wrapped bullet text.
 
-`scope` is a SpecKit area: `analysis`, `core`, `schedulers`, `dsp`, `noise`, `systems`, `plotting`, `flattop`, `utils`, `tests`, `docs`, `benchmarks`.
+`scope` is a SpecKit area: `analysis`, `core`, `schedulers`, `dsp`, `lagrange`, `noise`, `systems`, `plotting`, `flattop`, `utils`, `tests`, `docs`, `benchmarks`.
 
 If the diff continues a handoff, cite `docs/handoffs/<file>.md` in the body.
 

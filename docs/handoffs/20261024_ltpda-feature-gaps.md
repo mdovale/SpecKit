@@ -105,7 +105,7 @@ Do not reimplement these. Extend them.
 | One- and two-channel spectra, TF, coherence, complex coherence, conditioned spectra `GyyCx`, `GyyRx`, `GyySx` | `speckit/analysis.py` |
 | Analytic deviations `Gxx/sqrt(navg)` and Bendat formulas; empirical `M2` | `SpectrumResult.__getattr__` |
 | SISO and MISO optimal subtraction | `speckit/systems.py` |
-| Lagrange fractional shift of a **known** delay | `speckit/dsp.py` `timeshift` |
+| Lagrange fractional shift of a **known** delay | `speckit/lagrange.py` `timeshift`, re-exported from `speckit/dsp` |
 | CNR peak flags, no subtraction | `speckit/dsp.py` `peak_finder` |
 | Band-limited RMS | `SpectrumResult.get_rms`, `dsp.integral_rms` |
 | White, pink, red, 1/f^α generators; `fftnoise` on a full Hermitian FFT vector | `speckit/noise.py` |
@@ -398,7 +398,7 @@ two-sided FFT cross-spectrum, inverse-transforms `G12/weight`, and takes the
 lag of the maximum. The triangular correction `(N./(N-r))` compensates the
 zero-pad. **Its `G12 = conj(fft(x1))*fft(x2)` is not SpecKit's CSD.**
 
-**Owner.** `speckit/dsp.py`, next to `timeshift`.
+**Owner.** `speckit/dsp.py`. Apply the lag with `timeshift` from `speckit/lagrange.py` (re-exported from `dsp`).
 
 **Goal.** Estimate `tau` in seconds such that shifting series 2 by `-tau`
 with `timeshift` aligns it with series 1. Document the sign in the docstring

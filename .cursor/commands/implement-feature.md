@@ -13,7 +13,7 @@ Implement a behavior the user names (for example a scheduler option, an error qu
    - Frequency grids go in `speckit/schedulers.py`. Window ENBW and overlap go in `speckit/flattop.py`.
    - State the PSD convention in the docstring (NumPy style, as in `analysis.py`).
    - Stay on Python 3.9 and the dependencies already in `pyproject.toml`.
-   - Copy the BSD header onto a new Python file.
+   - Copy the SpecKit BSD header onto a new Python file. Leave the PyTDI header on `speckit/lagrange.py` in place.
 4. **Wire it.** Reachable from the existing API. A new public function is exported from `speckit/__init__.py` only when users should import it from the package root.
 5. **Lock it.** Add or extend a pytest in `tests/unit/` or, for end-to-end spectral claims, `tests/integration/`. Use a seeded generator. The test must fail if the scale, sidedness, or kernel choice regresses.
 6. **Check.** `python -m pytest` on the new test, then `ruff check` on the touched files.

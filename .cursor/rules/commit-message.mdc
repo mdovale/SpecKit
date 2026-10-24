@@ -27,7 +27,7 @@ type(scope): brief description
   line, indented under the bullet text
 ```
 
-`type` is `feat`, `fix`, `refactor`, `docs`, `test`, `perf`, or `chore`. `scope` is the area: `analysis`, `core`, `schedulers`, `dsp`, `noise`, `systems`, `plotting`, `flattop`, `utils`, `tests`, `docs`, `benchmarks`.
+`type` is `feat`, `fix`, `refactor`, `docs`, `test`, `perf`, or `chore`. `scope` is the area: `analysis`, `core`, `schedulers`, `dsp`, `lagrange`, `noise`, `systems`, `plotting`, `flattop`, `utils`, `tests`, `docs`, `benchmarks`.
 
 Leave a URL, path, or formula intact on its own line when wrapping it would be worse.
 

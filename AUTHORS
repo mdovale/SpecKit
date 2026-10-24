@@ -1,2 +1,11 @@
 Miguel Dovale, University of Arizona (Tucson, Arizona)
 Gerhard Heinzel, Max-Planck Institut für Gravitationsphysik (Hannover, Germany)
+
+Third-party code
+-----------------
+
+speckit/lagrange.py and tests/unit/test_lagrange.py are adapted from PyTDI:
+Martin Staab, Max Planck Institute for Gravitational Physics
+Jean-Baptiste Bayle, California Institute of Technology
+Olaf Hartwig, Max Planck Institute for Gravitational Physics
+https://doi.org/10.5281/zenodo.8429119

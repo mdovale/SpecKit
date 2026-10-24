@@ -57,7 +57,7 @@ one-sided density. The other notes own the pieces of that path.
 | Band RMS | [band-rms.md](band-rms.md) | `speckit/spectral.py` |
 | Noise generators | [noise-generators.md](noise-generators.md) | `speckit/noise.py` |
 | Residual ASD | [optimal-subtraction.md](optimal-subtraction.md) | `speckit/systems.py` |
-| Time-series helpers | [time-series-tools.md](time-series-tools.md) | `speckit/dsp.py` |
+| Time-series helpers | [time-series-tools.md](time-series-tools.md) | `speckit/dsp.py`, `speckit/lagrange.py` |
 | Figures | [plotting.md](plotting.md) | `speckit/plotting.py` |
 
 ## Related docs

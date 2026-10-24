@@ -49,7 +49,8 @@ as `win(L)` and must return length `L`.
 `win_dict` names: `SFT3F`, `SFT3M`, `FTNI`, `SFT4F`, `SFT5F`, `SFT4M`,
 `FTHP`, `HFT70`, `FTSRS` (function `FTSR`), `SFT5M`, `HFT90D`, `HFT95`,
 `HFT116D`, `HFT144D`, `HFT169D`, `HFT196D`, `HFT223D`, `HFT248D`. Each is a
-cosine sum. Coefficients are the literals in that function. `olap_dict` also
+cosine sum. Coefficients are the published literals in that function.
+`olap_dict` also
 lists recommended overlaps for rectangular, Welch, Bartlett (`"Barlett"`),
 Hanning, Hamming, Nuttall, Blackman-Harris (`BH92`), and Kaiser3/4/5 windows
 that `win_dict` does not construct, plus integer keys `0` through `30`.
@@ -85,6 +86,7 @@ computes `fs * sum(w²) / sum(w)²` from the samples it actually used.
 ## Key files
 
 - `speckit/flattop.py` — cosine-sum windows, `olap_dict`, `win_dict`
+- `tests/unit/test_flattop.py`
 - `speckit/utils.py` — `kaiser_alpha`, `kaiser_rov`
 - `speckit/analysis.py` — `_process_window_config`, `_build_window`
 - `tests/unit/test_utils.py`
@@ -96,8 +98,9 @@ computes `fs * sum(w²) / sum(w)²` from the samples it actually used.
 - [spectrum-estimation.md](spectrum-estimation.md)
 - Heinzel, Rüdiger, and Schilling, *Spectrum and spectral density estimation
   by the Discrete Fourier transform (DFT)* (AEI, 2002), cited in
-  `flattop.py`. The cosine coefficients in the functions are the implemented
-  values.
+  `flattop.py`. The cosine coefficients in the functions are those published
+  values. The module is SpecKit code under `LICENSE`. `NOTICE` records the
+  citation.
 
 ## Known limitations
 

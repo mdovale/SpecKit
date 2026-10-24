@@ -1,9 +1,10 @@
 # Time-series tools
 
-`speckit.dsp` holds loading, resampling, detrending, fractional delay, peak
-picking, and a linear noise-subtraction fit. These helpers do not plan a
-log spectrum and do not call `compute_spectrum`. `crop_data` and `integral_rms`
-are defined in `speckit/spectral.py` and re-exported here
+`speckit.dsp` holds loading, resampling, detrending, peak picking, and a
+linear noise-subtraction fit. Fractional delay is `timeshift` and
+`lagrange_taps` in `speckit.lagrange`, re-exported from `dsp`. These helpers
+do not plan a log spectrum and do not call `compute_spectrum`. `crop_data`
+and `integral_rms` are defined in `speckit/spectral.py` and re-exported here
 ([band-rms.md](band-rms.md)).
 
 ## Goal
@@ -13,7 +14,8 @@ from an output, outside the spectral estimator.
 
 ## Scope
 
-In: the public functions in `speckit/dsp.py`.
+In: the public functions in `speckit/dsp.py`, including the fractional-delay
+functions re-exported from `speckit/lagrange.py`.
 
 Out: segment detrending inside a Goertzel kernel
 ([bin-statistics.md](bin-statistics.md)) and the spectral residual ASD
@@ -44,12 +46,13 @@ Samples of `t_new` outside `t` take the endpoint values. DataFrame resampling
 goes through `resample_to_common_grid` and
 `multi_file_timeseries_resampler`.
 
-`timeshift(data, shifts, order=31)` delays when `shifts` is positive, in
-samples. `order` is an odd integer. The FIR has `order + 1` taps from
-`lagrange_taps`, with `halfp = (order + 1) // 2`. `halfp == 1` is linear
-interpolation: taps `[1 - frac, frac]`. A scalar shift is constant. An array
-shift must match `data` and may vary with time. `df_timeshift` is the
-DataFrame wrapper.
+`timeshift(data, shifts, order=31)` is defined in `speckit/lagrange.py` and
+re-exported from `dsp`. It delays when `shifts` is positive, in samples.
+`order` is an odd integer. The FIR has `order + 1` taps from `lagrange_taps`,
+with `halfp = (order + 1) // 2`. `halfp == 1` is linear interpolation: taps
+`[1 - frac, frac]`. A scalar shift is constant. An array shift must match
+`data` and may vary with time. `df_timeshift` is the DataFrame wrapper in
+`dsp`.
 
 `peak_finder` marks local maxima, including a plateau midpoint when neighbors
 agree within `rtol` (default `1e-2`). It fits `a + b * f**alpha` to the
@@ -77,14 +80,17 @@ including `.7z` through `py7zr`.
 
 ## Numerical checks
 
-`tests/unit/test_dsp.py` locks polynomial detrend, Lagrange taps at first
-order, constant and variable integer and fractional shifts, `frequency2phase`,
+`tests/unit/test_lagrange.py` locks Lagrange taps at first order and constant
+and variable integer and fractional shifts. `tests/unit/test_dsp.py` locks
+the `dsp` re-export of those functions, polynomial detrend, `frequency2phase`,
 `peak_finder` band limiting, DataFrame detrend and timeshift, and the SISO,
 MIMO, and frequency-domain linear combination on small fixtures.
 
 ## Key files
 
-- `speckit/dsp.py`
+- `speckit/lagrange.py` — `timeshift`, `lagrange_taps` (PyTDI copyright; see `NOTICE`)
+- `speckit/dsp.py` — loading, resampling, detrending, and the linear combination. Re-exports `timeshift` and `lagrange_taps`
+- `tests/unit/test_lagrange.py`
 - `tests/unit/test_dsp.py`
 - `notebooks/0.8_multi-file-processing.ipynb`,
   `notebooks/1.1_optimal-linear-combination.ipynb`,

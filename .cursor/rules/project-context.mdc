@@ -13,8 +13,9 @@ alwaysApply: true
 - `speckit/analysis.py` — public API: `compute_spectrum`, `lpsd`, `compute_single_bin`, `SpectrumAnalyzer`, `SpectrumResult`
 - `speckit/core.py` — Goertzel bin statistics. Numba kernels plus `_np` fallbacks. `BinStats` is `(MXX, MYY, mu_r, mu_i, M2)`
 - `speckit/schedulers.py` — `lpsd_plan`, `ltf_plan`, `vectorized_ltf_plan` (analyzer default), `new_ltf_plan`
-- `speckit/flattop.py` — flat-top windows and their overlap / ENBW tables
-- `speckit/dsp.py` — detrend, resampling, Lagrange time shift, optimal linear combination
+- `speckit/flattop.py` — flat-top windows and their overlap tables. SpecKit code; coefficients from Heinzel, Rüdiger, and Schilling (2002). See `NOTICE`.
+- `speckit/lagrange.py` — `lagrange_taps` and `timeshift`, adapted from PyTDI. Keeps the 2022 Caltech and AEI copyright header. Do not replace that header with the SpecKit header.
+- `speckit/dsp.py` — detrend, resampling, optimal linear combination. Re-exports `lagrange_taps` and `timeshift`.
 - `speckit/noise.py` — white, red, pink, and 1/f^α generators
 - `speckit/systems.py` — SISO/MISO optimal spectral analysis
 - `speckit/plotting.py` — publication figures; `default_rc` is exported from the package
@@ -28,7 +29,7 @@ alwaysApply: true
 - CSD follows SciPy: `Pxy = X * conj(Y)`.
 - Detrend `order`: `-1` window only, `0` mean removal, `1`–`2` polynomial via `_build_Q`. The order selects the kernel.
 - Numba and NumPy paths compute the same statistic. `__init__.py` pins Numba to the workqueue layer and BLAS threads to 1 so `prange` does not oversubscribe.
-- New Python modules copy the BSD header from a neighboring file.
+- New Python modules copy the BSD header from a neighboring SpecKit file. `speckit/lagrange.py` keeps the PyTDI header.
 - When the README, notebooks, or paper disagree with `speckit/` and the tests, follow the code and the tests.
 
 **References:** `README.md`, `docs/handoffs/20260905_noise-generator-normalization.md`

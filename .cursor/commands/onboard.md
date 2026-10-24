@@ -44,6 +44,7 @@ SpecKit estimates spectra with logarithmic frequency scheduling, analytic errors
 | Bin kernels | `speckit/core.py` |
 | Frequency plans | `speckit/schedulers.py` |
 | Windows / ENBW | `speckit/flattop.py` |
+| Fractional delay | `speckit/lagrange.py`, re-exported from `speckit/dsp.py` |
 | DSP helpers | `speckit/dsp.py` |
 | Noise generators | `speckit/noise.py` |
 | SISO / MISO | `speckit/systems.py` |

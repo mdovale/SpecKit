@@ -205,13 +205,14 @@ Together, they provide a complete picture of uncertainty.
 
 4. **High-order Lagrange Interpolation**
    - [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8429119.svg)](https://doi.org/10.5281/zenodo.8429119)
-   - `dsp.timeshift` and `dsp.lagrange_taps` adopted from the PyTDI project. Credit to: [Staab, Martin](https://orcid.org/0000-0001-5036-6586), [Bayle, Jean-Baptiste](https://orcid.org/0000-0001-7629-6555), [Hartwig, Olaf](https://orcid.org/0000-0003-2670-3815)
+   - `lagrange.timeshift` and `lagrange.lagrange_taps` are adapted from the PyTDI project and re-exported as `dsp.timeshift` and `dsp.lagrange_taps`.
+   - Credit to: [Staab, Martin](https://orcid.org/0000-0001-5036-6586), [Bayle, Jean-Baptiste](https://orcid.org/0000-0001-7629-6555), [Hartwig, Olaf](https://orcid.org/0000-0003-2670-3815). Copyright 2022, California Institute of Technology and the Max Planck Institute for Gravitational Physics. See NOTICE.
 
 ---
 
 ## License
 
-BSD 3-Clause License. See the LICENSE file.
+BSD 3-Clause License. See LICENSE. Third-party copyrights are listed in NOTICE.
 
 ---
 

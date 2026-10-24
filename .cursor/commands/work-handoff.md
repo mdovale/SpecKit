@@ -78,7 +78,7 @@ Use the note’s success criteria as the checklist.
 
 | Touch | Minimum check |
 |-------|----------------|
-| `schedulers`, `flattop`, `utils` | matching file in `tests/unit/` |
+| `schedulers`, `flattop`, `utils`, `lagrange` | matching file in `tests/unit/` |
 | `noise`, `dsp`, `systems` | matching file in `tests/unit/` |
 | `analysis` API, errors, level | `tests/integration/test_analysis_api.py`, `test_errors.py`, `test_accuracy.py` as relevant |
 | `core` kernels | the integration file that covers that estimate, plus a direct helper comparison when one exists |

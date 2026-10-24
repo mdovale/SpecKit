@@ -10,7 +10,7 @@ readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.9"
 
 license = "BSD-3-Clause"
-license-files = ["LICENSE", "AUTHORS"]
+license-files = ["LICENSE", "NOTICE", "AUTHORS"]
 
 authors = [
   { name = "Miguel Dovale", email = "mikedovale@pm.me" },

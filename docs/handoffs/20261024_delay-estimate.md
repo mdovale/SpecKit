@@ -9,16 +9,17 @@ note does not cover `new_ltf_plan`.
 
 ## Goal
 
-A function in `speckit/dsp.py`, next to `timeshift`, that returns `tau` in
-seconds such that shifting series 2 by `-tau` with `timeshift` aligns it
-with series 1. The docstring states that sign in one sentence, and a test
-locks it.
+A function in `speckit/dsp.py` that returns `tau` in seconds such that
+shifting series 2 by `-tau` with `timeshift` aligns it with series 1.
+`timeshift` is defined in `speckit/lagrange.py` and re-exported from `dsp`.
+The docstring states that sign in one sentence, and a test locks it.
 
 ## Current status
 
-Not started. `timeshift` applies a **known** fractional delay with Lagrange
-taps. Nothing estimates the delay. `frequency2phase` converts a frequency
-series to phase. It is not a delay estimator.
+Not started. `timeshift` in `speckit/lagrange.py` applies a **known**
+fractional delay with Lagrange taps. Nothing estimates the delay.
+`frequency2phase` converts a frequency series to phase. It is not a delay
+estimator.
 
 ## Context
 
@@ -99,7 +100,8 @@ N-channel matrix. It uses two series.
 
 - `docs/handoffs/20261024_ltpda-feature-gaps.md`
 - `docs/handoffs/20261024_nchannel-cross-spectral-matrix.md` — Fourier sign
-- `speckit/dsp.py` — `timeshift`, `lagrange_taps`
+- `speckit/lagrange.py` — `timeshift`, `lagrange_taps` (re-exported from `speckit/dsp.py`)
+- `tests/unit/test_lagrange.py`
 - `ltpda/classes/@ao/delayEstimate.m`
 - `docs/paper/main.tex` — time-delay bias in transfer functions. That section
   is about `Lmin`, not this estimator.

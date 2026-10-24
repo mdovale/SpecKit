@@ -153,10 +153,11 @@ NumPy or SciPy helpers the estimator or the paper actually use:
 - `integral_rms(f, asd, pass_band=None)` — RMS from a one-sided ASD,
   `sqrt(∫ ASD² df)` via `cumulative_trapezoid` with `initial=0`, taking the
   last sample. `SpectrumResult.get_rms` calls it. Keep this integral.
-- `timeshift`, `lagrange_taps` — fractional delay. Notebook
-  `notebooks/0.1_time-delay-bias-error.ipynb` and the time-delay application
-  in the paper depend on `timeshift`. Unit tests lock integer and fractional
-  shifts.
+- `timeshift`, `lagrange_taps` — fractional delay. Defined in
+  `speckit/lagrange.py` under the PyTDI copyright and re-exported from `dsp`.
+  Notebook `notebooks/0.1_time-delay-bias-error.ipynb` and the time-delay
+  application in the paper depend on `timeshift`. Unit tests in
+  `tests/unit/test_lagrange.py` lock integer and fractional shifts.
 - `polynomial_detrend` — one polynomial, `np.polyfit` / `np.polyval`, on the
   whole record. This is not the per-segment orthonormal detrend in
   `core._build_Q`. Both stay. A later session must not replace one with the
