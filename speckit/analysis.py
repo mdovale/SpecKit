@@ -108,7 +108,7 @@ class SpectrumAnalyzer:
 
         Parameters
         ----------
-        data : np.ndarray
+        data : array-like
             Input time-series. A 1D array for auto-spectral analysis or a
             2D (2xN or Nx2) array for cross-spectral analysis.
         fs : float
@@ -143,8 +143,9 @@ class SpectrumAnalyzer:
             Window function to use. Can be a string name (e.g., 'kaiser', 'hann')
             or a callable function. Defaults to `np.kaiser`.
         scheduler : str or callable, optional
-            The scheduling algorithm to use ('lpsd', 'ltf', 'vectorized_ltf', 'new_ltf') or a
-            custom scheduler function. Defaults to 'ltf'.
+            The scheduling algorithm to use ('lpsd', 'ltf', 'vectorized_ltf',
+            'new_ltf') or a custom scheduler function.
+            Defaults to "vectorized_ltf".
         band : tuple of (float, float), optional
             Frequency band `(f_min, f_max)` to restrict the analysis to.
             Defaults to None (full band).
@@ -154,6 +155,12 @@ class SpectrumAnalyzer:
             Defaults to False.
         verbose : bool, optional
             If True, prints progress and diagnostic information. Defaults to False.
+
+        Raises
+        ------
+        ValueError
+            If ``fs`` is not a positive finite float, if ``order`` is not
+            -1, 0, 1, or 2, or if ``data`` is not 1D or 2xN/Nx2.
         """
         # ---- Basic validation -------------------------------------------------
         if not np.isfinite(fs) or fs <= 0:
@@ -260,7 +267,19 @@ class SpectrumAnalyzer:
             )
 
     def _process_window_config(self) -> None:
-        """Resolve window function, Kaiser alpha, and default overlap."""
+        """Resolve window function, Kaiser alpha, and default overlap.
+
+        Raises
+        ------
+        ValueError
+            If a Kaiser window has no PSLL, the window name is unknown, or
+            ``olap`` is outside ``[0, 1)``.
+        TypeError
+            If the window is not a string or callable, or ``olap`` is not
+            ``"default"`` or a float.
+        RuntimeError
+            If the Kaiser alpha is missing while resolving the default overlap.
+        """
         win_param = self.config["win"]
         psll = self.config["psll"]
 
@@ -333,7 +352,15 @@ class SpectrumAnalyzer:
         self.config["win_name"] = win_name
 
     def _process_scheduler_config(self) -> None:
-        """Resolve scheduler function and store a friendly name."""
+        """Resolve scheduler function and store a friendly name.
+
+        Raises
+        ------
+        ValueError
+            If ``scheduler`` is a string that is not a known plan name.
+        TypeError
+            If ``scheduler`` is neither a known string nor a callable.
+        """
         scheduler_param = self.config["scheduler"]
         if isinstance(scheduler_param, str):
             sched_map = {
@@ -374,6 +401,16 @@ class SpectrumAnalyzer:
             A dictionary containing the full computation plan, including arrays
             for frequencies (`f`), segment lengths (`L`), number of averages (`K`),
             per-frequency segment starts (`D`), actual overlaps (`O`), etc.
+
+        Raises
+        ------
+        RuntimeError
+            If ``force_target_nf`` cannot hit the requested bin count, or the
+            plan lengths disagree after the band filter.
+        ValueError
+            If the scheduler output is missing a required key, array lengths
+            disagree, a segment start is out of bounds, or the band contains
+            no frequencies.
         """
         if self._plan_cache is not None:
             return self._plan_cache
@@ -523,7 +560,29 @@ class SpectrumAnalyzer:
         This method is optimized for calculating spectral quantities at one
         specific frequency, defined by either a frequency resolution (`fres`)
         or a segment length (`L`). Returns a SpectrumResult where all arrays
-        have length 1 (single-bin).
+        have length 1 (single-bin). Spectral densities are one-sided.
+
+        Parameters
+        ----------
+        freq : float
+            Fourier frequency in Hz. Must be finite and non-negative.
+        fres : float, optional
+            Frequency resolution in Hz. Provide this or ``L``, not both.
+            Defaults to None.
+        L : int, optional
+            Segment length in samples. Provide this or ``fres``, not both.
+            Defaults to None.
+
+        Returns
+        -------
+        SpectrumResult
+            One-bin result. Cross-spectra use ``Pxy = X * conj(Y)``.
+
+        Raises
+        ------
+        ValueError
+            If ``freq`` is invalid, both or neither of ``fres`` and ``L``
+            are set, or the segment length does not fit the series.
 
         Notes
         -----
@@ -660,8 +719,9 @@ class SpectrumAnalyzer:
         Executes the spectral analysis and returns a SpectrumResult object.
 
         This method performs the core computation. It uses the generated plan
-        to segment the data, apply windowing/Goertzel reductions, and average
-        the results.
+        to segment the data, apply windowing and Goertzel reductions, and
+        average the results. Spectral densities on the result are one-sided.
+        Cross-spectra use ``Pxy = X * conj(Y)``.
 
         Returns
         -------
@@ -730,6 +790,23 @@ class SpectrumAnalyzer:
     def _lpsd_core(self, f_indices: np.ndarray) -> list[list[int | complex | float]]:
         """
         Core processing loop for a block of frequency indices.
+
+        Parameters
+        ----------
+        f_indices : np.ndarray
+            Frequency-bin indices into the cached plan.
+
+        Returns
+        -------
+        list of list
+            One row per index: bin index, complex ``X * conj(Y)``, ``MXX``,
+            ``MYY``, ``S1**2``, ``S2``, ``M2``, elapsed seconds, and ``nu``.
+
+        Raises
+        ------
+        ValueError
+            If a window length does not equal ``L``, or a segment start is
+            out of bounds.
 
         Notes
         -----
@@ -835,16 +912,6 @@ class SpectrumResult:
     It provides convenient properties for access and methods for plotting and
     further analysis.
 
-    Notes
-    -----
-    - Cross-spectrum sign convention matches SciPy:
-      Pxy = X * conj(Y)
-    - This class exposes segment-level sufficient statistics:
-      `XX_mean`, `YY_mean`, and `XY_M2`.
-      From `XY_M2` it also derives empirical (non-parametric) uncertainties:
-      `XY_emp_var`, `XY_emp_dev`, and the scaled spectral deviations
-      `Gxx_emp_dev` (auto) / `Gxy_emp_dev` (cross).
-
     Attributes
     ----------
     f : np.ndarray
@@ -854,7 +921,7 @@ class SpectrumResult:
     asd : np.ndarray or None
         One-sided Amplitude Spectral Density (auto-spectrum).
     csd : np.ndarray or None
-        One-sided Cross Spectral Density.
+        One-sided Cross Spectral Density. ``Pxy = X * conj(Y)``.
     coh : np.ndarray or None
         Magnitude-squared coherence.
     tf : np.ndarray or None
@@ -872,6 +939,16 @@ class SpectrumResult:
         Standard deviation of the PSD estimate, ``Gxx * sqrt(2 / nu)``.
     coh_error : np.ndarray or None
         Normalized random error of the coherence estimate.
+
+    Notes
+    -----
+    - Cross-spectrum sign convention matches SciPy:
+      Pxy = X * conj(Y)
+    - This class exposes segment-level sufficient statistics:
+      `XX_mean`, `YY_mean`, and `XY_M2`.
+      From `XY_M2` it also derives empirical (non-parametric) uncertainties:
+      `XY_emp_var`, `XY_emp_dev`, and the scaled spectral deviations
+      `Gxx_emp_dev` (auto) / `Gxy_emp_dev` (cross).
     """
 
     def __init__(
@@ -935,9 +1012,23 @@ class SpectrumResult:
         self.nf = int(self._data.get("f", np.array([])).shape[0])
 
     def __len__(self) -> int:
+        """Return the number of frequency bins.
+
+        Returns
+        -------
+        int
+            ``nf``, the length of the frequency grid.
+        """
         return self.nf
 
     def __repr__(self) -> str:
+        """Return a short description of the result.
+
+        Returns
+        -------
+        str
+            Mode, bin count, and frequency span.
+        """
         mode = "CSD" if self.iscsd else "auto"
         fspan = "∅"
         if self.nf:
@@ -945,7 +1036,23 @@ class SpectrumResult:
         return f"SpectrumResult(mode={mode}, nf={self.nf}, f={fspan})"
 
     def __getattr__(self, name: str) -> np.ndarray | None:
-        """Lazy computation and caching of spectral properties."""
+        """Lazy computation and caching of spectral properties.
+
+        Parameters
+        ----------
+        name : str
+            Attribute name, such as ``asd`` or ``csd``.
+
+        Returns
+        -------
+        np.ndarray or None
+            The computed quantity, or None when it does not apply.
+
+        Raises
+        ------
+        AttributeError
+            If ``name`` is not a stored or derived quantity.
+        """
         if name in self._cache:
             return self._cache[name]
 
@@ -1198,7 +1305,13 @@ class SpectrumResult:
         return val
 
     def __dir__(self) -> List[str]:
-        """Enhances tab-completion to include dynamic attributes."""
+        """Enhances tab-completion to include dynamic attributes.
+
+        Returns
+        -------
+        list of str
+            Stored keys plus the derived spectral names.
+        """
         default_attrs = super().__dir__()
         dynamic_attrs = [
             "Gxx",
@@ -1263,7 +1376,15 @@ class SpectrumResult:
         Returns
         -------
         float
-            The computed RMS value.
+            The RMS of the one-sided ASD over ``pass_band``, or over the
+            whole grid when ``pass_band`` is None.
+
+        Raises
+        ------
+        NotImplementedError
+            If the result is a cross-spectrum.
+        ValueError
+            If ``pass_band`` is not a pair of finite floats.
         """
         if self.iscsd:
             raise NotImplementedError(
@@ -1303,8 +1424,16 @@ class SpectrumResult:
 
         Returns
         -------
-        float or np.ndarray
-            The interpolated value(s) of the spectral quantity.
+        float, complex, or np.ndarray
+            A scalar when ``freq`` is scalar, otherwise an array. Complex
+            quantities stay complex.
+
+        Raises
+        ------
+        ValueError
+            If ``freq`` contains a non-finite value.
+        AttributeError
+            If ``which`` is not a quantity on this result.
 
         Notes
         -----
@@ -1343,6 +1472,11 @@ class SpectrumResult:
         -------
         pd.DataFrame
             A DataFrame containing the spectral analysis results.
+
+        Raises
+        ------
+        ImportError
+            If pandas is not installed.
         """
         # Start with frequency as index
         df_dict: Dict[str, np.ndarray] = {"f": np.asanyarray(self.f)}
@@ -1420,6 +1554,12 @@ class SpectrumResult:
         tuple
             A tuple containing the matplotlib Figure and either a single Axes
             object or a tuple of two Axes objects (for bode plots).
+
+        Raises
+        ------
+        ValueError
+            If ``which`` is unknown, a Bode plot is requested for an
+            auto-spectrum, or the selected trace has no finite samples.
         """
         import matplotlib.pyplot as plt
 
@@ -1543,7 +1683,23 @@ class SpectrumResult:
 
 
 def lpsd(data: ArrayLike, fs: float, **kwargs: Any) -> SpectrumResult:
-    """Same as compute_spectrum."""
+    """Computes one-sided spectral estimates. Same as ``compute_spectrum``.
+
+    Parameters
+    ----------
+    data : array-like
+        Input series. 1D for an auto-spectrum, or 2xN or Nx2 for a
+        cross-spectrum.
+    fs : float
+        Sampling frequency in Hz.
+    **kwargs
+        Forwarded to ``compute_spectrum``.
+
+    Returns
+    -------
+    SpectrumResult
+        One-sided spectral estimates. Cross-spectra use ``Pxy = X * conj(Y)``.
+    """
     return compute_spectrum(data, fs, **kwargs)
 
 
@@ -1555,10 +1711,11 @@ def compute_spectrum(data: ArrayLike, fs: float, **kwargs: Any) -> SpectrumResul
     It handles configuration, planning, and computation in one step,
     returning a comprehensive result object. It serves as a convenient
     wrapper around the `SpectrumAnalyzer` and `SpectrumResult` classes.
+    Spectral densities are one-sided. Cross-spectra use ``Pxy = X * conj(Y)``.
 
     Parameters
     ----------
-    data : np.ndarray
+    data : array-like
         Input time-series. A 1D array for auto-spectral analysis or a
         2D (2xN or Nx2) array for cross-spectral analysis.
     fs : float
@@ -1580,6 +1737,20 @@ def compute_spectrum(data: ArrayLike, fs: float, **kwargs: Any) -> SpectrumResul
     -------
     SpectrumResult
         An object containing all computed spectral quantities and helper methods.
+
+    Notes
+    -----
+    ``Gxx``, ``Gyy``, and ``Gxy`` are one-sided densities on ``[0, fs/2]``.
+    For a real signal with two-sided density ``S2(f)``, ``Gxx = 2 * S2`` for
+    ``0 < f < fs/2``. The `speckit.noise` generators take and produce
+    two-sided levels, so a round trip halves ``Gxx``:
+
+    >>> import numpy as np
+    >>> from speckit.noise import white_noise
+    >>> x = white_noise(f_sample=10.0, psd=4.0, seed=0).get_series(2**20)
+    >>> sp = compute_spectrum(x, 10.0, order=0, win="kaiser", psll=200)
+    >>> float(np.median(sp.Gxx / 2.0))  # doctest: +SKIP
+    4.0
     """
     # 1. Instantiate the analyzer with all provided parameters
     analyzer = SpectrumAnalyzer(data, fs, **kwargs)

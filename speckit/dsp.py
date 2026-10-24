@@ -43,9 +43,20 @@ import tarfile
 import warnings
 import zipfile
 from copy import deepcopy
-from typing import TYPE_CHECKING, Callable, List, Optional
+from types import ModuleType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from speckit import lagrange, spectral
 
@@ -54,6 +65,7 @@ timeshift = lagrange.timeshift
 
 if TYPE_CHECKING:
     import pandas as pd
+    from scipy.optimize import OptimizeResult
 
 crop_data = spectral.crop_data
 integral_rms = spectral.integral_rms
@@ -61,8 +73,19 @@ integral_rms = spectral.integral_rms
 logger = logging.getLogger(__name__)
 
 
-def _require_pandas():
-    """Import pandas, or tell the caller which extra provides it."""
+def _require_pandas() -> ModuleType:
+    """Import pandas, or tell the caller which extra provides it.
+
+    Returns
+    -------
+    module
+        The pandas module.
+
+    Raises
+    ------
+    ImportError
+        If pandas is not installed. The message names the ``io`` extra.
+    """
     try:
         import pandas as pd
     except ImportError as exc:
@@ -73,8 +96,19 @@ def _require_pandas():
     return pd
 
 
-def _require_py7zr():
-    """Import py7zr, or tell the caller which extra provides it."""
+def _require_py7zr() -> Callable[..., Any]:
+    """Import py7zr, or tell the caller which extra provides it.
+
+    Returns
+    -------
+    callable
+        The ``SevenZipFile`` constructor.
+
+    Raises
+    ------
+    ImportError
+        If py7zr is not installed. The message names the ``io`` extra.
+    """
     try:
         from py7zr import SevenZipFile
     except ImportError as exc:
@@ -85,7 +119,7 @@ def _require_py7zr():
     return SevenZipFile
 
 
-def frequency2phase(f, fs, subtract_mean=True):
+def frequency2phase(f: ArrayLike, fs: float, subtract_mean: bool = True) -> np.ndarray:
     """
     Integrate frequency in Hz to find phase in radians.
 
@@ -122,7 +156,7 @@ def frequency2phase(f, fs, subtract_mean=True):
     return (2 * np.pi / fs) * np.cumsum(f_integrate)
 
 
-def polynomial_detrend(x, order=1):
+def polynomial_detrend(x: ArrayLike, order: int = 1) -> np.ndarray:
     """
     Detrend an input signal using a fast and stable polynomial fit.
 
@@ -167,17 +201,23 @@ def polynomial_detrend(x, order=1):
 def truncation(x: np.ndarray, n_trunc: int) -> np.ndarray:
     """Truncate both ends of a time-series array.
 
-    Args:
-        x: Array of data to truncate.
-        n_trunc: Number of points to remove from each end of the array.
-                 Must be a non-negative integer. If zero or negative, the
-                 array is returned unchanged.
+    Parameters
+    ----------
+    x : np.ndarray
+        Series to truncate.
+    n_trunc : int
+        Samples removed from each end. Zero returns ``x`` unchanged.
 
-    Returns:
-        Truncated array.
+    Returns
+    -------
+    np.ndarray
+        The truncated series.
 
-    Raises:
-        ValueError: If n_trunc is not an integer or is too large.
+    Raises
+    ------
+    ValueError
+        If ``n_trunc`` is not a non-negative integer, or if twice that
+        count exceeds ``len(x)``.
     """
     if not isinstance(n_trunc, int):
         raise ValueError(f"n_trunc must be an integer, got {n_trunc}")
@@ -191,7 +231,14 @@ def truncation(x: np.ndarray, n_trunc: int) -> np.ndarray:
     return x[n_trunc:-n_trunc] if n_trunc > 0 else x
 
 
-def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=1e-2):
+def peak_finder(
+    frequency: ArrayLike,
+    measurement: ArrayLike,
+    cnr: float = 10,
+    edge: bool = True,
+    freq_band: Optional[Tuple[float, float]] = None,
+    rtol: float = 1e-2,
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Detects peaks in a measurement array based on CNR(dB) threshold.
 
@@ -316,7 +363,7 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     return peak_frequencies, peak_measurements
 
 
-def resample_series(t, y, t_new):
+def resample_series(t: ArrayLike, y: ArrayLike, t_new: ArrayLike) -> np.ndarray:
     """Linearly interpolate ``y(t)`` onto ``t_new`` with ``numpy.interp``.
 
     This is the interpolant used by ``resample_to_common_grid``. ``t`` must be
@@ -342,22 +389,61 @@ def resample_series(t, y, t_new):
 
 
 def optimal_linear_combination_arrays(
-    inputs,
-    output,
-    timeshifts=False,
-    gradient=False,
-    domain="time",
-    method="TNC",
-    tol=1e-9,
-    *args,
-    **kwargs,
-):
+    inputs: Union[List[ArrayLike], Tuple[ArrayLike, ...]],
+    output: ArrayLike,
+    timeshifts: bool = False,
+    gradient: bool = False,
+    domain: str = "time",
+    method: str = "TNC",
+    tol: float = 1e-9,
+    *args: Any,
+    **kwargs: Any,
+) -> Tuple[OptimizeResult, np.ndarray]:
     """Array form of :func:`optimal_linear_combination`.
 
     ``inputs`` is a sequence of 1-D arrays and ``output`` is a 1-D array, all
     the same length. The objective is unchanged: time-domain RMS, or the
     integral of a SciPy Welch density when ``domain='frequency'``. Welch is
     not ``compute_spectrum``.
+
+    Parameters
+    ----------
+    inputs : list or tuple of array-like
+        Input series, one 1-D array each.
+    output : array-like
+        Output series, same length as each input.
+    timeshifts : bool, optional
+        If True, each input is delayed before it is scaled. Defaults to False.
+    gradient : bool, optional
+        If True, the objective uses the derivative of the residual.
+        Defaults to False.
+    domain : str, optional
+        ``"time"`` or ``"frequency"``. Defaults to ``"time"``.
+    method : str, optional
+        SciPy minimizer name. Defaults to ``"TNC"``.
+    tol : float, optional
+        Minimizer tolerance. Must be positive. Defaults to 1e-9.
+    *args
+        Forwarded to ``scipy.signal.welch`` when ``domain`` is
+        ``"frequency"``.
+    **kwargs
+        Forwarded to ``scipy.signal.welch`` when ``domain`` is
+        ``"frequency"``.
+
+    Returns
+    -------
+    res : OptimizeResult
+        Result of ``scipy.optimize.minimize``.
+    y : np.ndarray
+        Output with the optimal combination of inputs subtracted.
+
+    Raises
+    ------
+    TypeError
+        If ``inputs`` is not a list or tuple.
+    ValueError
+        If ``inputs`` is empty, ``domain`` is not ``"time"`` or
+        ``"frequency"``, or ``tol`` is not positive.
     """
     from scipy.optimize import minimize
 
@@ -445,20 +531,20 @@ def optimal_linear_combination_arrays(
 
 
 def optimal_linear_combination(
-    df,
-    inputs,
-    output,
-    timeshifts=False,
-    gradient=False,
-    domain="time",
-    method="TNC",
-    tol=1e-9,
-    *args,
-    **kwargs,
-):
-    """
-    Computes the coefficients of a linear combination of optionally timeshifted "input" signals
-    that minimize noise when added to the "output" signal.
+    df: pd.DataFrame,
+    inputs: Union[List[str], Tuple[str, ...]],
+    output: str,
+    timeshifts: bool = False,
+    gradient: bool = False,
+    domain: str = "time",
+    method: str = "TNC",
+    tol: float = 1e-9,
+    *args: Any,
+    **kwargs: Any,
+) -> Tuple[OptimizeResult, np.ndarray]:
+    """Computes coefficients of a noise-minimizing linear combination.
+
+    The inputs may be timeshifted before they are added to the output.
 
     Target: `RMS[ output + Sum [coefficient_i * timeshift(input_i, shift_i) ] ]`
 
@@ -553,8 +639,14 @@ def optimal_linear_combination(
 
 
 def df_timeshift(
-    df, fs, seconds, columns=None, truncate=None, inplace=False, suffix="_shifted"
-):
+    df: pd.DataFrame,
+    fs: float,
+    seconds: float,
+    columns: Optional[Sequence[Any]] = None,
+    truncate: Optional[Union[bool, int, np.integer]] = None,
+    inplace: bool = False,
+    suffix: str = "_shifted",
+) -> pd.DataFrame:
     """
     Timeshift columns of a pandas DataFrame or the entire DataFrame.
 
@@ -644,7 +736,13 @@ def df_timeshift(
     return df_shifted
 
 
-def df_detrend(df, columns=None, order=1, inplace=False, suffix="_detrended"):
+def df_detrend(
+    df: pd.DataFrame,
+    columns: Optional[Sequence[Any]] = None,
+    order: int = 1,
+    inplace: bool = False,
+    suffix: str = "_detrended",
+) -> pd.DataFrame:
     """
     Detrend all or specified columns of a pandas DataFrame using polynomial_detrend.
 
@@ -709,8 +807,8 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix="_detrended"):
 def multi_file_timeseries_loader(
     file_list: List[str],
     fs_list: List[float],
-    names_list: Optional[List[str]] = None,
-    start_time: Optional[float] = 0.0,
+    names_list: Optional[List[Optional[Union[List[str], Tuple[str, ...]]]]] = None,
+    start_time: float = 0.0,
     duration_hours: Optional[float] = None,
     timeshifts: Optional[List[float]] = None,
     delimiter_list: Optional[List[str]] = None,
@@ -998,13 +1096,15 @@ def resample_to_common_grid(
     df_list: List[pd.DataFrame],
     fs: float,
     t_col_list: Optional[List[str]] = None,
-    tolerance: Optional[float] = 0.1,
-    preprocessors: Optional[List[Callable]] = None,
-    suffixes: Optional[bool] = False,
+    tolerance: float = 0.1,
+    preprocessors: Optional[
+        List[Optional[Callable[[pd.DataFrame], pd.DataFrame]]]
+    ] = None,
+    suffixes: bool = False,
 ) -> pd.DataFrame:
-    """
-    Resample one or multiple DataFrames to a common time grid by interpolating
-    data to align with a unified time axis.
+    """Resample DataFrames onto one time grid.
+
+    Interpolates one or more frames so their samples share a single time axis.
 
     Parameters
     ----------
@@ -1165,18 +1265,21 @@ def multi_file_timeseries_resampler(
     file_list: List[str],
     fs_list: List[float],
     fs: float,
-    start_time: Optional[float] = 0.0,
+    start_time: float = 0.0,
     duration_hours: Optional[float] = None,
     timeshifts: Optional[List[float]] = None,
     delimiter_list: Optional[List[str]] = None,
     t_col_list: Optional[List[str]] = None,
-    tolerance: Optional[float] = 0.1,
-    preprocessors: Optional[List[callable]] = None,
+    tolerance: float = 0.1,
+    preprocessors: Optional[
+        List[Optional[Callable[[pd.DataFrame], pd.DataFrame]]]
+    ] = None,
     suffixes: bool = False,
 ) -> pd.DataFrame:
-    """
-    Loads time-series data from multiple files, truncates to the maximum overlapping time window,
-    and resamples to a common time grid by interpolating each data stream.
+    """Load several files and resample them onto one time grid.
+
+    Truncates each series to the maximum overlapping window, then
+    interpolates onto a common time axis.
 
     Parameters
     ----------
@@ -1219,7 +1322,6 @@ def multi_file_timeseries_resampler(
     pd.DataFrame
         A single DataFrame containing the resampled time-series data aligned on a common time grid.
     """
-
     # Load the time series data from multiple files using the loader function
     df_list = multi_file_timeseries_loader(
         file_list=file_list,

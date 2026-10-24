@@ -34,29 +34,45 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import sys
+import logging
 import math
+import sys
+from typing import Any, Dict, List, Sequence
 
 import numba
 import numpy as np
 
-import logging
-
 logger = logging.getLogger(__name__)
 
-def _require_args(args_dict, required):
+
+def _require_args(args_dict: Dict[str, Any], required: Sequence[str]) -> List[Any]:
     missing = [k for k in required if k not in args_dict]
     if missing:
         raise TypeError(f"Missing required argument(s): {', '.join(missing)}")
     return [args_dict[k] for k in required]
 
 
-def lpsd_plan(**args):
-    """
-    Original LPSD scheduler from:
-    https://doi.org/10.1016/j.measurement.2005.10.010
+def lpsd_plan(**args: Any) -> Dict[str, Any]:
+    """Original LPSD scheduler.
 
-    Like ltf_plan, but bmin = 1.0, and Lmin = 1.
+    From https://doi.org/10.1016/j.measurement.2005.10.010.
+    Like ``ltf_plan``, but ``bmin`` is 1.0 and ``Lmin`` is 1.
+
+    Parameters
+    ----------
+    **args
+        Forwarded to ``ltf_plan`` after ``bmin`` and ``Lmin`` are set.
+        Required keys are ``N``, ``fs``, ``olap``, ``Jdes``, and ``Kdes``.
+
+    Returns
+    -------
+    dict
+        The ``ltf_plan`` result.
+
+    Raises
+    ------
+    TypeError
+        If a required key is missing.
     """
     # Ensure required keys exist (will raise if not)
     _require_args(args, ["N", "fs", "olap", "Jdes", "Kdes"])
@@ -69,7 +85,7 @@ def lpsd_plan(**args):
     return ltf_plan(**forwarded)
 
 
-def ltf_plan(**args):
+def ltf_plan(**args: Any) -> Dict[str, Any]:
     """
     LTF scheduler from S2-AEI-TN-3052 (Gerhard Heinzel).
 
@@ -144,6 +160,23 @@ def ltf_plan(**args):
     This describes the desire to have at least Kdes segments for averaging at each frequency. As mentioned above,
     this cannot be met at low frequencies but is easy to over-achieve at high frequencies, such that this serves only as a
     guideline for ﬁnding compromises in the scheduler.
+
+    Parameters
+    ----------
+    **args
+        Required keys are ``N``, ``fs``, ``olap``, ``bmin``, ``Lmin``,
+        ``Jdes``, and ``Kdes``.
+
+    Returns
+    -------
+    dict
+        ``f``, ``r``, ``b``, ``m``, ``L``, ``K``, ``navg``, ``D``, ``O``,
+        and ``nf``.
+
+    Raises
+    ------
+    TypeError
+        If a required key is missing.
     """
     # Unpack & validate
     N, fs, olap, bmin, Lmin, Jdes, Kdes = _require_args(
@@ -276,7 +309,7 @@ def ltf_plan(**args):
     return output
 
 
-def vectorized_ltf_plan(**args):
+def vectorized_ltf_plan(**args: Any) -> Dict[str, Any]:
     """
     Vectorized variant of the LTF scheduler.
 
@@ -300,6 +333,23 @@ def vectorized_ltf_plan(**args):
     large number of desired frequencies (`Jdes`). The results are nearly
     identical to an iterative implementation, with minor differences arising
     from the discrete nature of the pre-computed grid.
+
+    Parameters
+    ----------
+    **args
+        Required keys are ``N``, ``fs``, ``olap``, ``bmin``, ``Lmin``,
+        ``Jdes``, and ``Kdes``.
+
+    Returns
+    -------
+    dict
+        Same keys as ``ltf_plan``: ``f``, ``r``, ``b``, ``m``, ``L``, ``K``,
+        ``D``, ``O``, ``nf``, and ``navg``.
+
+    Raises
+    ------
+    TypeError
+        If a required key is missing.
     """
     N, fs, olap, bmin, Lmin, Jdes, Kdes = _require_args(
         args, ["N", "fs", "olap", "bmin", "Lmin", "Jdes", "Kdes"]
@@ -368,7 +418,7 @@ def vectorized_ltf_plan(**args):
     return output
 
 
-def new_ltf_plan(**args):
+def new_ltf_plan(**args: Any) -> Dict[str, Any]:
     """
     High-performance, multi-stage LTF-like scheduler with a unified loop.
 
@@ -384,6 +434,23 @@ def new_ltf_plan(**args):
     which regime's logic is used to calculate the resolution for the current
     step. This architecture guarantees that all physical constraints are
     perfectly met across the stage boundaries, eliminating stitching errors.
+
+    Parameters
+    ----------
+    **args
+        Required keys are ``N``, ``fs``, ``olap``, ``bmin``, ``Lmin``,
+        ``Jdes``, and ``Kdes``. Other keys are ignored.
+
+    Returns
+    -------
+    dict
+        Same keys as ``ltf_plan``: ``f``, ``r``, ``b``, ``m``, ``L``, ``K``,
+        ``D``, ``O``, ``nf``, and ``navg``.
+
+    Raises
+    ------
+    TypeError
+        If a required key is missing.
     """
     # --- 1. Unpack Arguments and Initialize Constants ---
     N, fs, olap, bmin, Lmin, Jdes, Kdes = _require_args(

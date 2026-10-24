@@ -81,11 +81,26 @@ Teilinstitut Hannover,
 February 15, 2002.
 """
 
+from typing import Sequence
+
 import numpy as np
 
 
-def _cosine_sum(M, coeffs):
-    """Return a0 - a1 cos(2z) + a2 cos(4z) - ... at z = pi * arange(M) / M."""
+def _cosine_sum(M: int, coeffs: Sequence[float]) -> np.ndarray:
+    """Return a0 - a1 cos(2z) + a2 cos(4z) - ... at z = pi * arange(M) / M.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+    coeffs : sequence of float
+        Cosine-sum coefficients ``(a0, a1, ...)``.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
+    """
     z = np.pi / M * np.arange(0, M)
     w = np.zeros(M, dtype=np.float64)
     for k, coeff in enumerate(coeffs):
@@ -93,127 +108,280 @@ def _cosine_sum(M, coeffs):
     return w
 
 
-def SFT3F(M):
+def SFT3F(M: int) -> np.ndarray:
     """Flat-top window function SFT3F.
 
     Differentiable, -31.7 dB, NBW 3.1681 bins, 0.0082 dB, first zero at +/- 3 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (0.26526, 0.5, 0.23474))
 
 
-def SFT4F(M):
+def SFT4F(M: int) -> np.ndarray:
     """Flat-top window function SFT4F.
 
     2nd differentiable, -44.7 dB, NBW 3.7970 bins, 0.0041 dB, first zero at
     +/- 4 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (0.21706, 0.42103, 0.28294, 0.07897))
 
 
-def SFT5F(M):
+def SFT5F(M: int) -> np.ndarray:
     """Flat-top window function SFT5F.
 
     3rd differentiable, -57.3 dB, NBW 4.3412 bins, -0.0025 dB, first zero at
     +/- 5 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (0.1881, 0.36923, 0.28702, 0.13077, 0.02488))
 
 
-def SFT3M(M):
+def SFT3M(M: int) -> np.ndarray:
     """Flat-top window function SFT3M.
 
     -44.2 dB, NBW 2.9452 bins, -0.0115 dB, first zero at +/- 3 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (0.28235, 0.52105, 0.19659))
 
 
-def SFT4M(M):
+def SFT4M(M: int) -> np.ndarray:
     """Flat-top window function SFT4M.
 
     -66.5 dB, NBW 3.3868 bins, -0.0067 dB, first zero at +/- 4 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (0.241906, 0.460841, 0.255381, 0.041872))
 
 
-def SFT5M(M):
+def SFT5M(M: int) -> np.ndarray:
     """Flat-top window function SFT5M.
 
     -89.9 dB, NBW 3.8852 bins, 0.0039 dB, first zero at +/- 5 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (0.209671, 0.407331, 0.281225, 0.092669, 0.0091036))
 
 
-def FTNI(M):
+def FTNI(M: int) -> np.ndarray:
     """Flat-top window function FTNI (National Instruments).
 
     -44.4 dB, NBW 2.9656 bins, 0.0169 dB, first zero at +/- 3 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (0.2810639, 0.5208972, 0.1980399))
 
 
-def FTHP(M):
+def FTHP(M: int) -> np.ndarray:
     """Flat-top window function FTHP (old Hewlett Packard).
 
     -70.4 dB, NBW 3.4279 bins, 0.0096 dB, first zero at +/- 4 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (1.0, 1.912510941, 1.079173272, 0.1832630879))
 
 
-def FTSR(M):
+def FTSR(M: int) -> np.ndarray:
     """Flat-top window function FTSRS (Stanford Research SR785).
 
     Differentiable, -76.6 dB, NBW 3.7702 bins, -0.0156 dB, first zero at
     +/- 4.72 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (1.0, 1.93, 1.29, 0.388, 0.028))
 
 
-def Matlab(M):
+def Matlab(M: int) -> np.ndarray:
     """Flat-top window function Matlab.
 
     -93.0 dB, NBW 3.774 bins, 0.0025 dB, first zero at +/- 5.01 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(
         M, (0.21557895, 0.41663158, 0.277263158, 0.083578947, 0.006947368)
     )
 
 
-def HFT70(M):
+def HFT70(M: int) -> np.ndarray:
     """Flat-top window function HFT70 (lowest sidelobe level with 3 cosine terms).
 
     -70.4 dB, NBW 3.4129 bins, -0.0065 dB, first zero at +/- 4 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (1.0, 1.90796, 1.07349, 0.18199))
 
 
-def HFT95(M):
+def HFT95(M: int) -> np.ndarray:
     """Flat-top window function HFT95 (lowest sidelobe level with 4 cosine terms).
 
     -95.0 dB, NBW 3.8112 bins, 0.0044 dB, first zero at +/- 5 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (1.0, 1.9383379, 1.3045202, 0.4028270, 0.0350665))
 
 
-def HFT90D(M):
+def HFT90D(M: int) -> np.ndarray:
     """Flat-top window function HFT90D (lowest sidelobe level with 4 cosine terms).
 
-    Differentiable, -90.2 dB, NBW 3.8832 bins, -0.0039 dB, first zero at +/- 5 bins.
+    Differentiable, -90.2 dB, NBW 3.8832 bins, -0.0039 dB, first zero at
+    +/- 5 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (1.0, 1.942604, 1.340318, 0.440811, 0.043097))
 
 
-def HFT116D(M):
+def HFT116D(M: int) -> np.ndarray:
     """Flat-top window function HFT116D (lowest sidelobe level with 5 cosine terms).
 
-    Differentiable, -116.8 dB, NBW 4.2186 bins, -0.0028 dB, first zero at +/- 6 bins.
+    Differentiable, -116.8 dB, NBW 4.2186 bins, -0.0028 dB, first zero at
+    +/- 6 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(M, (1.0, 1.9575375, 1.4780705, 0.6367431, 0.1228389, 0.0066288))
 
 
-def HFT144D(M):
+def HFT144D(M: int) -> np.ndarray:
     """Flat-top window function HFT144D (lowest sidelobe level with 6 cosine terms).
 
-    Differentiable, -144.1 dB, NBW 4.5386 bins, 0.0021 dB, first zero at +/- 7 bins.
+    Differentiable, -144.1 dB, NBW 4.5386 bins, 0.0021 dB, first zero at
+    +/- 7 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(
         M,
@@ -229,10 +397,21 @@ def HFT144D(M):
     )
 
 
-def HFT169D(M):
+def HFT169D(M: int) -> np.ndarray:
     """Flat-top window function HFT169D (lowest sidelobe level with 7 cosine terms).
 
-    Differentiable, -169.5 dB, NBW 4.8347 bins, 0.0017 dB, first zero at +/- 8 bins.
+    Differentiable, -169.5 dB, NBW 4.8347 bins, 0.0017 dB, first zero at
+    +/- 8 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(
         M,
@@ -249,10 +428,21 @@ def HFT169D(M):
     )
 
 
-def HFT196D(M):
+def HFT196D(M: int) -> np.ndarray:
     """Flat-top window function HFT196D (lowest sidelobe level with 8 cosine terms).
 
-    Differentiable, -196.2 dB, NBW 5.1134 bins, 0.0013 dB, first zero at +/- 9 bins.
+    Differentiable, -196.2 dB, NBW 5.1134 bins, 0.0013 dB, first zero at
+    +/- 9 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(
         M,
@@ -270,10 +460,21 @@ def HFT196D(M):
     )
 
 
-def HFT223D(M):
+def HFT223D(M: int) -> np.ndarray:
     """Flat-top window function HFT223D (lowest sidelobe level with 9 cosine terms).
 
-    Differentiable, -223.0 dB, NBW 5.3888 bins, -0.0011 dB, first zero at +/- 10 bins.
+    Differentiable, -223.0 dB, NBW 5.3888 bins, -0.0011 dB, first zero at
+    +/- 10 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(
         M,
@@ -292,10 +493,21 @@ def HFT223D(M):
     )
 
 
-def HFT248D(M):
+def HFT248D(M: int) -> np.ndarray:
     """Flat-top window function HFT248D (lowest sidelobe level with 10 cosine terms).
 
-    Differentiable, -248.4 dB, NBW 5.6512 bins, 0.0009 dB, first zero at +/- 11 bins.
+    Differentiable, -248.4 dB, NBW 5.6512 bins, 0.0009 dB, first zero at
+    +/- 11 bins.
+
+    Parameters
+    ----------
+    M : int
+        Window length in samples.
+
+    Returns
+    -------
+    w : np.ndarray
+        Window samples of length ``M``.
     """
     return _cosine_sum(
         M,

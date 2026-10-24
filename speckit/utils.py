@@ -35,12 +35,19 @@
 # foreign countries or providing access to foreign persons.
 #
 import math
+from typing import Any, Callable, Dict, List, Optional, Sequence, TypeVar
+
+_K = TypeVar("_K")
 
 MIN_JDES = 100
 MAX_JDES = 1000000
 
 
-def find_Jdes_binary_search(scheduler, target_nf, **args):
+def find_Jdes_binary_search(
+    scheduler: Callable[..., Dict[str, Any]],
+    target_nf: int,
+    **args: Any,
+) -> Optional[int]:
     """Performs a binary search to find the `Jdes` for a scheduler.
 
     This utility function iteratively calls a given scheduler to find the
@@ -111,7 +118,7 @@ def find_Jdes_binary_search(scheduler, target_nf, **args):
     return None
 
 
-def kaiser_alpha(psll):
+def kaiser_alpha(psll: float) -> float:
     """Calculates Kaiser window shape parameter (alpha/beta) from PSLL.
 
     This function provides a polynomial approximation to determine the required
@@ -147,7 +154,7 @@ def kaiser_alpha(psll):
     return ((((a3 * x) + a2) * x) + a1) * x + a0
 
 
-def kaiser_rov(alpha):
+def kaiser_rov(alpha: float) -> float:
     """Calculates the recommended fractional overlap for a Kaiser window.
 
     Based on the window's shape parameter (`alpha` or `β`), this function
@@ -181,7 +188,7 @@ def kaiser_rov(alpha):
     return (100 - 1 / (((((a3 * x) + a2) * x) + a1) * x + a0)) / 100
 
 
-def round_half_up(val):
+def round_half_up(val: float) -> int:
     """Rounds a number to the nearest integer, with halves rounded up.
 
     This function implements the "round half up" strategy, which differs from
@@ -206,7 +213,7 @@ def round_half_up(val):
     return x
 
 
-def chunker(iter, chunk_size):
+def chunker(iter: Sequence[Any], chunk_size: int) -> List[Any]:
     """Splits an iterable into smaller lists of a fixed size.
 
     This function takes a sequence (like a list or tuple) and divides it
@@ -239,21 +246,51 @@ def chunker(iter, chunk_size):
     return chunks
 
 
-def is_function_in_dict(function_to_check, function_dict):
+def is_function_in_dict(
+    function_to_check: Callable[..., Any],
+    function_dict: Dict[_K, Callable[..., Any]],
+) -> bool:
     """Checks if a function object exists as a value in a dictionary.
 
     This is useful for verifying if a provided callable is one of a set of
     pre-defined, named functions.
+
+    Parameters
+    ----------
+    function_to_check : callable
+        Callable to look for.
+    function_dict : dict
+        Mapping whose values are callables.
+
+    Returns
+    -------
+    bool
+        True when ``function_to_check`` is one of the values.
     """
     return function_to_check in function_dict.values()
 
 
-def get_key_for_function(function_to_check, function_dict):
+def get_key_for_function(
+    function_to_check: Callable[..., Any],
+    function_dict: Dict[_K, Callable[..., Any]],
+) -> Optional[_K]:
     """Performs a reverse lookup to find the key for a given function value.
 
     Iterates through a dictionary to find which key corresponds to the given
     function object. This is useful for retrieving the string name of a
     callable from a mapping.
+
+    Parameters
+    ----------
+    function_to_check : callable
+        Callable to look for.
+    function_dict : dict
+        Mapping whose values are callables.
+
+    Returns
+    -------
+    key or None
+        The first key whose value is ``function_to_check``, or None.
     """
     for key, func in function_dict.items():
         if func == function_to_check:

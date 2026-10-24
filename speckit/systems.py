@@ -35,7 +35,7 @@
 # foreign countries or providing access to foreign persons.
 #
 import logging
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Union
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -48,10 +48,10 @@ logger = logging.getLogger(__name__)
 def SISO_optimal_spectral_analysis(
     input: ArrayLike, output: ArrayLike, fs: float, **kwargs: Any
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Performs optimal spectral analysis on a Single-Input Single-Output (SISO) system
-    using an exact solution to estimate the amplitude spectral density (ASD) of the output,
-    with the influence of the input subtracted.
+    """Performs optimal spectral analysis on a SISO system.
+
+    Uses an exact solution to estimate the one-sided amplitude spectral
+    density (ASD) of the output, with the influence of the input subtracted.
 
     Parameters
     ----------
@@ -84,8 +84,6 @@ def SISO_optimal_spectral_analysis(
     ValueError
         If `fs` is not positive and finite, if `input` or `output` are empty, if they
         have different lengths, if they are not 1D arrays, or if they contain non-finite values.
-    TypeError
-        If `input` or `output` cannot be converted to numpy arrays.
     """
     # Validate fs
     if not np.isfinite(fs) or fs <= 0:
@@ -130,13 +128,16 @@ def SISO_optimal_spectral_analysis(
 
 
 def MISO_analytic_optimal_spectral_analysis(
-    inputs: List[ArrayLike], output: ArrayLike, fs: float, **kwargs: Any
+    inputs: Union[List[ArrayLike], Tuple[ArrayLike, ...]],
+    output: ArrayLike,
+    fs: float,
+    **kwargs: Any,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system
-    using an exact analytic solution to the system of linear equations involving the
-    optimal transfer functions between the inputs and the output, and estimates the
-    amplitude spectral density (ASD) of the output with the influence of the inputs subtracted.
+    """Performs optimal spectral analysis on a MISO system.
+
+    Uses an exact analytic solution for the optimal transfer functions
+    between the inputs and the output, and estimates the one-sided ASD of
+    the output with the influence of the inputs subtracted.
 
     Reference
     ---------
@@ -167,18 +168,15 @@ def MISO_analytic_optimal_spectral_analysis(
     Tuple[np.ndarray, np.ndarray]
         A tuple containing:
         - Fourier frequencies at which the analysis is performed.
-        - Amplitude spectral density of the output signal, calculated using the
-          optimal spectral analysis method.
+        - One-sided amplitude spectral density of the output.
 
     Raises
     ------
     ValueError
-        If `fs` is not positive and finite, if `inputs` is empty, if any input or `output`
-        are empty, if they have different lengths, if they are not 1D arrays, or if they
-        contain non-finite values.
+        If `fs` is not positive and finite, if `inputs` is empty, or if the
+        numeric solver rejects the series.
     TypeError
-        If `inputs` is not a list/sequence, or if any input or `output` cannot be converted
-        to numpy arrays.
+        If `inputs` is not a list or tuple.
     """
     # Validate fs
     if not np.isfinite(fs) or fs <= 0:
@@ -200,13 +198,16 @@ def MISO_analytic_optimal_spectral_analysis(
 
 
 def MISO_numeric_optimal_spectral_analysis(
-    inputs: List[ArrayLike], output: ArrayLike, fs: float, **kwargs: Any
+    inputs: Union[List[ArrayLike], Tuple[ArrayLike, ...]],
+    output: ArrayLike,
+    fs: float,
+    **kwargs: Any,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Performs optimal spectral analysis on a Multiple-Input Single-Output (MISO) system
-    using by numerically solving the system of linear equations involving the
-    optimal transfer functions between the inputs and the output, and estimates the
-    amplitude spectral density (ASD) of the output with the influence of the inputs subtracted.
+    """Performs optimal spectral analysis on a MISO system.
+
+    Numerically solves for the optimal transfer functions between the inputs
+    and the output, and estimates the one-sided ASD of the output with the
+    influence of the inputs subtracted.
 
     Reference
     ---------
@@ -237,8 +238,7 @@ def MISO_numeric_optimal_spectral_analysis(
     Tuple[np.ndarray, np.ndarray]
         A tuple containing:
         - Fourier frequencies at which the analysis is performed.
-        - Amplitude spectral density of the output signal, calculated using the
-          optimal spectral analysis method.
+        - One-sided amplitude spectral density of the output.
 
     Raises
     ------
@@ -247,8 +247,7 @@ def MISO_numeric_optimal_spectral_analysis(
         are empty, if they have different lengths, if they are not 1D arrays, or if they
         contain non-finite values.
     TypeError
-        If `inputs` is not a list/sequence, or if any input or `output` cannot be converted
-        to numpy arrays.
+        If `inputs` is not a list or tuple.
     """
     # Validate fs
     if not np.isfinite(fs) or fs <= 0:

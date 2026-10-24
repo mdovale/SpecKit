@@ -34,23 +34,21 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-"""
-core.py — high-performance single-bin spectral kernels with optional Numba
------------------------------------------------------------------------------
-Design notes
-- SciPy-compatible CSD convention: Pxy = X * conj(Y)
-  => Re{Pxy} = r1*r2 + i1*i2
-     Im{Pxy} = i1*r2 - r1*i2
+"""High-performance single-bin spectral kernels with optional Numba.
+
+Design notes:
+
+- SciPy-compatible CSD convention: Pxy = X * conj(Y).
+  Re{Pxy} = r1*r2 + i1*i2, and Im{Pxy} = i1*r2 - r1*i2.
 - Hot JIT kernels avoid per-segment temporaries by streaming windowing and
   detrending inside the Goertzel recurrence. Pure-NumPy fallbacks are provided.
-- Both families use the DFT kernel exp(-i ω n). The Goertzel output carries an
-  extra common phase exp(i ω (L-1)) per segment, which cancels in |X|^2 and
-  X * conj(Y), so the two families return the same statistics.
+- Both families use the DFT kernel exp(-i omega n). The Goertzel output carries
+  an extra common phase exp(i omega (L-1)) per segment, which cancels in |X|^2
+  and X * conj(Y), so the two families return the same statistics.
 - `_bin_stats` is the single dispatcher; it reads `_NUMBA_ENABLED` at call time.
-- Returns follow the "sufficient statistics" 5-tuple:
-    (MXX, MYY, mu_r, mu_i, M2)
-  where M2 is the mean squared distance of XY from its mean across segments.
------------------------------------------------------------------------------
+- Returns follow the sufficient-statistics 5-tuple
+  (MXX, MYY, mu_r, mu_i, M2), where M2 is the mean squared distance of XY
+  from its mean across segments.
 """
 
 from __future__ import annotations
@@ -161,6 +159,11 @@ def _build_Q(L: int, order: int) -> np.ndarray:
     Q : (L, order+1) ndarray
         Orthonormal columns spanning the chosen polynomial subspace.
 
+    Raises
+    ------
+    ValueError
+        If ``order`` is not 1 or 2.
+
     Notes
     -----
     Use as: y_detr = y - Q @ (Q.T @ y).
@@ -222,8 +225,19 @@ def _goertzel_real_imag(
 def _reduce_stats(
     xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarray
 ) -> BinStats:
-    """
-    Reduce per-segment arrays into (MXX, MYY, mu_r, mu_i, M2).
+    """Reduce per-segment arrays into (MXX, MYY, mu_r, mu_i, M2).
+
+    Parameters
+    ----------
+    xx, yy, xyr, xyi : (K,) ndarray
+        Per-segment auto-powers and the real and imaginary parts of
+        ``X * conj(Y)``.
+
+    Returns
+    -------
+    BinStats
+        ``MXX``, ``MYY``, ``mu_r``, ``mu_i``, and ``M2``. ``M2`` is 0 when
+        fewer than two segments are present.
     """
     K = xx.size
     if K == 0:
@@ -248,8 +262,22 @@ def _reduce_stats(
 def _reduce_stats_nb(
     xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarray
 ) -> tuple[float, float, float, float, float]:
-    """
-    Numba version of _reduce_stats returning 5 floats (not a NamedTuple).
+    """Numba version of ``_reduce_stats``, returning five floats.
+
+    The NumPy reducer computes the same ``MXX``, ``MYY``, ``mu_r``, ``mu_i``,
+    and ``M2``.
+
+    Parameters
+    ----------
+    xx, yy, xyr, xyi : (K,) ndarray
+        Per-segment auto-powers and the real and imaginary parts of
+        ``X * conj(Y)``.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics. ``M2`` is 0 when fewer than two segments
+        are present.
     """
     K = xx.shape[0]
     if K == 0:
@@ -269,8 +297,21 @@ def _reduce_stats_nb(
 
 @_njit(cache=True, fastmath=True)
 def _apply_detrend0_inplace_nb_mean(x: np.ndarray, s: int, L: int) -> float:
-    """
-    Compute per-segment mean for detrend0 (Numba-friendly).
+    """Compute the per-segment mean used by order-0 detrending.
+
+    Parameters
+    ----------
+    x : (N,) ndarray
+        Input series.
+    s : int
+        Start index of the segment.
+    L : int
+        Segment length.
+
+    Returns
+    -------
+    float
+        Mean of ``x[s:s + L]``.
     """
     m = 0.0
     for n in range(L):
@@ -280,8 +321,19 @@ def _apply_detrend0_inplace_nb_mean(x: np.ndarray, s: int, L: int) -> float:
 
 @_njit(cache=True, fastmath=True)
 def _apply_detrend0_inplace_nb_val(xn: float, m: float) -> float:
-    """
-    Subtract mean value (scalar form for streaming).
+    """Subtract a segment mean from one sample.
+
+    Parameters
+    ----------
+    xn : float
+        Sample.
+    m : float
+        Segment mean.
+
+    Returns
+    -------
+    float
+        ``xn - m``.
     """
     return xn - m
 
@@ -290,8 +342,23 @@ def _apply_detrend0_inplace_nb_val(xn: float, m: float) -> float:
 def _apply_poly_detrend_inplace_nb_alpha(
     x: np.ndarray, Q: np.ndarray, s: int, L: int
 ) -> np.ndarray:
-    """
-    Compute alpha = Q.T @ segment (Numba-friendly, tiny p ∈ {2,3}).
+    """Compute ``alpha = Q.T @ segment`` for a streaming polynomial detrend.
+
+    Parameters
+    ----------
+    x : (N,) ndarray
+        Input series.
+    Q : (L, p) ndarray
+        Orthonormal basis from ``_build_Q``. ``p`` is 2 or 3.
+    s : int
+        Start index of the segment.
+    L : int
+        Segment length.
+
+    Returns
+    -------
+    alpha : (p,) ndarray
+        Projection of the segment onto the columns of ``Q``.
     """
     p1 = Q.shape[1]
     alpha = np.zeros(p1, np.float64)
@@ -307,8 +374,21 @@ def _apply_poly_detrend_inplace_nb_alpha(
 def _apply_poly_detrend_inplace_nb_rowdot(
     Q: np.ndarray, n: int, alpha: np.ndarray
 ) -> float:
-    """
-    Compute qdot = Q[n, :] @ alpha (scalar form for streaming).
+    """Compute one row of ``Q @ alpha`` for a streaming polynomial detrend.
+
+    Parameters
+    ----------
+    Q : (L, p) ndarray
+        Orthonormal basis from ``_build_Q``.
+    n : int
+        Row index inside the segment.
+    alpha : (p,) ndarray
+        Projection from ``_apply_poly_detrend_inplace_nb_alpha``.
+
+    Returns
+    -------
+    float
+        ``Q[n, :] @ alpha``.
     """
     p1 = Q.shape[1]
     acc = 0.0
@@ -346,8 +426,13 @@ def _stats_win_only_auto(
 
     Returns
     -------
-    MXX, MYY, mu_r, mu_i, M2 : floats
-        Sufficient statistics; for auto: MYY==MXX, mu_i==0.
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics. For an auto-spectrum, ``MYY == MXX`` and
+        ``mu_i == 0``.
+
+    Notes
+    -----
+    ``_stats_win_only_auto_np`` computes the same statistic.
     """
     K = starts.shape[0]
     cosw = np.cos(omega)
@@ -390,10 +475,29 @@ def _stats_win_only_csd(
     w: np.ndarray,
     omega: float,
 ) -> tuple[float, float, float, float, float]:
-    """
-    Single-bin cross-spectral sufficient statistics using windowing only.
+    """Single-bin cross-spectral statistics using windowing only.
 
-    Returns SciPy-compatible CSD sign: Pxy = X * conj(Y).
+    CSD sign is ``Pxy = X * conj(Y)``. ``_stats_win_only_csd_np`` computes
+    the same ``MXX``, ``MYY``, ``mu_r``, ``mu_i``, and ``M2``.
+
+    Parameters
+    ----------
+    x1, x2 : (N,) ndarray
+        The two input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics. ``mu_r`` and ``mu_i`` are the mean real and
+        imaginary parts of ``X * conj(Y)``.
     """
     K = starts.shape[0]
     cosw = np.cos(omega)
@@ -448,8 +552,28 @@ def _stats_detrend0_auto(
     w: np.ndarray,
     omega: float,
 ) -> tuple[float, float, float, float, float]:
-    """
-    Single-bin auto-spectral stats with mean removal (order=0 detrend).
+    """Single-bin auto-spectral statistics with mean removal.
+
+    ``_stats_detrend0_auto_np`` computes the same statistic. For an
+    auto-spectrum, ``MYY == MXX`` and ``mu_i == 0``.
+
+    Parameters
+    ----------
+    x : (N,) ndarray
+        Input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics after subtracting each segment mean.
     """
     K = starts.shape[0]
     cosw = np.cos(omega)
@@ -497,10 +621,28 @@ def _stats_detrend0_csd(
     w: np.ndarray,
     omega: float,
 ) -> tuple[float, float, float, float, float]:
-    """
-    Single-bin cross-spectral stats with mean removal (order=0 detrend).
+    """Single-bin cross-spectral statistics with mean removal.
 
-    SciPy-compatible CSD sign.
+    CSD sign is ``Pxy = X * conj(Y)``. ``_stats_detrend0_csd_np`` computes
+    the same statistic.
+
+    Parameters
+    ----------
+    x1, x2 : (N,) ndarray
+        The two input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics after subtracting each channel's segment mean.
     """
     K = starts.shape[0]
     cosw = np.cos(omega)
@@ -560,10 +702,31 @@ def _stats_poly_auto(
     omega: float,
     Q: np.ndarray,
 ) -> tuple[float, float, float, float, float]:
-    """
-    Single-bin auto-spectral stats with polynomial detrending via Q.
+    """Single-bin auto-spectral statistics with polynomial detrending.
 
-    Q must be orthonormal with shape (L, p+1), p ∈ {1, 2}, from _build_Q.
+    ``Q`` is the orthonormal basis from ``_build_Q``, shape ``(L, p + 1)``
+    with ``p`` in ``{1, 2}``. ``_stats_poly_auto_np`` computes the same
+    statistic. For an auto-spectrum, ``MYY == MXX`` and ``mu_i == 0``.
+
+    Parameters
+    ----------
+    x : (N,) ndarray
+        Input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    Q : (L, order + 1) ndarray
+        Orthonormal polynomial basis.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics after removing the polynomial trend.
     """
     K = starts.shape[0]
     cosw = np.cos(omega)
@@ -613,10 +776,30 @@ def _stats_poly_csd(
     omega: float,
     Q: np.ndarray,
 ) -> tuple[float, float, float, float, float]:
-    """
-    Single-bin cross-spectral stats with polynomial detrending via Q.
+    """Single-bin cross-spectral statistics with polynomial detrending.
 
-    SciPy-compatible CSD sign; same Q is applied to both channels.
+    CSD sign is ``Pxy = X * conj(Y)``. The same ``Q`` is applied to both
+    channels. ``_stats_poly_csd_np`` computes the same statistic.
+
+    Parameters
+    ----------
+    x1, x2 : (N,) ndarray
+        The two input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    Q : (L, order + 1) ndarray
+        Orthonormal polynomial basis from ``_build_Q``.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics after removing the polynomial trend.
     """
     K = starts.shape[0]
     cosw = np.cos(omega)
@@ -676,7 +859,22 @@ def _stats_poly_csd(
 
 
 def _check_starts_bounds(N: int, starts: np.ndarray, L: int) -> None:
-    """Raise if any start index would overrun the signal."""
+    """Raise if any start index would overrun the signal.
+
+    Parameters
+    ----------
+    N : int
+        Length of the series.
+    starts : ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+
+    Raises
+    ------
+    ValueError
+        If a start is negative or ``start + L`` exceeds ``N``.
+    """
     if starts.size == 0:
         return
     smin = int(starts.min())
@@ -688,8 +886,23 @@ def _check_starts_bounds(N: int, starts: np.ndarray, L: int) -> None:
 
 
 def _gather_segments(x: np.ndarray, starts: np.ndarray, L: int) -> np.ndarray:
-    """
-    Vectorized gather of segments -> (K, L) with safety & finiteness.
+    """Gather segments into an array of shape ``(K, L)``.
+
+    Non-finite samples are replaced with 0.
+
+    Parameters
+    ----------
+    x : (N,) ndarray
+        Input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+
+    Returns
+    -------
+    segs : (K, L) ndarray
+        One segment per row.
     """
     idx = starts[:, None] + np.arange(L, dtype=np.int64)[None, :]
     segs = x[idx]  # (K, L)
@@ -710,7 +923,37 @@ def _stats_win_only_auto_np(
     *,
     _chunk: int = 32768,
 ) -> tuple[float, float, float, float, float]:
-    """Auto-spectral stats with windowing only (NumPy)."""
+    """Auto-spectral statistics with windowing only (NumPy).
+
+    Same statistic as ``_stats_win_only_auto``: ``MXX``, ``MYY``, ``mu_r``,
+    ``mu_i``, and ``M2``. For an auto-spectrum, ``MYY == MXX`` and
+    ``mu_i == 0``.
+
+    Parameters
+    ----------
+    x : (N,) ndarray
+        Input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    _chunk : int, optional
+        Segments gathered at a time. Defaults to 32768.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics of the windowed segments.
+
+    Raises
+    ------
+    ValueError
+        If a segment start overruns the series.
+    """
     K = int(len(starts))
     if K == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0
@@ -749,7 +992,37 @@ def _stats_win_only_csd_np(
     *,
     _chunk: int = 32768,
 ) -> tuple[float, float, float, float, float]:
-    """Cross-spectral stats with windowing only (NumPy)."""
+    """Cross-spectral statistics with windowing only (NumPy).
+
+    Same statistic as ``_stats_win_only_csd``. CSD sign is
+    ``Pxy = X * conj(Y)``.
+
+    Parameters
+    ----------
+    x1, x2 : (N,) ndarray
+        The two input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    _chunk : int, optional
+        Segments gathered at a time. Defaults to 32768.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics. ``mu_r`` and ``mu_i`` are the mean real and
+        imaginary parts of ``X * conj(Y)``.
+
+    Raises
+    ------
+    ValueError
+        If a segment start overruns either series.
+    """
     K = int(len(starts))
     if K == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0
@@ -801,7 +1074,36 @@ def _stats_detrend0_auto_np(
     *,
     _chunk: int = 32768,
 ) -> tuple[float, float, float, float, float]:
-    """Auto-spectral stats with mean removal (NumPy)."""
+    """Auto-spectral statistics with mean removal (NumPy).
+
+    Same statistic as ``_stats_detrend0_auto``. For an auto-spectrum,
+    ``MYY == MXX`` and ``mu_i == 0``.
+
+    Parameters
+    ----------
+    x : (N,) ndarray
+        Input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    _chunk : int, optional
+        Segments gathered at a time. Defaults to 32768.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics after subtracting each segment mean.
+
+    Raises
+    ------
+    ValueError
+        If a segment start overruns the series.
+    """
     K = int(len(starts))
     if K == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0
@@ -842,7 +1144,36 @@ def _stats_detrend0_csd_np(
     *,
     _chunk: int = 32768,
 ) -> tuple[float, float, float, float, float]:
-    """Cross-spectral stats with mean removal (NumPy)."""
+    """Cross-spectral statistics with mean removal (NumPy).
+
+    Same statistic as ``_stats_detrend0_csd``. CSD sign is
+    ``Pxy = X * conj(Y)``.
+
+    Parameters
+    ----------
+    x1, x2 : (N,) ndarray
+        The two input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    _chunk : int, optional
+        Segments gathered at a time. Defaults to 32768.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics after subtracting each channel's segment mean.
+
+    Raises
+    ------
+    ValueError
+        If a segment start overruns either series.
+    """
     K = int(len(starts))
     if K == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0
@@ -899,7 +1230,39 @@ def _stats_poly_auto_np(
     *,
     _chunk: int = 16384,
 ) -> tuple[float, float, float, float, float]:
-    """Auto-spectral stats with polynomial detrending (NumPy)."""
+    """Auto-spectral statistics with polynomial detrending (NumPy).
+
+    Same statistic as ``_stats_poly_auto``. For an auto-spectrum,
+    ``MYY == MXX`` and ``mu_i == 0``.
+
+    Parameters
+    ----------
+    x : (N,) ndarray
+        Input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    Q : (L, order + 1) ndarray
+        Orthonormal polynomial basis from ``_build_Q``.
+    _chunk : int, optional
+        Segments gathered at a time. Defaults to 16384.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics after removing the polynomial trend.
+
+    Raises
+    ------
+    ValueError
+        If ``Q`` does not have ``L`` rows, or a segment start overruns
+        the series.
+    """
     K = int(len(starts))
     if K == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0
@@ -946,7 +1309,38 @@ def _stats_poly_csd_np(
     *,
     _chunk: int = 8192,
 ) -> tuple[float, float, float, float, float]:
-    """Cross-spectral stats with polynomial detrending (NumPy)."""
+    """Cross-spectral statistics with polynomial detrending (NumPy).
+
+    Same statistic as ``_stats_poly_csd``. CSD sign is ``Pxy = X * conj(Y)``.
+
+    Parameters
+    ----------
+    x1, x2 : (N,) ndarray
+        The two input series.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    Q : (L, order + 1) ndarray
+        Orthonormal polynomial basis from ``_build_Q``.
+    _chunk : int, optional
+        Segments gathered at a time. Defaults to 8192.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics after removing the polynomial trend.
+
+    Raises
+    ------
+    ValueError
+        If ``Q`` does not have ``L`` rows, or a segment start overruns
+        either series.
+    """
     K = int(len(starts))
     if K == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0
@@ -1023,7 +1417,39 @@ def _bin_stats(
 
     The module-level `_NUMBA_ENABLED` is read on every call, so assigning
     `speckit.core._NUMBA_ENABLED = False` switches every caller to the NumPy
-    fallbacks.
+    fallbacks. Both paths return the same ``MXX``, ``MYY``, ``mu_r``,
+    ``mu_i``, and ``M2``. Cross-spectra use ``Pxy = X * conj(Y)``.
+
+    Parameters
+    ----------
+    x1 : (N,) ndarray
+        First series.
+    x2 : (N,) ndarray or None
+        Second series. ``None`` selects the auto-spectral kernel.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency.
+    order : int
+        Detrend order: -1 window only, 0 mean removal, 1 or 2 polynomial.
+    Q : (L, order + 1) ndarray or None, optional
+        Basis from ``_build_Q``. Required when ``order`` is 1 or 2.
+        Defaults to None.
+
+    Returns
+    -------
+    MXX, MYY, mu_r, mu_i, M2 : float
+        Sufficient statistics for this bin.
+
+    Raises
+    ------
+    ValueError
+        If ``order`` is not -1, 0, 1, or 2, or if a polynomial order is
+        requested without ``Q``.
     """
     nb = _NUMBA_ENABLED
     if order == -1:
@@ -1072,6 +1498,18 @@ def _overlap_dof(w: ArrayLike, starts: ArrayLike) -> float:
     The covariance model is a Gaussian process whose spectrum is flat across
     the window bandwidth, away from DC and Nyquist. Detrending is ignored.
     The result is not rounded.
+
+    Parameters
+    ----------
+    w : array-like
+        Window of length ``L``.
+    starts : array-like
+        Segment start indices.
+
+    Returns
+    -------
+    nu : float
+        Equivalent degrees of freedom. Zero when there are no segments.
     """
     starts = np.sort(np.asarray(starts, dtype=np.int64))
     K = int(starts.shape[0])

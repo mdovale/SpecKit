@@ -42,14 +42,18 @@ inclusive slice that integral uses. Neither function imports pandas.
 """
 
 import logging
+from typing import Optional, Tuple
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.integrate import cumulative_trapezoid
 
 logger = logging.getLogger(__name__)
 
 
-def crop_data(x, y, xmin, xmax):
+def crop_data(
+    x: ArrayLike, y: ArrayLike, xmin: float, xmax: float
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Crop data to a specified range in x.
 
@@ -90,7 +94,11 @@ def crop_data(x, y, xmin, xmax):
     return x[mask], y[mask]
 
 
-def integral_rms(fourier_freq, asd, pass_band=None):
+def integral_rms(
+    fourier_freq: ArrayLike,
+    asd: ArrayLike,
+    pass_band: Optional[Tuple[float, float]] = None,
+) -> float:
     """
     Compute the RMS as integral of an Amplitude Spectral Density (ASD).
 

@@ -378,7 +378,7 @@ def apply_legend(ax: Union[Axes, List[Axes]]) -> Legend:
 def figsize(scale: float) -> List[float]:
     """Calculates figure size in inches for publication.
 
-    Based on LaTeX's `\the\textwidth` (typically 390pt for a single column).
+    Based on a single-column LaTeX text width (typically 390 pt).
 
     Parameters
     ----------
@@ -637,6 +637,12 @@ def time_plot(
     -------
     matplotlib.axes.Axes
         The Axes object containing the plot.
+
+    Raises
+    ------
+    ValueError
+        If ``y_list`` or ``label_list`` does not have the same length as
+        ``t_list``.
     """
     if len(t_list) != len(y_list):
         raise ValueError("Length of `y_list` must be equal to `t_list`.")
@@ -725,9 +731,12 @@ def time_histogram(
 
     Raises
     ------
+    ImportError
+        If pandas is not installed.
     ValueError
-        If the timestamp column cannot be converted to datetime.
-        If the filtered time axis is null.
+        If the timestamp column cannot be converted to datetime, the
+        filtered range is empty, the floored time axis is empty, or
+        ``y_key`` has no values from which to choose bins.
     """
     try:
         import pandas as pd
@@ -832,6 +841,11 @@ def asd_plot(
     -------
     matplotlib.axes.Axes
         The Axes object containing the plot.
+
+    Raises
+    ------
+    ValueError
+        If ``label_list`` is given and its length differs from ``f_list``.
     """
     if label_list is None:
         label_list = [f"Spectrum {i + 1}" for i in range(len(f_list))]
