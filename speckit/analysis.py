@@ -51,6 +51,7 @@ from typing import (
 
 import numpy as np
 from numpy import kaiser as np_kaiser
+from numpy.typing import ArrayLike
 from scipy.signal.windows import kaiser as sp_kaiser
 
 from speckit.flattop import olap_dict, win_dict
@@ -85,7 +86,7 @@ class SpectrumAnalyzer:
 
     def __init__(
         self,
-        data: np.ndarray,
+        data: ArrayLike,
         fs: float,
         *,
         olap: Union[str, float] = "default",
@@ -101,7 +102,7 @@ class SpectrumAnalyzer:
         band: Optional[Tuple[float, float]] = None,
         force_target_nf: Optional[bool] = False,
         verbose: bool = False,
-    ):
+    ) -> None:
         """
         Initializes the spectral analyzer.
 
@@ -258,7 +259,7 @@ class SpectrumAnalyzer:
                 f"scheduler={sched_name}"
             )
 
-    def _process_window_config(self):
+    def _process_window_config(self) -> None:
         """Resolve window function, Kaiser alpha, and default overlap."""
         win_param = self.config["win"]
         psll = self.config["psll"]
@@ -331,7 +332,7 @@ class SpectrumAnalyzer:
         # Save a friendly window name for logging/debugging
         self.config["win_name"] = win_name
 
-    def _process_scheduler_config(self):
+    def _process_scheduler_config(self) -> None:
         """Resolve scheduler function and store a friendly name."""
         scheduler_param = self.config["scheduler"]
         if isinstance(scheduler_param, str):
@@ -726,7 +727,7 @@ class SpectrumAnalyzer:
         }
         return SpectrumResult(final_results, self.config, self.iscsd, self.fs)
 
-    def _lpsd_core(self, f_indices: np.ndarray) -> List[Any]:
+    def _lpsd_core(self, f_indices: np.ndarray) -> list[list[int | complex | float]]:
         """
         Core processing loop for a block of frequency indices.
 
@@ -739,7 +740,7 @@ class SpectrumAnalyzer:
         plan = self._plan_cache  # plan() already validated & cached before calling
         assert plan is not None
 
-        results_block: List[Any] = []
+        results_block: list[list[int | complex | float]] = []
 
         # Per-L window cache: L -> (w, S1, S2)
         window_cache: Dict[int, Tuple[np.ndarray, float, float]] = {}
@@ -879,7 +880,7 @@ class SpectrumResult:
         config_dict: Dict[str, Any],
         iscsd: bool,
         fs: float,
-    ):
+    ) -> None:
         """Initializes the result object."""
         self._data = dict(results_dict)  # shallow copy to allow normalization
         self._config = config_dict
@@ -943,12 +944,12 @@ class SpectrumResult:
             fspan = f"[{self._data['f'][0]:.6g}, {self._data['f'][-1]:.6g}] Hz"
         return f"SpectrumResult(mode={mode}, nf={self.nf}, f={fspan})"
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> np.ndarray | None:
         """Lazy computation and caching of spectral properties."""
         if name in self._cache:
             return self._cache[name]
 
-        val: Any = None
+        val: np.ndarray | None = None
         # --- Base Quantities ---
         if name == "Gxx":
             # 2 * XX / (fs * S2)
@@ -1288,8 +1289,8 @@ class SpectrumResult:
         return float(integral_rms(self.f, self.asd, band))
 
     def get_measurement(
-        self, freq: Union[float, np.ndarray], which: str
-    ) -> Union[float, np.ndarray]:
+        self, freq: ArrayLike, which: str
+    ) -> float | complex | np.ndarray:
         """
         Evaluates a spectral quantity at given frequencies via interpolation.
 
@@ -1383,7 +1384,7 @@ class SpectrumResult:
         unwrap: bool = True,
         errors: bool = False,
         sigma: int = 1,
-        **kwargs,
+        **kwargs: Any,
     ) -> Tuple[Figure, Union[Axes, Tuple[Axes, Axes]]]:
         """
         A flexible plotting method for various spectral quantities.
@@ -1541,12 +1542,12 @@ class SpectrumResult:
         return fig, ax1
 
 
-def lpsd(data: np.ndarray, fs: float, **kwargs) -> SpectrumResult:
+def lpsd(data: ArrayLike, fs: float, **kwargs: Any) -> SpectrumResult:
     """Same as compute_spectrum."""
     return compute_spectrum(data, fs, **kwargs)
 
 
-def compute_spectrum(data: np.ndarray, fs: float, **kwargs) -> SpectrumResult:
+def compute_spectrum(data: ArrayLike, fs: float, **kwargs: Any) -> SpectrumResult:
     """
     Computes spectral estimates for one or two time-series in a single call.
 
@@ -1591,13 +1592,13 @@ def compute_spectrum(data: np.ndarray, fs: float, **kwargs) -> SpectrumResult:
 
 
 def compute_single_bin(
-    data: np.ndarray,
+    data: ArrayLike,
     fs: float,
     freq: float,
     *,
     fres: Optional[float] = None,
     L: Optional[int] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> SpectrumResult:
     """
     Computes spectral estimates for a single frequency bin in one call.
