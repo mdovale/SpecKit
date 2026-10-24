@@ -45,7 +45,16 @@ f, sqrt(GyySx)
 ```
 
 `GyySx` is `max(1 - coh, 0) * Gyy`, the same array as `GyyRx`. See
-[spectrum-estimation.md](spectrum-estimation.md).
+[spectrum-estimation.md](spectrum-estimation.md). That is the optimal
+residual `Gyy - |Gxy|² / Gxx`: with `Hxy = conj(Gxy) / Gxx`,
+
+```
+E|Y - Hxy X|² = Gyy - Hxy Gxy - conj(Hxy) conj(Gxy) + |Hxy|² Gxx
+             = Gyy - |Gxy|² / Gxx
+```
+
+in SpecKit's `Gxy = X * conj(Y)` convention. The SISO ASD equals the
+one-input MISO ASD below.
 
 MISO builds, at every planned frequency, the input spectral matrix `T` and
 the input-output cross-spectrum vector `S`:
@@ -76,8 +85,15 @@ Applications of Correlation and Spectral Analysis*, equation 8.16.
 `tests/unit/test_systems.py` checks shapes, kwargs pass-through, length
 mismatches, and that a repeated SISO call returns the same arrays. The
 analytic and numeric MISO names agree from frequency index 4 at 8 decimal
-places on the two-input fixture. No test compares the SISO residual with an
-independent evaluation of `sqrt(GyySx)`. The code path is that evaluation.
+places on the two-input fixture.
+
+`test_siso_vs_miso_single_input` compares SISO with one-input MISO at 8
+decimals on the lowpass fixture. `test_siso_residual_on_delayed_system` uses
+a 7-sample delay, where `Gxy` has phases beyond 60°, plus a zero-delay
+control. It requires SISO to equal `sqrt(GyyRx)` at `rtol=1e-12`, the
+squared SISO and MISO ASDs to agree within `1e-9 * Gyy`, and the residual
+to stay below `Gyy`. The tolerances are float error because the residual
+identity is exact.
 
 ## Key files
 
@@ -90,14 +106,16 @@ independent evaluation of `sqrt(GyySx)`. The code path is that evaluation.
 - [spectrum-estimation.md](spectrum-estimation.md)
 - [time-series-tools.md](time-series-tools.md) — `optimal_linear_combination`
   minimizes a time-series or Welch RMS. It does not call `compute_spectrum`.
-- `docs/handoffs/20261024_lean-library-reorganization.md` — a one-input MISO
-  residual and `SISO_optimal_spectral_analysis` are not the same series.
-  `test_siso_vs_miso_single_input` in `tests/unit/test_systems.py` is
-  commented out for that reason.
+- `docs/handoffs/20261024_gyysx-residual.md` — the former `GyySx` expansion
+  swapped `Hxy` and `Hyx` in its cross terms, which is why SISO and one-input
+  MISO disagreed in `docs/handoffs/20261024_lean-library-reorganization.md`.
+  Resolved.
+- `docs/handoffs/20261024_csd-convention-vs-scipy.md` — `Gxy` here is the
+  complex conjugate of `scipy.signal.csd`.
 
 ## Known limitations
 
-A single-input call of the MISO solver fills the input auto-spectrum from a
-two-channel spectrum of that input with itself, then solves the 1×1 system.
-SISO instead returns `sqrt(GyySx)` of `[input, output]`. Those are different
-calculations. The disabled test records that the ASDs do not agree.
+MISO takes `abs(sqrt(...))` of a complex expression whose imaginary part is
+roundoff. Where the residual is zero in exact arithmetic (a single segment,
+`navg == 1`), MISO returns a value of order `sqrt(eps * Gyy)` and SISO
+returns 0.

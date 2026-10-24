@@ -103,14 +103,30 @@ matches that definition in both `_reduce_stats` and `_reduce_stats_nb`.
 
 ## Numerical checks
 
-`tests/integration/test_analysis_api.py::test_numpy_vs_numba_parity` compares
-auto-spectrum `Gxx` at `rtol=5e-3` for `order` in `{-1, 0, 1, 2}`. It assigns
-`speckit.core._NUMBA_ENABLED`. `_bin_stats` reads that flag on each call, so
-the second run uses the `_np` kernels. The comparison is auto-spectrum `Gxx`
-only.
+`tests/integration/test_analysis_api.py` selects the `_np` kernels by
+assigning `speckit.core._NUMBA_ENABLED = False` and wraps them in a call
+counter, so each test fails if the fallback did not run.
+
+- `test_numpy_vs_numba_parity` compares auto-spectrum `Gxx` at `rtol=5e-3`
+  for `order` in `{-1, 0, 1, 2}`.
+- `test_numpy_vs_numba_cross_parity` uses a two-channel series with a
+  5-sample delay. For each order it requires `Gxy.real` and `Gxy.imag` to
+  agree within `1e-6 * sqrt(Gxx * Gyy)`. The two families agree to about
+  `1e-9` of that scale, and a conjugated fallback is off by `O(|Gxy|)`. The
+  test also checks the NumPy-path `Hxy` phase against `-2 π f 5 / fs`, and
+  that `compute_single_bin` uses the same kernel family as `compute()`.
+- `test_numpy_csd_kernel_sign_on_delay` compares the window-only,
+  mean-removal, and linear-detrend CSD kernels directly on a 3-sample delay,
+  at `1e-12` relative.
 
 `test_csd_phase_matches_scipy` runs the default path and compares
 transfer-function phase with `scipy.signal.csd`.
+
+`tests/unit/test_core.py` locks `_overlap_dof`. Non-overlapping starts give
+`2 K`, and `K` identical starts give 2. The periodic Hann at 50% overlap
+matches Percival and Walden's `nu ≈ 36 K / 19` at `rtol=1e-4`; the
+finite-`K` term is about `2.6e-5` at `K = 2000`. For evenly spaced starts
+under the default Kaiser window, the actual-start form equals eq. 292b.
 
 ## Key files
 
@@ -122,7 +138,16 @@ transfer-function phase with `scipy.signal.csd`.
 ## Related docs
 
 - [spectrum-estimation.md](spectrum-estimation.md)
-- `docs/handoffs/20261024_numpy-csd-phase.md` — described NumPy kernels that
-  used `exp(+i ω n)`. Those six lines are now `exp(-i ω n)`.
-- `docs/handoffs/20261024_overlap-degrees-of-freedom.md` — `_overlap_dof` is
-  the `nu` that note asked for. The handoff status may still say not started.
+- `docs/handoffs/20261024_numpy-csd-phase.md` — the NumPy kernels used
+  `exp(+i ω n)` and conjugated the cross-spectrum. Resolved.
+- `docs/handoffs/20261024_overlap-independent-segments.md` and
+  `docs/handoffs/20261024_overlap-degrees-of-freedom.md` — `_overlap_dof` is
+  the `nu` both notes asked for. The chi-square interval is still open.
+- `docs/handoffs/20261024_csd-convention-vs-scipy.md` — `X * conj(Y)` is the
+  complex conjugate of `scipy.signal.csd`.
+
+## Known limitations
+
+`_overlap_dof` assumes a locally white Gaussian process and ignores the
+detrend. Near DC and Nyquist the pseudo-covariance terms it drops are not
+small.

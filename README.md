@@ -158,8 +158,9 @@ SpecKit is designed for datasets with millions of samples. Performance comes fro
 
 ### Textbook formulas
 SpecKit implements Bendat & Piersol-style analytic formulas:
-- Variances of PSD, CSD, and coherence estimates scale as `1/√K`, where `K` is the number of averages.
-- Coherence errors scale with `(1 - γ²) / √K`.
+- Standard deviations of PSD, CSD, and coherence estimates scale as `1/√n_d`, where `n_d = ν/2` is the equivalent number of independent averages.
+- `ν` (`SpectrumResult.nu`) is the per-bin equivalent degrees of freedom from the window's overlap correlation at the actual segment starts (Percival & Walden 1993, p. 292). Without overlap `ν = 2K`. At 75% Hann overlap `ν ≈ 1.04 K`, so `Gxx_dev = Gxx·√(2/ν)` is about 1.39× the independent-segment value.
+- Coherence errors scale with `(1 - γ²) / √n_d`. The transfer-function phase error `Hxy_rad_error` is `√(1 - γ²) / (|γ| √(2 n_d))` radians.
 
 ### Empirical scatter (M2)
 In addition, the JIT kernels compute:
@@ -169,14 +170,15 @@ In addition, the JIT kernels compute:
 This is essentially Welford’s algorithm for streaming variance, adapted to complex quantities.  
 
 From `M2`, SpecKit derives:
-- **`XY_emp_var`**: variance of the averaged cross-spectrum.
+- **`XY_emp_var`**: variance of the averaged cross-spectrum, `M2 / n_d` (the overlap correction above, so not `M2 / K`).
 - **`XY_emp_dev`**: empirical standard deviation.
 - **`Gxx_emp_dev`**, **`Gxy_emp_dev`**: empirical deviations mapped into spectral density units.
 
 These provide **non-parametric uncertainty estimates**, complementing the analytic formulas. They are particularly useful when:
 - The Gaussian assumptions of textbook theory may not hold.
-- Segments are correlated due to overlap.
 - One wants to validate that statistical convergence is as expected.
+
+`M2` measures the per-segment scatter directly. Turning it into the error of the average still needs the overlap correlation, so the empirical errors use the same `n_d = ν/2` as the analytic ones.
 
 ### Why both?  
 - **Analytic errors** are fast, interpretable, and match the literature.  

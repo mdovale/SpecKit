@@ -104,9 +104,13 @@ GyyRx = max(1 - coh, 0) * Gyy
 GyySx = GyyRx
 ```
 
-`GyyRx` and `GyySx` are the same array. The code comment identifies that
-product with `Gyy - |Gxy|² / Gxx`. The floor at 0 is for a `1 - coh` that
-went negative by roundoff, which the comment says happens at `navg == 1`.
+`GyyRx` and `GyySx` are the same array, the optimal residual
+`Gyy - |Gxy|² / Gxx` (`(1 - coh) * Gyy` is that expression exactly). The
+Cauchy–Schwarz inequality on the segment averages gives `coh <= 1`. The
+floor at 0 only removes a `1 - coh` that is negative by roundoff, which
+happens where `navg == 1` and `coh` is 1 in exact arithmetic.
+[optimal-subtraction.md](optimal-subtraction.md) derives the residual in this
+`Gxy` convention.
 
 Analytic errors use `n_d = nu / 2`. `Gxx_dev = Gxx / sqrt(n_d)`, which is
 `Gxx * sqrt(2 / nu)`.
@@ -147,8 +151,33 @@ median magnitude of the complex transfer-function error, divided by `|H|`,
 below 0.2. `tests/integration/test_analysis_api.py` locks SciPy CSD phase
 within a median of 5 degrees where `coh > 0.2`, single-bin agreement with the
 full run, band masking, and finite empirical statistics.
-`tests/integration/test_errors.py` compares analytic errors with a Monte Carlo
-ensemble.
+`test_gyysx_is_coherent_residual` requires `GyySx == GyyRx` and
+`|GyySx - (Gyy - |Gxy|²/Gxx)| <= 1e-12 * Gyy`. It runs a 7-sample delay,
+including bins with `|phase(Gxy)| > 60°`, and a zero-delay control.
+
+`tests/integration/test_errors.py` holds these checks:
+
+- The original 200-realization Monte Carlo at Hann, 50% overlap.
+- `test_phase_error_is_bendat_closed_form` checks `Hxy_rad_error`,
+  `Hxy_deg_error`, and `Hxy_mag_error` against the closed form at
+  `rtol=1e-12`. It also checks that a `coh < 0.3` bin is more than 15% away
+  from the former `arcsin` numerator.
+- `test_zero_overlap_errors_are_independent_segment_limit` requires
+  `nu == 2 * navg` and the `navg` form of `Gxx_dev`, `Gxx_error`, and
+  `Gxx_emp_dev` for Hann and Kaiser at `olap=0`.
+- `test_overlap_corrected_psd_error_matches_monte_carlo` uses 400
+  realizations at Hann, 75% overlap, `L = 512`. Both `Gxx_dev` and
+  `Gxx_emp_dev` must predict the measured `ddof=1` scatter within ±0.12,
+  about 3.4 standard errors. The independent-segment prediction must be low
+  by more than 1.25.
+
+Monte Carlo evidence recorded on 24 Oct 2026 (400 realizations, standard
+error about 3.5%) gave a measured-to-predicted `Gxx` scatter ratio of
+0.97, 1.03, and 1.00 at Hann 0%, 50%, and 75% overlap, and 1.00 at the
+default Kaiser (`psll=200`, overlap 0.766). With `n_d = navg` the 75% and
+Kaiser ratios were 1.39 and 1.05. At 75% overlap and `coh = 0.5`, 1500
+realizations measured the phase and `|H|` scatter at 0.97–1.03 of the
+`n_d = nu / 2` Bendat prediction.
 
 ## Key files
 
@@ -163,11 +192,18 @@ ensemble.
 - [frequency-scheduling.md](frequency-scheduling.md),
   [bin-statistics.md](bin-statistics.md), [windows.md](windows.md),
   [band-rms.md](band-rms.md)
-- `docs/handoffs/20261024_phase-error-arcsin.md` — described an `arcsin` in
-  `Hxy_rad_error`. The code now sets that error equal to `Hxy_mag_error`.
-- `docs/handoffs/20261024_overlap-degrees-of-freedom.md` — `nu` and
-  `n_d = nu / 2` are what the errors divide by. The handoff's "not started"
-  status is behind `speckit/core.py` and `speckit/analysis.py`.
+- `docs/handoffs/20261024_phase-error-arcsin.md` — `Hxy_rad_error` had an
+  `arcsin` in its numerator. It is now Bendat's phase standard deviation,
+  equal to `Hxy_mag_error`. Resolved.
+- `docs/handoffs/20261024_overlap-independent-segments.md` — errors divided
+  by the overlapped segment count. They now use `n_d = nu / 2`. Resolved.
+- `docs/handoffs/20261024_overlap-degrees-of-freedom.md` — the same `nu`.
+  The chi-square interval on `Gxx` is still open.
+- `docs/handoffs/20261024_gyysx-residual.md` — the former `GyySx` expansion.
+  Resolved.
+- `docs/handoffs/20261024_csd-convention-vs-scipy.md` — `Gxy = X * conj(Y)`
+  is the complex conjugate of `scipy.signal.csd`. `Hxy` matches
+  `csd(x, y) / csd(x, x)`.
 - `docs/handoffs/20261024_spectrum-units.md` — proposed unit strings. Not on
   `SpectrumResult`.
 - `docs/handoffs/20260905_noise-generator-normalization.md` — generator `psd`
@@ -176,7 +212,23 @@ ensemble.
 
 ## Known limitations
 
-`nu` uses the window autocorrelation and the actual starts. The kernel
-docstring says the covariance model is a Gaussian process whose spectrum is
-flat across the window bandwidth, and that detrending is ignored. `M2` is
-still the nonparametric scatter.
+`nu` uses the window autocorrelation and the actual starts. Its covariance
+model is a Gaussian process whose spectrum is flat across the window
+bandwidth, away from DC and Nyquist, with the detrend ignored. Applying the
+same `n_d = nu / 2` to the cross-spectral Bendat formulas assumes every
+segment-pair covariance scales with `rho²`. That holds for jointly Gaussian
+channels under the same assumptions, and the Monte Carlo above agrees.
+
+`M2` is still the nonparametric per-segment scatter. Converting it to an
+error of the mean needs the same correlation model, so `*_emp_*` divides by
+`n_d`, not `navg`.
+
+`Gxy_dev` uses Bendat's `|Gxy| / (|γ| sqrt(n_d))`. For jointly Gaussian
+channels the scatter of `|Gxy|` is
+`sqrt((Gxx Gyy + |Gxy|²) / (2 n_d))`, a factor
+`sqrt((1 + coh) / 2)` below that (0.87 at `coh = 0.5`). The 50% overlap
+Monte Carlo test allows `rel=0.5` for this quantity. It is unrelated to
+overlap and was not changed.
+
+Computing `nu` takes about 6% of `compute_spectrum` on a 2×10⁶-sample
+series with the default plan.
