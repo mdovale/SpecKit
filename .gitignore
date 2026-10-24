@@ -118,6 +118,7 @@ Desktop.ini
 # ==============================
 # TeX / LaTeX build artifacts
 # ==============================
+*.pdf
 *.aux
 *.bbl
 *.bcf
@@ -143,3 +144,5 @@ Desktop.ini
 # Ignore local experiment notebooks but keep tutorial ones
 notebooks/__playground.ipynb
 ltpda/
+*.zip
+*.mat
