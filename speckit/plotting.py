@@ -34,17 +34,21 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
+from __future__ import annotations
+
 import copy
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
+
 import matplotlib.dates as mdates
-from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.axes import Axes
+from matplotlib.colors import LinearSegmentedColormap, LogNorm
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
-from typing import Any, List, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 # Define custom colormaps for consistency and aesthetic quality
 cm_data = [
@@ -725,6 +729,14 @@ def time_histogram(
         If the timestamp column cannot be converted to datetime.
         If the filtered time axis is null.
     """
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise ImportError(
+            "time_histogram needs pandas. Install the io extra: "
+            "pip install 'speckit[io]'."
+        ) from exc
+
     try:
         datetime_series = pd.to_datetime(df[time_key])
     except Exception as e:

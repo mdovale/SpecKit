@@ -34,46 +34,43 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import time
+from __future__ import annotations
+
 import logging
-from typing import List, Dict, Any, Union, Callable, Optional, Tuple
+import time
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 from numpy import kaiser as np_kaiser
 from scipy.signal.windows import kaiser as sp_kaiser
-import pandas as pd
-import control as ct
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.axes import Axes
 
 from speckit.flattop import olap_dict, win_dict
-from speckit.dsp import integral_rms
-from speckit.schedulers import lpsd_plan, ltf_plan, vectorized_ltf_plan, new_ltf_plan
+from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan, vectorized_ltf_plan
+from speckit.spectral import integral_rms
 from speckit.utils import (
+    find_Jdes_binary_search,
+    get_key_for_function,
+    is_function_in_dict,
     kaiser_alpha,
     kaiser_rov,
     round_half_up,
-    is_function_in_dict,
-    get_key_for_function,
-    find_Jdes_binary_search,
 )
-from .core import (
-    _NUMBA_ENABLED,
-    _build_Q,
-    _stats_win_only_auto,
-    _stats_win_only_csd,
-    _stats_detrend0_auto,
-    _stats_detrend0_csd,
-    _stats_poly_auto,
-    _stats_poly_csd,
-    _stats_win_only_auto_np,
-    _stats_win_only_csd_np,
-    _stats_detrend0_csd_np,
-    _stats_detrend0_auto_np,
-    _stats_poly_auto_np,
-    _stats_poly_csd_np,
-)
+
+if TYPE_CHECKING:
+    import pandas as pd
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+
+from .core import _bin_stats, _build_Q, _overlap_dof
 
 
 class SpectrumAnalyzer:
@@ -338,7 +335,12 @@ class SpectrumAnalyzer:
         """Resolve scheduler function and store a friendly name."""
         scheduler_param = self.config["scheduler"]
         if isinstance(scheduler_param, str):
-            sched_map = {"lpsd": lpsd_plan, "ltf": ltf_plan, "vectorized_ltf":vectorized_ltf_plan, "new_ltf": new_ltf_plan}
+            sched_map = {
+                "lpsd": lpsd_plan,
+                "ltf": ltf_plan,
+                "vectorized_ltf": vectorized_ltf_plan,
+                "new_ltf": new_ltf_plan,
+            }
             try:
                 self.config["scheduler_func"] = sched_map[scheduler_param]
             except KeyError as exc:
@@ -611,51 +613,20 @@ class SpectrumAnalyzer:
         order = int(self.config.get("order", 0))
         omega = 2.0 * _np.pi * float(freq) / float(self.fs)
 
-        # -------- Select kernel set ----------
-
-        if order == -1:
-            detrend_mode = "win"
-        elif order == 0:
-            detrend_mode = "mean0"
-        elif order in (1, 2):
-            detrend_mode = "poly"
-        else:
+        if order not in (-1, 0, 1, 2):
             raise ValueError("order must be one of {-1, 0, 1, 2}.")
 
         Q = None
-        if detrend_mode == "poly":
+        if order in (1, 2):
             Q = _build_Q(segL, order).astype(_np.float64, copy=False)
 
         # -------- Run kernel ----------
         t0 = _time.perf_counter()
-        if detrend_mode == "win":
-            if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(
-                    x1, x2, starts, segL, w, omega
-                )
-            else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(
-                    x1, starts, segL, w, omega
-                )
-        elif detrend_mode == "mean0":
-            if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(
-                    x1, x2, starts, segL, w, omega
-                )
-            else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(
-                    x1, starts, segL, w, omega
-                )
-        else:  # poly
-            if is_cross:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(
-                    x1, x2, starts, segL, w, omega, Q
-                )
-            else:
-                MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(
-                    x1, starts, segL, w, omega, Q
-                )
+        MXX, MYY, mu_r, mu_i, M2 = _bin_stats(
+            x1, x2 if is_cross else None, starts, segL, w, omega, order, Q
+        )
         tm = _time.perf_counter() - t0
+        nu = _overlap_dof(w, starts)
 
         # -------- Package SpectrumResult ----------
         m = float(freq) / final_fres
@@ -677,6 +648,7 @@ class SpectrumAnalyzer:
             "S12": _np.array([S1 * S1], dtype=_np.float64),
             "S2": _np.array([S2], dtype=_np.float64),
             "M2": _np.array([float(M2)], dtype=_np.float64),
+            "nu": _np.array([nu], dtype=_np.float64),
             "compute_t": _np.array([float(tm)], dtype=_np.float64),
         }
 
@@ -717,9 +689,10 @@ class SpectrumAnalyzer:
         S2 = np.empty(nf, dtype=np.float64)
         M2 = np.empty(nf, dtype=np.float64)
         tms = np.empty(nf, dtype=np.float64)
+        nus = np.empty(nf, dtype=np.float64)
 
         for chunk in results_list:
-            for i, xy, mxx, myy, s12, s2, m2, tm in chunk:
+            for i, xy, mxx, myy, s12, s2, m2, tm, nu in chunk:
                 XX[int(i)] = mxx
                 YY[int(i)] = myy
                 XY[int(i)] = xy
@@ -727,6 +700,7 @@ class SpectrumAnalyzer:
                 S2[int(i)] = s2
                 M2[int(i)] = m2
                 tms[int(i)] = tm
+                nus[int(i)] = nu
 
         # Make results finite once, globally
         np.nan_to_num(XX, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
@@ -747,6 +721,7 @@ class SpectrumAnalyzer:
             "S12": S12,
             "S2": S2,
             "M2": M2,
+            "nu": nus,
             "compute_t": tms,
         }
         return SpectrumResult(final_results, self.config, self.iscsd, self.fs)
@@ -819,76 +794,19 @@ class SpectrumAnalyzer:
             f_i = float(plan["f"][i])
             omega = 2.0 * np.pi * f_i / fs
 
-            # Choose & run kernel
-            if order == -1:
-                if self.iscsd:
-                    if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd(
-                            x1, x2, starts, L, w, omega
-                        )
-                    else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_csd_np(
-                            x1, x2, starts, L, w, omega
-                        )
-                else:
-                    if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto(
-                            x1, starts, L, w, omega
-                        )
-                    else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_win_only_auto_np(
-                            x1, starts, L, w, omega
-                        )
-
-            elif order == 0:
-                if self.iscsd:
-                    if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd(
-                            x1, x2, starts, L, w, omega
-                        )
-                    else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_csd_np(
-                            x1, x2, starts, L, w, omega
-                        )
-                else:
-                    if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto(
-                            x1, starts, L, w, omega
-                        )
-                    else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_detrend0_auto_np(
-                            x1, starts, L, w, omega
-                        )
-
-            elif order in (1, 2):
+            Q = None
+            if order in (1, 2):
                 key = (L, order)
                 Q = Q_cache.get(key)
                 if Q is None:
                     Q = _build_Q(L, order)
                     Q_cache[key] = Q
-                if self.iscsd:
-                    if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd(
-                            x1, x2, starts, L, w, omega, Q
-                        )
-                    else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_csd_np(
-                            x1, x2, starts, L, w, omega, Q
-                        )
-                else:
-                    if _NUMBA_ENABLED:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto(
-                            x1, starts, L, w, omega, Q
-                        )
-                    else:
-                        MXX, MYY, mu_r, mu_i, M2 = _stats_poly_auto_np(
-                            x1, starts, L, w, omega, Q
-                        )
-            else:
-                raise ValueError(f"Unsupported detrend order: {order}.")
+
+            MXX, MYY, mu_r, mu_i, M2 = _bin_stats(x1, x2, starts, L, w, omega, order, Q)
 
             XY = complex(mu_r, mu_i)
             elapsed = time.perf_counter() - t0
+            nu = _overlap_dof(w, starts)
             # Append tuple in the order consumed by compute()
             results_block.append(
                 [
@@ -900,6 +818,7 @@ class SpectrumAnalyzer:
                     float(S2),
                     float(M2),
                     float(elapsed),
+                    float(nu),
                 ]
             )
 
@@ -939,8 +858,17 @@ class SpectrumResult:
         Magnitude-squared coherence.
     tf : np.ndarray or None
         Complex transfer function estimate.
+    GyyRx, GyySx : np.ndarray or None
+        Output PSD with the part coherent with x removed,
+        ``Gyy - |Gxy|**2 / Gxx = (1 - coh) * Gyy``, clipped at 0. Same values.
+    nu : np.ndarray
+        Equivalent degrees of freedom of ``Gxx`` per bin, from the window
+        overlap correlation of the actual segment starts (Percival & Walden
+        1993, p. 292). ``nu == 2 * navg`` when segments do not overlap.
+        Analytic errors and the ``*_emp_*`` errors use ``nu / 2`` as the
+        independent-segment count.
     Gxx_dev : np.ndarray or None
-        Standard deviation of the PSD estimate.
+        Standard deviation of the PSD estimate, ``Gxx * sqrt(2 / nu)``.
     coh_error : np.ndarray or None
         Normalized random error of the coherence estimate.
     """
@@ -987,7 +915,7 @@ class SpectrumResult:
                     self._data[name], dtype=np.int64
                 )
 
-        for k in ("f", "r", "b", "S12", "S2", "XX", "YY", "M2", "O", "compute_t"):
+        for k in ("f", "r", "b", "S12", "S2", "XX", "YY", "M2", "nu", "O", "compute_t"):
             _as_float64(k)
         for k in ("XY",):
             _as_complex128(k)
@@ -1130,7 +1058,7 @@ class SpectrumResult:
                 elif name == "cf":
                     val = np.abs(self.Hxy)
                 elif name == "cf_db":
-                    val = ct.mag2db(self.cf)
+                    val = 20.0 * np.log10(self.cf)
                 elif name == "cf_rad":
                     val = np.angle(self.Hxy)
                 elif name == "cf_deg":
@@ -1147,15 +1075,10 @@ class SpectrumResult:
             else:
                 if name == "GyyCx":
                     val = self.coh * self.Gyy
-                elif name == "GyyRx":
-                    val = (1 - self.coh) * self.Gyy
-                elif name == "GyySx":
-                    val = np.abs(
-                        self.Gyy
-                        + self.Hxy * self.Hyx * self.Gxx
-                        - self.Hyx * self.Gxy
-                        - self.Hxy * self.Gyx
-                    )
+                elif name in ("GyyRx", "GyySx"):
+                    # Gyy - |Gxy|^2 / Gxx. Cauchy-Schwarz bounds coh by 1, so a
+                    # negative 1 - coh is roundoff (always at navg == 1).
+                    val = np.maximum(1 - self.coh, 0.0) * self.Gyy
 
         # --- Errors and Deviations ---
         # --- Exposed kernel statistics (segment means and scatter) ---
@@ -1169,18 +1092,26 @@ class SpectrumResult:
             m2 = self._data["M2"]
             val = np.nan_to_num(m2, nan=0.0, posinf=0.0, neginf=0.0)
 
+        elif name == "nu":
+            # Results built without a segment layout get the independent limit.
+            if "nu" in self._data:
+                val = self._data["nu"]
+            else:
+                val = 2.0 * self._data["navg"].astype(np.float64)
+
         # --- Empirical (non-parametric) uncertainties from segment scatter ---
         elif name in ("XY_emp_var", "XY_emp_dev", "Gxx_emp_dev", "Gxy_emp_dev"):
-            navg = np.nan_to_num(self._data["navg"], nan=0.0, posinf=0.0, neginf=0.0)
+            n_d = np.nan_to_num(0.5 * self.nu, nan=0.0, posinf=0.0, neginf=0.0)
             m2 = np.nan_to_num(self._data["M2"], nan=0.0, posinf=0.0, neginf=0.0)
 
-            # var of the averaged complex XY: Var(Ȳ) = M2 / navg
+            # var of the averaged complex XY over overlapped segments:
+            # Var(mean) = M2 / (nu / 2), which is M2 / K without overlap
             if name == "XY_emp_var":
-                val = np.divide(m2, navg, out=np.zeros_like(m2), where=(navg > 0))
+                val = np.divide(m2, n_d, out=np.zeros_like(m2), where=(n_d > 0))
                 val = np.nan_to_num(val, nan=0.0, posinf=0.0, neginf=0.0)
 
             elif name == "XY_emp_dev":
-                tmp = np.divide(m2, navg, out=np.zeros_like(m2), where=(navg > 0))
+                tmp = np.divide(m2, n_d, out=np.zeros_like(m2), where=(n_d > 0))
                 val = np.sqrt(np.nan_to_num(tmp, nan=0.0, posinf=0.0, neginf=0.0))
 
             else:
@@ -1190,7 +1121,7 @@ class SpectrumResult:
                     2.0, self.fs * S2, out=np.zeros_like(S2), where=(S2 > 0)
                 )
                 base = np.sqrt(
-                    np.divide(m2, navg, out=np.zeros_like(m2), where=(navg > 0))
+                    np.divide(m2, n_d, out=np.zeros_like(m2), where=(n_d > 0))
                 )
                 base = np.nan_to_num(base, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -1201,49 +1132,48 @@ class SpectrumResult:
 
         # --- Textbook errors and deviations (asymptotic formulas) ---
         elif name.endswith(("_dev", "_error")):
-            navg = self._data["navg"]
-            coh = self.coh if self.iscsd else np.ones_like(navg)
+            # Bendat & Piersol's n_d is an independent-segment count; overlapped
+            # segments count as nu / 2 of them (nu / 2 == navg without overlap).
+            n_d = 0.5 * self.nu
+            coh = self.coh if self.iscsd else np.ones_like(n_d)
 
             # Standard Deviations
             if name == "Gxx_dev":
-                val = self.Gxx / np.sqrt(navg)
+                val = self.Gxx / np.sqrt(n_d)
             elif name == "Gyy_dev":
-                val = self.Gyy / np.sqrt(navg) if self.iscsd else self.Gxx_dev
+                val = self.Gyy / np.sqrt(n_d) if self.iscsd else self.Gxx_dev
             elif name == "Hxy_dev":
                 val = (
-                    np.abs(self.Hxy)
-                    * np.sqrt(np.abs(1 - coh))
-                    / np.sqrt(coh * 2 * navg)
+                    np.abs(self.Hxy) * np.sqrt(np.abs(1 - coh)) / np.sqrt(coh * 2 * n_d)
                     if self.iscsd
                     else None
                 )
             elif name == "Gxy_dev":
-                val = (
-                    np.sqrt(np.abs(self.Gxy) ** 2 / coh / navg) if self.iscsd else None
-                )
+                val = np.sqrt(np.abs(self.Gxy) ** 2 / coh / n_d) if self.iscsd else None
             elif name == "coh_dev":
                 val = (
-                    np.sqrt(np.abs((2 * coh / navg) * (1 - coh) ** 2))
+                    np.sqrt(np.abs((2 * coh / n_d) * (1 - coh) ** 2))
                     if self.iscsd
                     else None
                 )
 
             # Normalized Random Errors
             elif name == "Gxx_error":
-                val = 1 / np.sqrt(navg)
+                val = 1 / np.sqrt(n_d)
             elif name == "Gyy_error":
-                val = 1 / np.sqrt(navg) if self.iscsd else self.Gxx_error
+                val = 1 / np.sqrt(n_d) if self.iscsd else self.Gxx_error
             elif name == "Gxy_error":
-                val = 1 / np.sqrt(coh * navg) if self.iscsd else None
+                val = 1 / np.sqrt(coh * n_d) if self.iscsd else None
             elif name == "Hxy_mag_error":
                 val = (
-                    np.sqrt(np.abs(1 - coh)) / (np.sqrt(coh * 2 * navg))
+                    np.sqrt(np.abs(1 - coh)) / (np.sqrt(coh * 2 * n_d))
                     if self.iscsd
                     else None
                 )
             elif name == "Hxy_rad_error":
+                # Bendat & Piersol phase s.d. in radians; equals Hxy_mag_error.
                 val = (
-                    np.arcsin(np.sqrt(np.abs(1 - coh))) / np.sqrt(coh * 2 * navg)
+                    np.sqrt(np.abs(1 - coh)) / np.sqrt(coh * 2 * n_d)
                     if self.iscsd
                     else None
                 )
@@ -1251,7 +1181,7 @@ class SpectrumResult:
                 val = np.rad2deg(self.Hxy_rad_error) if self.iscsd else None
             elif name == "coh_error":
                 val = (
-                    np.sqrt(2) * (1 - coh) / (np.sqrt(coh) * np.sqrt(navg))
+                    np.sqrt(2) * (1 - coh) / (np.sqrt(coh) * np.sqrt(n_d))
                     if self.iscsd
                     else None
                 )
@@ -1294,6 +1224,7 @@ class SpectrumResult:
             "GyyCx",
             "GyyRx",
             "GyySx",
+            "nu",
             "Gxx_dev",
             "Gyy_dev",
             "Gxy_dev",
@@ -1430,6 +1361,14 @@ class SpectrumResult:
             if isinstance(val, np.ndarray) and val.shape[:1] == (n,):
                 df_dict[attr] = val
 
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                "to_dataframe needs pandas. Install the io extra: "
+                "pip install 'speckit[io]'."
+            ) from exc
+
         df = pd.DataFrame(df_dict).set_index("f")
         return df
 
@@ -1481,6 +1420,8 @@ class SpectrumResult:
             A tuple containing the matplotlib Figure and either a single Axes
             object or a tuple of two Axes objects (for bode plots).
         """
+        import matplotlib.pyplot as plt
+
         plot_options = {
             "psd": ("loglog", self.f, self.psd, "Power Spectral Density"),
             "asd": ("loglog", self.f, self.asd, "Amplitude Spectral Density"),
@@ -1522,8 +1463,8 @@ class SpectrumResult:
                 upper = mag_data * (1 + sigma * mag_error)
                 if dB:
                     # Protect against log of nonpositive
-                    lower = ct.mag2db(np.maximum(lower, 1e-300))
-                    upper = ct.mag2db(np.maximum(upper, 1e-300))
+                    lower = 20.0 * np.log10(np.maximum(lower, 1e-300))
+                    upper = 20.0 * np.log10(np.maximum(upper, 1e-300))
                 ax_mag.fill_between(
                     self.f,
                     lower,

@@ -34,13 +34,16 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
-
-from speckit import compute_spectrum, SpectrumAnalyzer
 from scipy import signal
 
+from speckit import SpectrumAnalyzer, compute_spectrum
+from speckit.spectral import integral_rms
 
 # --------- Utilities / Fixtures ---------------------------------------------
 
@@ -70,6 +73,33 @@ def _two_channel_linear_system(N=200000, fs=100.0, tau=0.5, noise=0.0, seed=0):
 # --------- 1) NumPy vs Numba parity (functional) ----------------------------
 
 
+_NP_KERNELS = (
+    "_stats_win_only_auto_np",
+    "_stats_win_only_csd_np",
+    "_stats_detrend0_auto_np",
+    "_stats_detrend0_csd_np",
+    "_stats_poly_auto_np",
+    "_stats_poly_csd_np",
+)
+
+
+def _force_numpy_fallback(monkeypatch):
+    """Select the `_np` kernels through `speckit.core` and count their calls."""
+    from speckit import core
+
+    calls = {"n": 0}
+    for name in _NP_KERNELS:
+        fn = getattr(core, name)
+
+        def spy(*args, _fn=fn, **kwargs):
+            calls["n"] += 1
+            return _fn(*args, **kwargs)
+
+        monkeypatch.setattr(core, name, spy)
+    monkeypatch.setattr(core, "_NUMBA_ENABLED", False, raising=True)
+    return calls
+
+
 @pytest.mark.parametrize("order", [-1, 0, 1, 2])
 def test_numpy_vs_numba_parity(order, rand_seed, monkeypatch):
     """Ensure the NumPy fallback and Numba path produce close spectra."""
@@ -80,12 +110,9 @@ def test_numpy_vs_numba_parity(order, rand_seed, monkeypatch):
     # Run with Numba enabled first (default)
     res_nb = compute_spectrum(x, fs=fs, order=order, Jdes=200, Kdes=40, win="hann")
 
-    # Force NumPy fallback
-    import speckit.core as core
-
-    monkeypatch.setattr(core, "_NUMBA_ENABLED", False, raising=True)
-
+    calls = _force_numpy_fallback(monkeypatch)
     res_np = compute_spectrum(x, fs=fs, order=order, Jdes=200, Kdes=40, win="hann")
+    assert calls["n"] == len(res_np.f)
 
     # Same frequency grid and close values
     assert_allclose(res_nb.f, res_np.f, rtol=0, atol=0)
@@ -93,6 +120,82 @@ def test_numpy_vs_numba_parity(order, rand_seed, monkeypatch):
 
     # If cross not computed, csd is None
     assert res_nb.csd is None and res_np.csd is None
+
+
+@pytest.mark.parametrize("order", [-1, 0, 1, 2])
+def test_numpy_vs_numba_cross_parity(order, monkeypatch):
+    """
+    The `_np` fallbacks return the Goertzel cross-spectrum, phase included.
+
+    A conjugated fallback flips Gxy.imag, an O(|Gxy|) error. The two kernel
+    families agree to ~1e-9 of sqrt(Gxx * Gyy) (Goertzel roundoff), so 1e-6 of
+    that scale separates them cleanly.
+    """
+    rng = np.random.default_rng(0)
+    N, fs = 30_000, 200.0
+    x = rng.standard_normal(N)
+    y = np.roll(x, 5) + 0.5 * rng.standard_normal(N)
+    data = np.vstack([x, y])
+    kw = {
+        "win": "hann",
+        "olap": 0.5,
+        "Jdes": 40,
+        "Kdes": 20,
+        "order": order,
+        "scheduler": "ltf",
+    }
+
+    res_nb = compute_spectrum(data, fs=fs, **kw)
+    calls = _force_numpy_fallback(monkeypatch)
+    res_np = compute_spectrum(data, fs=fs, **kw)
+    assert calls["n"] == len(res_np.f)
+
+    assert_allclose(res_nb.f, res_np.f, rtol=0, atol=0)
+    assert_allclose(res_nb.Gxx, res_np.Gxx, rtol=5e-3, atol=5e-12)
+    assert_allclose(res_nb.Gyy, res_np.Gyy, rtol=5e-3, atol=5e-12)
+    scale = np.sqrt(res_nb.Gxx * res_nb.Gyy)
+    assert np.all(np.abs(res_np.Gxy.real - res_nb.Gxy.real) <= 1e-6 * scale)
+    assert np.all(np.abs(res_np.Gxy.imag - res_nb.Gxy.imag) <= 1e-6 * scale)
+
+    # 5-sample delay: Hxy phase is -2 pi f 5 / fs on the NumPy path too.
+    mask = res_np.coh > 0.5
+    expected = np.exp(-2j * np.pi * res_np.f * 5 / fs)
+    dphi = np.angle(res_np.Hxy[mask] / expected[mask])
+    assert np.median(np.abs(dphi)) < np.deg2rad(5.0)
+
+    # compute_single_bin dispatches through the same flag as compute().
+    i = len(res_np.f) // 2
+    ana = SpectrumAnalyzer(data, fs, **kw)
+    one = ana.compute_single_bin(float(res_np.f[i]), L=int(res_np.L[i]))
+    assert calls["n"] == len(res_np.f) + 1
+    assert_allclose(one.Gxy[0], res_np.Gxy[i], rtol=1e-12)
+
+
+@pytest.mark.parametrize("order", [-1, 0, 1])
+def test_numpy_csd_kernel_sign_on_delay(order):
+    """Kernel-level: `_np` CSD equals the Goertzel CSD for a 3-sample delay."""
+    from speckit import core
+
+    rng = np.random.default_rng(0)
+    N, L, fs = 8000, 512, 200.0
+    x = rng.standard_normal(N)
+    y = np.roll(x, 3)
+    w = np.hanning(L)
+    starts = np.arange(0, N - L + 1, L // 2, dtype=np.int64)
+    omega = 2 * np.pi * 40.0 / fs
+    Q = core._build_Q(L, order) if order == 1 else None
+    nb_fn, np_fn = {
+        -1: (core._stats_win_only_csd, core._stats_win_only_csd_np),
+        0: (core._stats_detrend0_csd, core._stats_detrend0_csd_np),
+        1: (core._stats_poly_csd, core._stats_poly_csd_np),
+    }[order]
+    args = (x, y, starts, L, w, omega) + ((Q,) if Q is not None else ())
+    nb = nb_fn(*args)
+    npk = np_fn(*args)
+    Znb = nb[2] + 1j * nb[3]
+    Znp = npk[2] + 1j * npk[3]
+    assert abs(Znp - Znb) <= 1e-12 * abs(Znb)
+    assert abs(np.angle(Znb)) > np.deg2rad(10.0)  # the check is phase-sensitive
 
 
 # --------- 2) CSD sign/phase matches SciPy ----------------------------------
@@ -118,6 +221,47 @@ def test_csd_phase_matches_scipy(rand_seed):
     # Allow small bias; unwrap reduces ±360 issues
     dphi = np.unwrap(np.deg2rad(dphi))
     assert np.median(np.abs(dphi[mask])) < np.deg2rad(5.0)  # < 5 degrees median error
+
+
+# --------- 2b) Conditioned spectra ------------------------------------------
+
+
+@pytest.mark.parametrize("delay", [7, 0])
+def test_gyysx_is_coherent_residual(delay):
+    """
+    GyySx and GyyRx are both Gyy - |Gxy|^2 / Gxx.
+
+    The identity Gyy (1 - coh) = Gyy - |Gxy|^2 / Gxx is exact, so the
+    tolerance is float error. The 7-sample delay gives bins with
+    |phase(Gxy)| > 60 deg, where the old expansion was off by O(10);
+    delay 0 is the real-Gxy control.
+    """
+    rng = np.random.default_rng(1)
+    N, fs = 80_000, 200.0
+    x = rng.standard_normal(N)
+    y = 0.8 * np.roll(x, delay) + 0.3 * rng.standard_normal(N)
+    res = compute_spectrum(
+        np.vstack([x, y]),
+        fs=fs,
+        win="hann",
+        olap=0.5,
+        Jdes=100,
+        Kdes=30,
+        order=-1,
+        scheduler="ltf",
+    )
+    closed = res.Gyy - np.abs(res.Gxy) ** 2 / res.Gxx
+    assert np.all(res.GyySx >= 0.0) and np.all(res.GyyRx >= 0.0)
+    assert_allclose(res.GyySx, res.GyyRx, rtol=0, atol=0)
+    assert np.all(np.abs(res.GyySx - closed) <= 1e-12 * res.Gyy)
+
+    mid = (res.coh > 0.2) & (res.coh < 0.9) & (res.f > 1)
+    assert mid.sum() > 10
+    assert np.median(np.abs(res.GyySx[mid] / closed[mid] - 1)) < 1e-12
+    if delay:
+        hard = (np.abs(np.angle(res.Gxy)) > np.deg2rad(60)) & (res.coh > 0.5)
+        assert hard.sum() > 5
+        assert_allclose(res.GyySx[hard], closed[hard], rtol=1e-12)
 
 
 # --------- 3) compute_single_bin vs pipeline consistency --------------------
@@ -252,6 +396,36 @@ def test_get_measurement_and_to_dataframe(rand_seed):
     df = res.to_dataframe()
     assert "psd" in df.columns or "Gxx" in df.columns
     assert df.index.is_monotonic_increasing
+    assert res.get_rms() == pytest.approx(integral_rms(res.f, res.asd))
+
+
+def test_cf_db_is_twenty_log10(rand_seed):
+    fs, x, y = _two_channel_linear_system(N=20000, fs=100.0, tau=0.2, seed=3)
+    res = compute_spectrum(np.vstack([x, y]), fs=fs, win="hann", Jdes=64, Kdes=16)
+    assert np.all(res.Gxx > 0)
+    expected = 20.0 * np.log10(np.abs(res.Hxy))
+    assert_allclose(res.cf_db, expected)
+
+
+def test_import_speckit_skips_optional_modules():
+    script = """
+import sys
+import speckit
+import speckit.dsp
+import speckit.systems
+from speckit import compute_spectrum
+banned = ("pandas", "control", "py7zr", "sympy", "tqdm")
+loaded = [name for name in banned if name in sys.modules]
+if loaded:
+    raise SystemExit("imported " + ", ".join(loaded))
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 # --------- 9) ENBW sanity ----------------------------------------------------

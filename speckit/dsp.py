@@ -34,23 +34,52 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import os
-import numpy as np
-import pandas as pd
-import zipfile
-import tarfile
-import gzip
-from py7zr import SevenZipFile
-from copy import deepcopy
-from scipy.integrate import cumulative_trapezoid
-from scipy.optimize import curve_fit, minimize
-from scipy.signal import welch
-from typing import List, Optional, Callable
-import warnings
+from __future__ import annotations
 
+import gzip
 import logging
+import os
+import tarfile
+import warnings
+import zipfile
+from copy import deepcopy
+from typing import TYPE_CHECKING, Callable, List, Optional
+
+import numpy as np
+
+from speckit import spectral
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+crop_data = spectral.crop_data
+integral_rms = spectral.integral_rms
 
 logger = logging.getLogger(__name__)
+
+
+def _require_pandas():
+    """Import pandas, or tell the caller which extra provides it."""
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise ImportError(
+            "This function needs pandas. Install the io extra: "
+            "pip install 'speckit[io]'."
+        ) from exc
+    return pd
+
+
+def _require_py7zr():
+    """Import py7zr, or tell the caller which extra provides it."""
+    try:
+        from py7zr import SevenZipFile
+    except ImportError as exc:
+        raise ImportError(
+            "Reading .7z files needs py7zr. Install the io extra: "
+            "pip install 'speckit[io]'."
+        ) from exc
+    return SevenZipFile
 
 
 def frequency2phase(f, fs, subtract_mean=True):
@@ -120,8 +149,8 @@ def polynomial_detrend(x, order=1):
         return x - np.mean(x)
     if len(x) < order + 1:
         logger.warning(
-            f"Signal length ({len(x)}) is less than order+1 ({order+1}). "
-            f"Using order={len(x)-1} instead."
+            f"Signal length ({len(x)}) is less than order+1 ({order + 1}). "
+            f"Using order={len(x) - 1} instead."
         )
         order = len(x) - 1
     t = np.arange(len(x))
@@ -130,53 +159,6 @@ def polynomial_detrend(x, order=1):
     # Evaluate the polynomial trend
     trend = np.polyval(coeffs, t)
     return x - trend
-
-
-def crop_data(x, y, xmin, xmax):
-    """
-    Crop data to a specified range in x.
-
-    Parameters
-    ----------
-    x : array-like
-        The x-axis data (e.g., frequency, time).
-    y : array-like
-        The y-axis data corresponding to x.
-    xmin : float
-        Lower bound for cropping (inclusive).
-    xmax : float
-        Upper bound for cropping (inclusive).
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        A tuple (x_cropped, y_cropped) containing the cropped arrays.
-
-    Raises
-    ------
-    ValueError
-        If `x` and `y` have different lengths, or if `xmin > xmax`.
-    """
-    x = np.asarray(x)
-    y = np.asarray(y)
-    
-    if len(x) != len(y):
-        raise ValueError(
-            f"Arrays `x` and `y` must have the same length, "
-            f"got {len(x)} and {len(y)}."
-        )
-    if xmin > xmax:
-        raise ValueError(
-            f"`xmin` ({xmin}) must be <= `xmax` ({xmax})."
-        )
-    if x.size == 0:
-        return x, y
-
-    # Create a boolean mask for the range condition
-    mask = (x >= xmin) & (x <= xmax)
-
-    # Apply the mask to both x and y arrays and return
-    return x[mask], y[mask]
 
 
 def truncation(x: np.ndarray, n_trunc: int) -> np.ndarray:
@@ -204,76 +186,6 @@ def truncation(x: np.ndarray, n_trunc: int) -> np.ndarray:
         )
 
     return x[n_trunc:-n_trunc] if n_trunc > 0 else x
-
-
-def integral_rms(fourier_freq, asd, pass_band=None):
-    """
-    Compute the RMS as integral of an Amplitude Spectral Density (ASD).
-
-    Parameters
-    ----------
-    fourier_freq : array-like
-        Fourier frequency array in Hz.
-    asd : array-like
-        Amplitude spectral density from which RMS is computed.
-    pass_band : tuple of float, optional
-        Frequency band for integration as (fmin, fmax). If None, integrates
-        over the entire frequency range. Default is None.
-
-    Returns
-    -------
-    float
-        The RMS value computed from the integral of the squared ASD.
-
-    Raises
-    ------
-    ValueError
-        If `fourier_freq` and `asd` have different lengths, or if `pass_band`
-        is invalid.
-    """
-    fourier_freq = np.asarray(fourier_freq)
-    asd = np.asarray(asd)
-    
-    if len(fourier_freq) != len(asd):
-        raise ValueError(
-            f"Arrays `fourier_freq` and `asd` must have the same length, "
-            f"got {len(fourier_freq)} and {len(asd)}."
-        )
-    if fourier_freq.size == 0:
-        raise ValueError("Input arrays must not be empty.")
-    
-    if pass_band is None:
-        pass_band = [-np.inf, np.inf]
-    else:
-        if len(pass_band) != 2:
-            raise ValueError(
-                f"`pass_band` must be a tuple of length 2, got {len(pass_band)}."
-            )
-        if pass_band[0] > pass_band[1]:
-            raise ValueError(
-                f"`pass_band[0]` ({pass_band[0]}) must be <= `pass_band[1]` ({pass_band[1]})."
-            )
-
-    integral_range_min = max(np.min(fourier_freq), pass_band[0])
-    integral_range_max = min(np.max(fourier_freq), pass_band[1])
-    
-    if integral_range_min >= integral_range_max:
-        logger.warning(
-            f"No valid frequency range for integration. "
-            f"Returning 0.0."
-        )
-        return 0.0
-    
-    f_tmp, asd_tmp = crop_data(
-        fourier_freq, asd, integral_range_min, integral_range_max
-    )
-    
-    if len(f_tmp) == 0:
-        logger.warning("No data points in the specified frequency band. Returning 0.0.")
-        return 0.0
-    
-    integral_rms2 = cumulative_trapezoid(asd_tmp**2, f_tmp, initial=0)
-    return np.sqrt(integral_rms2[-1])
 
 
 def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=1e-2):
@@ -324,7 +236,7 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
 
     frequency = np.asarray(frequency)
     measurement = np.asarray(measurement)
-    
+
     if len(frequency) != len(measurement):
         raise ValueError(
             f"Arrays `frequency` and `measurement` must have the same length, "
@@ -384,6 +296,8 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     non_peak_mask[peaks] = False
 
     # Fit to noise model
+    from scipy.optimize import curve_fit
+
     popt, _ = curve_fit(
         noise_model, frequency[non_peak_mask], measurement[non_peak_mask]
     )
@@ -397,6 +311,134 @@ def peak_finder(frequency, measurement, cnr=10, edge=True, freq_band=None, rtol=
     peak_measurements = measurement[valid_peaks]
 
     return peak_frequencies, peak_measurements
+
+
+def resample_series(t, y, t_new):
+    """Linearly interpolate ``y(t)`` onto ``t_new`` with ``numpy.interp``.
+
+    This is the interpolant used by ``resample_to_common_grid``. ``t`` must be
+    increasing. Samples of ``t_new`` outside ``t`` take the endpoint values,
+    which is the ``numpy.interp`` rule.
+
+    Parameters
+    ----------
+    t, y : array-like
+        Source time and samples. Same length, ``t`` strictly increasing.
+    t_new : array-like
+        Times at which to interpolate.
+
+    Returns
+    -------
+    numpy.ndarray
+        Interpolated samples, one per entry of ``t_new``.
+    """
+    t = np.asarray(t, dtype=float)
+    y = np.asarray(y, dtype=float)
+    t_new = np.asarray(t_new, dtype=float)
+    return np.interp(t_new, t, y)
+
+
+def optimal_linear_combination_arrays(
+    inputs,
+    output,
+    timeshifts=False,
+    gradient=False,
+    domain="time",
+    method="TNC",
+    tol=1e-9,
+    *args,
+    **kwargs,
+):
+    """Array form of :func:`optimal_linear_combination`.
+
+    ``inputs`` is a sequence of 1-D arrays and ``output`` is a 1-D array, all
+    the same length. The objective is unchanged: time-domain RMS, or the
+    integral of a SciPy Welch density when ``domain='frequency'``. Welch is
+    not ``compute_spectrum``.
+    """
+    from scipy.optimize import minimize
+
+    if not isinstance(inputs, (list, tuple)):
+        raise TypeError(
+            f"`inputs` must be a list or tuple, got {type(inputs).__name__}."
+        )
+    if len(inputs) == 0:
+        raise ValueError("`inputs` must not be empty.")
+    if domain not in ["time", "frequency"]:
+        raise ValueError(f"`domain` must be 'time' or 'frequency', got {domain!r}.")
+    if tol <= 0:
+        raise ValueError(f"`tol` must be positive, got {tol}.")
+
+    input_arrays = [np.asarray(col) for col in inputs]
+    output = np.asarray(output)
+    n_inputs = len(input_arrays)
+
+    def print_optimization_result(res):
+        logger.info("Optimization Results:")
+        logger.info("=====================")
+        logger.info(f"Success: {res.success}")
+        logger.info(f"Message: {res.message}")
+        logger.info(f"Function value at minimum: {res.fun}")
+        logger.info("Solution:")
+        for idx, val in enumerate(res.x, start=1):
+            logger.info(f"Variable {idx}: {val}")
+
+    def fun(x):
+        y = np.array(output - np.mean(output))
+
+        if timeshifts:
+            for i, column in enumerate(input_arrays):
+                Si = np.array(column - np.mean(column))
+                y += x[n_inputs + i] * timeshift(Si, x[i])
+            max_delay = np.max(x[:n_inputs])
+            y = truncation(y, n_trunc=int(2 * max_delay))
+        else:
+            for i, column in enumerate(input_arrays):
+                Si = np.array(column - np.mean(column))
+                y += x[i] * Si
+
+        if gradient:
+            y = np.gradient(y)
+
+        if domain == "time":
+            rms_value = np.sqrt(np.mean(np.square(y - np.mean(y))))
+        elif domain == "frequency":
+            from scipy.signal import welch
+
+            f, Sxx = welch(y, scaling="density", *args, **kwargs)
+            rms_value = np.sqrt(np.trapezoid(Sxx, f))
+        else:
+            raise ValueError(
+                "The `domain` parameter must be set to 'time' or 'frequency'"
+            )
+
+        return rms_value
+
+    if timeshifts:
+        x_initial = np.zeros(n_inputs * 2)
+    else:
+        x_initial = np.zeros(n_inputs)
+
+    logger.info(f"Solving {len(x_initial)}-dimensional problem...")
+
+    res = minimize(fun, x_initial, method=method, tol=tol)
+
+    print_optimization_result(res)
+
+    if timeshifts:
+        y = np.array(output - np.mean(output))
+        for i, column in enumerate(input_arrays):
+            Si = np.array(column - np.mean(column))
+            y += res.x[n_inputs + i] * timeshift(Si, res.x[i])
+        max_delay = np.max(res.x[:n_inputs])
+        y = truncation(y, int(2 * max_delay))
+    else:
+        y = np.array(output - np.mean(output))
+        for i, column in enumerate(input_arrays):
+            Si = np.array(column - np.mean(column))
+            y += res.x[i] * Si
+
+    return res, y
 
 
 def optimal_linear_combination(
@@ -456,12 +498,15 @@ def optimal_linear_combination(
     TypeError
         If `df` is not a pandas DataFrame, or if `inputs` is not a list.
     """
+    pd = _require_pandas()
     if not isinstance(df, pd.DataFrame):
         raise TypeError(f"`df` must be a pandas DataFrame, got {type(df).__name__}.")
     if df.empty:
         raise ValueError("Input DataFrame `df` must not be empty.")
     if not isinstance(inputs, (list, tuple)):
-        raise TypeError(f"`inputs` must be a list or tuple, got {type(inputs).__name__}.")
+        raise TypeError(
+            f"`inputs` must be a list or tuple, got {type(inputs).__name__}."
+        )
     if len(inputs) == 0:
         raise ValueError("`inputs` must not be empty.")
     if not isinstance(output, str):
@@ -470,85 +515,38 @@ def optimal_linear_combination(
         raise ValueError(f"`domain` must be 'time' or 'frequency', got {domain!r}.")
     if tol <= 0:
         raise ValueError(f"`tol` must be positive, got {tol}.")
-    
+
     # Check that all required columns exist
     missing_inputs = [inp for inp in inputs if inp not in df.columns]
     if missing_inputs:
         raise ValueError(f"Input columns not found in DataFrame: {missing_inputs}.")
     if output not in df.columns:
         raise ValueError(f"Output column '{output}' not found in DataFrame.")
-    
+
     # Check that columns are numeric
     for inp in inputs:
         if df[inp].dtype.kind not in "biufc":
-            raise ValueError(f"Input column '{inp}' must be numeric, got dtype {df[inp].dtype}.")
-    if df[output].dtype.kind not in "biufc":
-        raise ValueError(f"Output column '{output}' must be numeric, got dtype {df[output].dtype}.")
-
-    def print_optimization_result(res):
-        logger.info("Optimization Results:")
-        logger.info("=====================")
-        logger.info(f"Success: {res.success}")
-        logger.info(f"Message: {res.message}")
-        logger.info(f"Function value at minimum: {res.fun}")
-        logger.info("Solution:")
-        for idx, val in enumerate(res.x, start=1):
-            logger.info(f"Variable {idx}: {val}")
-
-    def fun(x):
-        y = np.array(df[output] - np.mean(df[output]))
-
-        if timeshifts:
-            for i, input in enumerate(df[inputs]):
-                Si = np.array(df[input] - np.mean(df[input]))
-                y += x[len(inputs) + i] * timeshift(Si, x[i])
-            max_delay = np.max(x[: len(inputs)])
-            y = truncation(y, n_trunc=int(2 * max_delay))
-        else:
-            for i, input in enumerate(df[inputs]):
-                Si = np.array(df[input] - np.mean(df[input]))
-                y += x[i] * Si
-
-        if gradient:
-            y = np.gradient(y)
-
-        if domain == "time":
-            rms_value = np.sqrt(np.mean(np.square(y - np.mean(y))))
-        elif domain == "frequency":
-            f, Sxx = welch(y, scaling="density", *args, **kwargs)
-            rms_value = np.sqrt(np.trapezoid(Sxx, f))
-        else:
             raise ValueError(
-                "The `domain` parameter must be set to 'time' or 'frequency'"
+                f"Input column '{inp}' must be numeric, got dtype {df[inp].dtype}."
             )
+    if df[output].dtype.kind not in "biufc":
+        raise ValueError(
+            f"Output column '{output}' must be numeric, got dtype {df[output].dtype}."
+        )
 
-        return rms_value
-
-    if timeshifts:
-        x_initial = np.zeros(len(inputs) * 2)
-    else:
-        x_initial = np.zeros(len(inputs))
-
-    logger.info(f"Solving {len(x_initial)}-dimensional problem...")
-
-    res = minimize(fun, x_initial, method=method, tol=tol)
-
-    print_optimization_result(res)
-
-    if timeshifts:
-        y = np.array(df[output] - np.mean(df[output]))
-        for i, input in enumerate(df[inputs]):
-            Si = np.array(df[input] - np.mean(df[input]))
-            y += res.x[len(inputs) + i] * timeshift(Si, res.x[i])
-        max_delay = np.max(res.x[: len(inputs)])
-        y = truncation(y, int(2 * max_delay))
-    else:
-        y = np.array(df[output] - np.mean(df[output]))
-        for i, input in enumerate(df[inputs]):
-            Si = np.array(df[input] - np.mean(df[input]))
-            y += res.x[i] * Si
-
-    return res, y
+    input_arrays = [np.asarray(df[name]) for name in inputs]
+    output_array = np.asarray(df[output])
+    return optimal_linear_combination_arrays(
+        input_arrays,
+        output_array,
+        timeshifts,
+        gradient,
+        domain,
+        method,
+        tol,
+        *args,
+        **kwargs,
+    )
 
 
 def df_timeshift(
@@ -590,6 +588,7 @@ def df_timeshift(
     TypeError
         If `df` is not a pandas DataFrame.
     """
+    pd = _require_pandas()
     if not isinstance(df, pd.DataFrame):
         raise TypeError(f"`df` must be a pandas DataFrame, got {type(df).__name__}.")
     if df.empty:
@@ -607,9 +606,7 @@ def df_timeshift(
     else:
         missing_cols = [col for col in columns if col not in df.columns]
         if missing_cols:
-            raise ValueError(
-                f"Columns not found in DataFrame: {missing_cols}."
-            )
+            raise ValueError(f"Columns not found in DataFrame: {missing_cols}.")
 
     for c in columns:
         if df[c].dtype.kind not in "biufc":
@@ -675,22 +672,21 @@ def df_detrend(df, columns=None, order=1, inplace=False, suffix="_detrended"):
     TypeError
         If `df` is not a pandas DataFrame.
     """
+    pd = _require_pandas()
     if not isinstance(df, pd.DataFrame):
         raise TypeError(f"`df` must be a pandas DataFrame, got {type(df).__name__}.")
     if df.empty:
         raise ValueError("Input DataFrame `df` must not be empty.")
     if order < 0:
         raise ValueError(f"Polynomial order must be non-negative, got {order}.")
-    
+
     df_detrended = df.copy()
     if columns is None:
         columns = df.columns.tolist()
     else:
         missing_cols = [col for col in columns if col not in df.columns]
         if missing_cols:
-            raise ValueError(
-                f"Columns not found in DataFrame: {missing_cols}."
-            )
+            raise ValueError(f"Columns not found in DataFrame: {missing_cols}.")
 
     for col in columns:
         if df[col].dtype.kind in "biufc":  # Check if the column is numeric
@@ -764,6 +760,7 @@ def multi_file_timeseries_loader(
     - The function supports files with different delimiters and skips any header rows that begin with comment symbols
       such as `#`, `%`, `!`, etc.
     """
+    pd = _require_pandas()
 
     def count_header_rows(file):
         header_symbols = [
@@ -807,6 +804,7 @@ def multi_file_timeseries_loader(
                 process_file(target_file)
 
         elif file.endswith(".7z"):  # Check if it's a 7z file
+            SevenZipFile = _require_py7zr()
             with SevenZipFile(file, "r") as seven_zip_ref:
                 first_file_name = seven_zip_ref.getnames()[0]
                 with seven_zip_ref.open(first_file_name) as target_file:
@@ -1042,6 +1040,7 @@ def resample_to_common_grid(
     ValueError
         If `fs` is non-positive, or any DataFrame lacks the specified or default time column.
     """
+    pd = _require_pandas()
     warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
     _df_list = deepcopy(df_list)
 
@@ -1081,7 +1080,7 @@ def resample_to_common_grid(
         for col in df.columns:
             if col == t_col:
                 continue  # Skip the time column
-            df_interp[col] = np.interp(common_time, df[t_col], df[col])
+            df_interp[col] = resample_series(df[t_col], df[col], common_time)
 
         return df_interp
 
@@ -1146,7 +1145,7 @@ def resample_to_common_grid(
         df_interp = pd.DataFrame({"common_time": common_time})
         for col in df.columns:
             col_name = col + f"_{i + 1}" if suffixes else col
-            df_interp[col_name] = np.interp(common_time, df[t], df[col])
+            df_interp[col_name] = resample_series(df[t], df[col], common_time)
         df_interp_list.append(df_interp)
 
     # Merging all data streams to single DataFrame:

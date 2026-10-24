@@ -34,14 +34,18 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import pytest
-from pytest import approx
 import itertools
 
 import numpy as np
-import pandas as pd
+import pytest
+from pytest import approx
 
 from speckit import dsp
+
+
+def _pandas():
+    return pytest.importorskip("pandas")
+
 
 # --- Tests for polynomial_detrend ---
 
@@ -66,13 +70,28 @@ def test_polynomial_detrend():
     assert np.std(detrended_quad) == pytest.approx(np.std(np.cos(t)), rel=0.1)
 
 
+def test_resample_series_on_overlap():
+    """Two monotone clocks, their overlap, and one interpolated sample."""
+    t_a = np.array([0.0, 1.0, 2.0, 3.0])
+    y_a = np.array([0.0, 2.0, 2.0, 0.0])
+    t_b = np.array([1.0, 2.0, 3.0, 4.0])
+    y_b = np.array([0.0, 4.0, 4.0, 8.0])
+    start = max(t_a[0], t_b[0])
+    end = min(t_a[-1], t_b[-1])
+    t_new = np.arange(start, end, 1.0)
+    np.testing.assert_allclose(t_new, [1.0, 2.0])
+    np.testing.assert_allclose(dsp.resample_series(t_a, y_a, t_new), [2.0, 2.0])
+    np.testing.assert_allclose(dsp.resample_series(t_b, y_b, t_new), [0.0, 4.0])
+    np.testing.assert_allclose(dsp.resample_series(t_a, y_a, np.array([0.5])), [1.0])
+
+
 # --- Tests for DataFrame utilities ---
 
 
 @pytest.fixture
 def sample_dataframe():
     """Creates a sample pandas DataFrame for testing."""
-    return pd.DataFrame(
+    return _pandas().DataFrame(
         {
             "time": np.linspace(0, 9.99, 1000),
             "signal1": np.random.randn(1000),
@@ -111,7 +130,7 @@ def test_optimal_linear_combination_siso():
     noise = 0.1 * rng.normal(size=1000)
     A = -3.5
     y = A * x + noise
-    df = pd.DataFrame({"input": x, "output": y})
+    df = _pandas().DataFrame({"input": x, "output": y})
 
     res, residual = dsp.optimal_linear_combination(
         df, inputs=["input"], output="output"
@@ -120,6 +139,10 @@ def test_optimal_linear_combination_siso():
     # The recovered coefficient should be very close to the true one
     recovered_A = res.x[0]
     assert recovered_A == pytest.approx(-A, rel=0.01)
+
+    res_arrays, residual_arrays = dsp.optimal_linear_combination_arrays([x], y)
+    np.testing.assert_allclose(res_arrays.x, res.x)
+    np.testing.assert_allclose(residual_arrays, residual)
 
     # The residual noise should have a smaller RMS than the original output
     assert np.std(residual) < np.std(y)
@@ -324,7 +347,7 @@ def test_frequency2phase():
     fs = 100.0
     t = np.linspace(0, 1, 1000)
     dt = 1.0 / fs
-    
+
     # Constant frequency with subtract_mean=False should give linear phase ramp
     f_const = 10.0 * np.ones(1000)
     phase = dsp.frequency2phase(f_const, fs, subtract_mean=False)
@@ -476,9 +499,7 @@ def test_peak_finder_freq_band():
     measurement[500] = 100.0  # Peak at 50 Hz
 
     # Search in a band that includes the peak
-    peak_freqs, _ = dsp.peak_finder(
-        freq, measurement, cnr=10, freq_band=(40.0, 60.0)
-    )
+    peak_freqs, _ = dsp.peak_finder(freq, measurement, cnr=10, freq_band=(40.0, 60.0))
     assert len(peak_freqs) > 0
 
     # Search in a band that excludes the peak
@@ -547,7 +568,7 @@ def test_df_detrend_all_columns(sample_dataframe):
 
 def test_df_detrend_errors():
     """Tests error handling in df_detrend."""
-    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+    df = _pandas().DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
 
     # Not a DataFrame
     with pytest.raises(TypeError, match="pandas DataFrame"):
@@ -555,7 +576,7 @@ def test_df_detrend_errors():
 
     # Empty DataFrame
     with pytest.raises(ValueError, match="must not be empty"):
-        dsp.df_detrend(pd.DataFrame())
+        dsp.df_detrend(_pandas().DataFrame())
 
     # Negative order
     with pytest.raises(ValueError, match="must be non-negative"):
@@ -594,7 +615,7 @@ def test_df_timeshift_truncate(sample_dataframe):
 
 def test_df_timeshift_errors():
     """Tests error handling in df_timeshift."""
-    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+    df = _pandas().DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
 
     # Not a DataFrame
     with pytest.raises(TypeError, match="pandas DataFrame"):
@@ -602,7 +623,7 @@ def test_df_timeshift_errors():
 
     # Empty DataFrame
     with pytest.raises(ValueError, match="must not be empty"):
-        dsp.df_timeshift(pd.DataFrame(), fs=1.0, seconds=0.1)
+        dsp.df_timeshift(_pandas().DataFrame(), fs=1.0, seconds=0.1)
 
     # Invalid fs
     with pytest.raises(ValueError, match="must be positive"):
@@ -630,7 +651,7 @@ def test_optimal_linear_combination_mimo():
     noise = 0.1 * rng.normal(size=1000)
     A1, A2 = -2.0, 1.5
     y = A1 * x1 + A2 * x2 + noise
-    df = pd.DataFrame({"input1": x1, "input2": x2, "output": y})
+    df = _pandas().DataFrame({"input1": x1, "input2": x2, "output": y})
 
     res, residual = dsp.optimal_linear_combination(
         df, inputs=["input1", "input2"], output="output"
@@ -653,7 +674,7 @@ def test_optimal_linear_combination_frequency_domain():
     noise = 0.1 * rng.normal(size=1000)
     A = -3.5
     y = A * x + noise
-    df = pd.DataFrame({"input": x, "output": y})
+    df = _pandas().DataFrame({"input": x, "output": y})
 
     res, residual = dsp.optimal_linear_combination(
         df, inputs=["input"], output="output", domain="frequency"
@@ -666,7 +687,7 @@ def test_optimal_linear_combination_frequency_domain():
 
 def test_optimal_linear_combination_errors():
     """Tests error handling in optimal_linear_combination."""
-    df = pd.DataFrame({"input": [1, 2, 3], "output": [4, 5, 6]})
+    df = _pandas().DataFrame({"input": [1, 2, 3], "output": [4, 5, 6]})
 
     # Not a DataFrame
     with pytest.raises(TypeError, match="pandas DataFrame"):
@@ -675,7 +696,7 @@ def test_optimal_linear_combination_errors():
     # Empty DataFrame
     with pytest.raises(ValueError, match="must not be empty"):
         dsp.optimal_linear_combination(
-            pd.DataFrame(), inputs=["input"], output="output"
+            _pandas().DataFrame(), inputs=["input"], output="output"
         )
 
     # Invalid inputs type
@@ -694,14 +715,10 @@ def test_optimal_linear_combination_errors():
 
     # Missing columns
     with pytest.raises(ValueError, match="not found"):
-        dsp.optimal_linear_combination(
-            df, inputs=["nonexistent"], output="output"
-        )
+        dsp.optimal_linear_combination(df, inputs=["nonexistent"], output="output")
     with pytest.raises(ValueError, match="not found"):
         dsp.optimal_linear_combination(df, inputs=["input"], output="nonexistent")
 
     # Invalid tol
     with pytest.raises(ValueError, match="must be positive"):
-        dsp.optimal_linear_combination(
-            df, inputs=["input"], output="output", tol=-1.0
-        )
+        dsp.optimal_linear_combination(df, inputs=["input"], output="output", tol=-1.0)

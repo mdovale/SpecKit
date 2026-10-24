@@ -27,21 +27,18 @@ classifiers = [
 dependencies = [
   "numpy",
   "scipy",
-  "pandas",
-  "control",
   "matplotlib",
   "numba",
-  "tqdm",
-  "py7zr",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "build", "twine", "ruff"]
+io = ["pandas", "py7zr"]
+dev = ["pytest", "build", "twine", "ruff", "tqdm", "pandas", "py7zr"]
 
 [project.urls]
-Homepage = "https://github.com/mdovale/spectools"
-Repository = "https://github.com/mdovale/spectools"
-Issues = "https://github.com/mdovale/spectools/issues"
+Homepage = "https://github.com/mdovale/SpecKit"
+Repository = "https://github.com/mdovale/SpecKit"
+Issues = "https://github.com/mdovale/SpecKit/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

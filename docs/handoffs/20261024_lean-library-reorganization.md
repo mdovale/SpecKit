@@ -23,15 +23,75 @@ functions stay. Their numeric results stay the ones the current tests lock.
 
 ## Current status
 
-Investigation only. No library code has been moved. The working tree may
-contain unrelated edits (`speckit/flattop.py`, `.gitignore`, `docs/paper/`,
-other handoffs). Do not revert those while doing this work.
+Import split and the shared MISO solver are in the working tree. Not
+committed. The manuscript architecture paragraph has not been edited.
 
-`pyproject.toml` version is 1.0.2. Required dependencies today are NumPy,
-SciPy, pandas, `control`, Matplotlib, Numba, `tqdm`, and `py7zr`. SymPy is
-imported by `speckit/systems.py` and is not declared in `pyproject.toml` or
-`requirements.txt`. `requests` is in `requirements.txt` and is not imported
+`import speckit`, `import speckit.dsp`, and `import speckit.systems` do not
+import pandas, `control`, `py7zr`, SymPy, or `tqdm`. Required dependencies in
+`pyproject.toml` are NumPy, SciPy, Matplotlib, and Numba. Extra `io` is
+pandas and `py7zr`. `tqdm` is in the `dev` extra. `control` is gone. SymPy
+is not imported.
+
+`MISO_analytic_optimal_spectral_analysis` calls
+`MISO_numeric_optimal_spectral_analysis`.
+`test_miso_analytic_vs_numeric_consistency` still passes at decimal 8 after
+the first four bins.
+
+SISO versus one-input MISO does not agree. The comparison stays commented
+out in `tests/unit/test_systems.py`. Do not scale one ASD onto the other.
+Details are under **What was tried**.
+
+`requests` is still listed in `requirements.txt` and is still not imported
 by `speckit/`.
+
+## What was tried
+
+Moved `crop_data` and `integral_rms` to `speckit/spectral.py` and re-exported
+them from `speckit.dsp`. `SpectrumResult.get_rms` imports `integral_rms`
+from `spectral`, so the estimator no longer imports `dsp.py`. The trapezoid
+(`cumulative_trapezoid`, `initial=0`, last sample, then `sqrt`) is unchanged.
+
+`ct.mag2db` is `20 * log10` at `cf_db` and at the Bode error bars. Matplotlib
+is imported inside `SpectrumResult.plot`. pandas is imported inside
+`to_dataframe`, the DataFrame helpers, and `time_histogram`. `py7zr` is
+imported only when a `.7z` file is opened. Missing pandas or `py7zr` raises
+`ImportError` naming the `io` extra.
+
+`optimal_linear_combination` validates the DataFrame and calls
+`optimal_linear_combination_arrays`. The time-domain objective and the Welch
+frequency-domain objective are the same calls as before.
+`test_optimal_linear_combination_siso` checks that the DataFrame wrapper and
+the array function return the same coefficients and residual.
+`resample_to_common_grid` interpolates with `resample_series`, which is
+`numpy.interp`.
+
+The MISO input matrix no longer uses `np.any` on a spectrum to decide
+whether a diagonal was filled. Each input index is filled once, from the
+first pair that contains it (`Gxx` if it is the first channel, `Gyy` if it
+is the second). The `q == 1` diagonal is still the two-channel spectrum of
+the input with itself. The `1e12` condition cutoff and the `pinv` fallback
+are unchanged.
+
+SISO versus one-input MISO, `tests/unit/test_systems.py`, session-scoped
+`reproducible_rng` seed 42, `N = 10000`, `fs = 100`, Butterworth lowpass
+cutoff 10 Hz order 4, additive noise scale 0.1, `Jdes=100`, `win="hann"`:
+
+- Frequencies match (50 bins).
+- `assert_array_almost_equal(..., decimal=8)` fails on all 50 bins.
+- Bin 0: SISO `0.03347403608516972`, MISO `6.594084684475506e-10`.
+- Max absolute difference `0.26424979`.
+- Max relative difference about `5.08e7`, driven by that near-zero MISO bin.
+
+A fresh seed-42 series (not the session-scoped generator, so earlier tests
+have not drawn from it) gives the same shape: frequencies match, bin 0 is
+`0.03273097897987125` versus `1.8626992288909132e-09`, and the median
+SISO/MISO ratio on bins `1:` is about `3.36`. This is not a factor of 2.
+Stopped. No scale was applied.
+
+`python -m pytest tests/unit/test_dsp.py` with pandas blocked
+(`sys.modules["pandas"] = None` before pytest): 19 passed, 11 skipped.
+The skips are `pytest.importorskip("pandas")` on the DataFrame tests.
+With pandas installed, the same file passes, including those 11.
 
 ## Problem
 
@@ -238,81 +298,49 @@ target.
 
 ## Recommended next steps
 
-1. Split imports before moving code. Inside `analysis.py`, import Matplotlib
-   only in `SpectrumResult.plot`, and pandas only in `to_dataframe`. Replace
-   the two `ct.mag2db` calls. Import `integral_rms` from a module that does
-   not import pandas or `py7zr` (either a few dozen lines moved beside
-   `get_rms`, or a new `speckit/spectral.py` that holds `integral_rms` and
-   the array-only DSP helpers). Confirm `import speckit` no longer imports
-   pandas, `control`, or `py7zr`.
-2. Make the MISO numeric solver the only solver. Have the analytic function
-   call it. Build `T` and `S` with one loop that stores autospectra by index.
-   Keep the `1e12` condition cutoff and the `pinv` fallback so ill-conditioned
-   bins do not change behavior. Drop `import sympy`.
-3. Change `systems.py` to import `compute_spectrum` from `speckit.analysis`.
-4. Add an array API next to the DataFrame one, without removing the
-   DataFrame API:
-   - `resample_series(t, y, t_new)` using the same interpolant
-     `resample_to_common_grid` uses now.
-   - `optimal_linear_combination_arrays(inputs, output, ...)` with the same
-     objective, shifts, and Welch call. The DataFrame function becomes a
-     column picker in front of it.
-5. Move `df_detrend`, `df_timeshift`, `optimal_linear_combination`,
-   `resample_to_common_grid`, `multi_file_timeseries_loader`, and
-   `multi_file_timeseries_resampler` behind function-local pandas and
-   `py7zr` imports. Re-export them from `speckit.dsp` if the bodies move.
-6. Update `pyproject.toml`: required `numpy`, `scipy`, `numba`, `matplotlib`;
-   extra `io` = `pandas`, `py7zr`; extra `dev` gains `tqdm` and keeps
-   `pytest` and `ruff`. Remove `control`. Do not add `sympy`. Point
-   `[project.urls]` at `https://github.com/mdovale/SpecKit` when touching
-   that file; the noise handoff already records the stale `spectools` URL.
-7. Run the tests named above. Run `test_dsp.py` once without pandas installed
-   and once with the `io` extra, and record which tests skip. A skip must be
-   an explicit `pytest.importorskip`, not a swallowed import error.
-8. After the tests pass, adjust the architecture paragraph in
-   `docs/paper/main.tex` so the utility sentence matches the modules a reader
-   will import. Do that in the manuscript session, not by deleting notebooks.
-   The paper's forward-looking sentence about a future `control` interface
-   can stay; it describes work that is not this library's current dependency.
+1. Explain the SISO versus one-input MISO ASD before changing either
+   formula. Frequencies already match. SISO returns `sqrt(GyySx)` from one
+   two-channel spectrum. One-input MISO builds `T` from a two-channel
+   spectrum of the input with itself, then applies eq. 8.16. Do not multiply
+   either ASD by a constant.
+2. Adjust the architecture paragraph in `docs/paper/main.tex` so the utility
+   sentence names `spectral.py` and the optional DataFrame helpers. Do that
+   in the manuscript session. Do not delete notebooks. The paper's sentence
+   about a future `control` interface can stay.
+3. `requests` in `requirements.txt` is unused by `speckit/`. Leave it unless
+   a packaging pass is already editing that file.
 
-Stop and ask only if a test of the MISO residual fails after the shared
-solver, or if `optimal_linear_combination` coefficients change when the
-DataFrame wrapper is peeled off. Both mean the wrapper and the array path
-diverged. Do not loosen the test.
+The import split, the shared solver, and the array wrappers are done. Do not
+reopen them unless the SISO/MISO explanation forces a real formula change.
 
 ## Test gaps
 
-- No test locks `multi_file_timeseries_loader` or `resample_to_common_grid`.
-  Before moving them, add one NumPy test: two short monotone time bases, a
-  known overlap, and an interpolated value on the common grid. That test
-  must not need pandas.
-- SISO versus one-input MISO is commented out in `tests/unit/test_systems.py`.
-  Leave it commented until step 2 is done, then enable it. If it fails,
-  write the numbers into this handoff and stop. Do not scale one ASD to match
-  the other.
-- No test checks that `import speckit` avoids pandas. Add that assertion only
-  if it can run without uninstalling the developer environment; otherwise
-  record the manual check from step 1 in this section.
+- `tests/unit/test_dsp.py::test_resample_series_on_overlap` locks
+  `numpy.interp` on two monotone clocks and their overlap. It does not load
+  pandas. The file loader and the DataFrame resampler still have no test.
+- SISO versus one-input MISO is commented out again. See **What was tried**.
+- `tests/integration/test_analysis_api.py::test_import_speckit_skips_optional_modules`
+  starts a fresh interpreter and checks that pandas, `control`, `py7zr`,
+  SymPy, and `tqdm` are absent from `sys.modules` after importing `speckit`,
+  `speckit.dsp`, and `speckit.systems`.
 
 ## Files touched
 
-None yet for the reorganization.
-
-When the work starts, expect edits in:
-
-- `speckit/analysis.py` — lazy Matplotlib and pandas, drop `control`, stop
-  importing `dsp.py` for `integral_rms`.
-- `speckit/dsp.py` — array helpers stay; DataFrame and archive imports become
-  local; old names remain.
-- `speckit/systems.py` — one solver, no SymPy, import `compute_spectrum` from
-  `speckit.analysis`.
-- `speckit/plotting.py` — pandas imported only in `time_plot` / `time_histogram`
-  if those signatures still accept DataFrames.
-- `pyproject.toml`, and `requirements.txt` if it is still the documented
-  install list.
-- `tests/unit/test_systems.py` — enable the SISO-versus-MISO test after the
-  shared solver exists.
-- A new small test for the NumPy resampler, if that function is extracted.
+- `speckit/spectral.py` — new. `crop_data` and `integral_rms`.
+- `speckit/analysis.py` — `integral_rms` from `spectral`; Matplotlib and
+  pandas imported at the call; `20 * log10` instead of `control`.
+- `speckit/dsp.py` — re-exports the two spectral helpers; DataFrame and
+  `py7zr` imports are local; `resample_series` and
+  `optimal_linear_combination_arrays` added. Old names remain.
+- `speckit/systems.py` — analytic entry point calls the numeric solver; no
+  SymPy; `compute_spectrum` imported from `speckit.analysis`.
+- `speckit/plotting.py` — pandas imported in `time_histogram`.
+- `pyproject.toml` — required set and `io` / `dev` extras; repository URLs
+  point at `https://github.com/mdovale/SpecKit`.
+- `requirements.txt` — `control` removed. pandas, `py7zr`, and `tqdm` remain
+  so a flat install still runs the DataFrame tests.
+- `tests/unit/test_dsp.py`, `tests/unit/test_systems.py`,
+  `tests/integration/test_analysis_api.py`.
 
 Do not edit `speckit/core.py`, `speckit/schedulers.py`, `speckit/noise.py`,
 or `speckit/flattop.py`.

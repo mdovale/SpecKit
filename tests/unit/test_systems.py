@@ -34,8 +34,9 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import pytest
 import numpy as np
+import pytest
+
 from speckit import systems
 from speckit.noise import butter_lowpass_filter
 
@@ -49,12 +50,12 @@ def simple_siso_system(reproducible_rng):
     fs = 100.0
     cutoff = 10.0
     order = 4
-    
+
     input_signal = reproducible_rng.normal(size=N)
     filtered = butter_lowpass_filter(input_signal, cutoff, fs, order)
     noise = 0.1 * reproducible_rng.normal(size=N)
     output_signal = filtered + noise
-    
+
     return {
         "input": input_signal,
         "output": output_signal,
@@ -70,10 +71,10 @@ def simple_miso_system(reproducible_rng):
     """
     N = int(1e4)
     fs = 100.0
-    
+
     input1 = reproducible_rng.normal(size=N)
     input2 = reproducible_rng.normal(size=N)
-    
+
     # Output is a combination of filtered inputs plus noise
     cutoff = 10.0
     order = 4
@@ -81,7 +82,7 @@ def simple_miso_system(reproducible_rng):
     filtered2 = butter_lowpass_filter(input2, cutoff, fs, order)
     noise = 0.1 * reproducible_rng.normal(size=N)
     output = 0.5 * filtered1 + 0.3 * filtered2 + noise
-    
+
     return {
         "inputs": [input1, input2],
         "output": output,
@@ -97,11 +98,11 @@ def three_input_miso_system(reproducible_rng):
     """
     N = int(1e4)
     fs = 100.0
-    
+
     input1 = reproducible_rng.normal(size=N)
     input2 = reproducible_rng.normal(size=N)
     input3 = reproducible_rng.normal(size=N)
-    
+
     cutoff = 10.0
     order = 4
     filtered1 = butter_lowpass_filter(input1, cutoff, fs, order)
@@ -109,7 +110,7 @@ def three_input_miso_system(reproducible_rng):
     filtered3 = butter_lowpass_filter(input3, cutoff, fs, order)
     noise = 0.1 * reproducible_rng.normal(size=N)
     output = 0.4 * filtered1 + 0.3 * filtered2 + 0.2 * filtered3 + noise
-    
+
     return {
         "inputs": [input1, input2, input3],
         "output": output,
@@ -126,19 +127,19 @@ def test_siso_optimal_spectral_analysis_basic(simple_siso_system):
     input_sig = simple_siso_system["input"]
     output_sig = simple_siso_system["output"]
     fs = simple_siso_system["fs"]
-    
+
     f, asd = systems.SISO_optimal_spectral_analysis(input_sig, output_sig, fs)
-    
+
     # Check return types
     assert isinstance(f, np.ndarray)
     assert isinstance(asd, np.ndarray)
-    
+
     # Check array properties
     assert len(f) == len(asd)
     assert len(f) > 0
     assert np.all(f >= 0)
     assert np.all(asd >= 0)
-    
+
     # Check that frequencies are in valid range
     assert np.max(f) <= fs / 2
 
@@ -148,7 +149,7 @@ def test_siso_optimal_spectral_analysis_with_kwargs(simple_siso_system):
     input_sig = simple_siso_system["input"]
     output_sig = simple_siso_system["output"]
     fs = simple_siso_system["fs"]
-    
+
     # Test with different parameters
     f1, asd1 = systems.SISO_optimal_spectral_analysis(
         input_sig, output_sig, fs, Jdes=100, win="hann"
@@ -156,7 +157,7 @@ def test_siso_optimal_spectral_analysis_with_kwargs(simple_siso_system):
     f2, asd2 = systems.SISO_optimal_spectral_analysis(
         input_sig, output_sig, fs, Jdes=200, win="kaiser", psll=100
     )
-    
+
     # Both should produce valid results
     assert len(f1) > 0
     assert len(f2) > 0
@@ -169,7 +170,7 @@ def test_siso_optimal_spectral_analysis_consistency(simple_siso_system):
     input_sig = simple_siso_system["input"]
     output_sig = simple_siso_system["output"]
     fs = simple_siso_system["fs"]
-    
+
     # Run twice with same parameters
     f1, asd1 = systems.SISO_optimal_spectral_analysis(
         input_sig, output_sig, fs, Jdes=100
@@ -177,7 +178,7 @@ def test_siso_optimal_spectral_analysis_consistency(simple_siso_system):
     f2, asd2 = systems.SISO_optimal_spectral_analysis(
         input_sig, output_sig, fs, Jdes=100
     )
-    
+
     # Results should be identical
     np.testing.assert_array_equal(f1, f2)
     np.testing.assert_array_almost_equal(asd1, asd2, decimal=10)
@@ -191,19 +192,19 @@ def test_miso_analytic_optimal_spectral_analysis_basic(simple_miso_system):
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     f, asd = systems.MISO_analytic_optimal_spectral_analysis(inputs, output, fs)
-    
+
     # Check return types
     assert isinstance(f, np.ndarray)
     assert isinstance(asd, np.ndarray)
-    
+
     # Check array properties
     assert len(f) == len(asd)
     assert len(f) > 0
     assert np.all(f >= 0)
     assert np.all(asd >= 0)
-    
+
     # Check that frequencies are in valid range
     assert np.max(f) <= fs / 2
 
@@ -213,9 +214,9 @@ def test_miso_analytic_optimal_spectral_analysis_three_inputs(three_input_miso_s
     inputs = three_input_miso_system["inputs"]
     output = three_input_miso_system["output"]
     fs = three_input_miso_system["fs"]
-    
+
     f, asd = systems.MISO_analytic_optimal_spectral_analysis(inputs, output, fs)
-    
+
     assert len(f) == len(asd)
     assert len(f) > 0
     assert np.all(asd >= 0)
@@ -226,11 +227,11 @@ def test_miso_analytic_optimal_spectral_analysis_with_kwargs(simple_miso_system)
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     f, asd = systems.MISO_analytic_optimal_spectral_analysis(
         inputs, output, fs, Jdes=100, win="hann"
     )
-    
+
     assert len(f) > 0
     assert np.all(asd >= 0)
 
@@ -240,7 +241,7 @@ def test_miso_analytic_optimal_spectral_analysis_consistency(simple_miso_system)
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     # Run twice with same parameters
     f1, asd1 = systems.MISO_analytic_optimal_spectral_analysis(
         inputs, output, fs, Jdes=100
@@ -248,35 +249,43 @@ def test_miso_analytic_optimal_spectral_analysis_consistency(simple_miso_system)
     f2, asd2 = systems.MISO_analytic_optimal_spectral_analysis(
         inputs, output, fs, Jdes=100
     )
-    
+
     # Results should be identical
     np.testing.assert_array_equal(f1, f2)
     np.testing.assert_array_almost_equal(asd1, asd2, decimal=10)
 
 
-def test_miso_analytic_optimal_spectral_analysis_input_length_mismatch(simple_miso_system):
+def test_miso_analytic_optimal_spectral_analysis_input_length_mismatch(
+    simple_miso_system,
+):
     """Tests that ValueError is raised when input lengths don't match."""
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     # Make inputs have different lengths
     inputs_mismatched = [inputs[0], inputs[1][:-10]]
-    
-    with pytest.raises(ValueError, match="All input time series must be of equal length"):
+
+    with pytest.raises(
+        ValueError, match="All input time series must be of equal length"
+    ):
         systems.MISO_analytic_optimal_spectral_analysis(inputs_mismatched, output, fs)
 
 
-def test_miso_analytic_optimal_spectral_analysis_output_length_mismatch(simple_miso_system):
+def test_miso_analytic_optimal_spectral_analysis_output_length_mismatch(
+    simple_miso_system,
+):
     """Tests that ValueError is raised when output length doesn't match inputs."""
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     # Make output have different length
     output_mismatched = output[:-10]
-    
-    with pytest.raises(ValueError, match="The output time series must have the same length"):
+
+    with pytest.raises(
+        ValueError, match="The output time series must have the same length"
+    ):
         systems.MISO_analytic_optimal_spectral_analysis(inputs, output_mismatched, fs)
 
 
@@ -288,19 +297,19 @@ def test_miso_numeric_optimal_spectral_analysis_basic(simple_miso_system):
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     f, asd = systems.MISO_numeric_optimal_spectral_analysis(inputs, output, fs)
-    
+
     # Check return types
     assert isinstance(f, np.ndarray)
     assert isinstance(asd, np.ndarray)
-    
+
     # Check array properties
     assert len(f) == len(asd)
     assert len(f) > 0
     assert np.all(f >= 0)
     assert np.all(asd >= 0)
-    
+
     # Check that frequencies are in valid range
     assert np.max(f) <= fs / 2
 
@@ -310,9 +319,9 @@ def test_miso_numeric_optimal_spectral_analysis_three_inputs(three_input_miso_sy
     inputs = three_input_miso_system["inputs"]
     output = three_input_miso_system["output"]
     fs = three_input_miso_system["fs"]
-    
+
     f, asd = systems.MISO_numeric_optimal_spectral_analysis(inputs, output, fs)
-    
+
     assert len(f) == len(asd)
     assert len(f) > 0
     assert np.all(asd >= 0)
@@ -322,14 +331,14 @@ def test_miso_numeric_optimal_spectral_analysis_many_inputs(reproducible_rng):
     """Tests MISO numeric analysis with many inputs (should work without warning)."""
     N = int(1e3)
     fs = 100.0
-    
+
     # Create 6 inputs (numeric solver should handle this)
     inputs = [reproducible_rng.normal(size=N) for _ in range(6)]
     output = reproducible_rng.normal(size=N)
-    
+
     # Should not raise warning
     f, asd = systems.MISO_numeric_optimal_spectral_analysis(inputs, output, fs, Jdes=50)
-    
+
     assert len(f) > 0
     assert np.all(asd >= 0)
 
@@ -339,11 +348,11 @@ def test_miso_numeric_optimal_spectral_analysis_with_kwargs(simple_miso_system):
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     f, asd = systems.MISO_numeric_optimal_spectral_analysis(
         inputs, output, fs, Jdes=100, win="hann"
     )
-    
+
     assert len(f) > 0
     assert np.all(asd >= 0)
 
@@ -353,7 +362,7 @@ def test_miso_numeric_optimal_spectral_analysis_consistency(simple_miso_system):
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     # Run twice with same parameters
     f1, asd1 = systems.MISO_numeric_optimal_spectral_analysis(
         inputs, output, fs, Jdes=100
@@ -361,35 +370,43 @@ def test_miso_numeric_optimal_spectral_analysis_consistency(simple_miso_system):
     f2, asd2 = systems.MISO_numeric_optimal_spectral_analysis(
         inputs, output, fs, Jdes=100
     )
-    
+
     # Results should be identical
     np.testing.assert_array_equal(f1, f2)
     np.testing.assert_array_almost_equal(asd1, asd2, decimal=10)
 
 
-def test_miso_numeric_optimal_spectral_analysis_input_length_mismatch(simple_miso_system):
+def test_miso_numeric_optimal_spectral_analysis_input_length_mismatch(
+    simple_miso_system,
+):
     """Tests that ValueError is raised when input lengths don't match."""
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     # Make inputs have different lengths
     inputs_mismatched = [inputs[0], inputs[1][:-10]]
-    
-    with pytest.raises(ValueError, match="All input time series must be of equal length"):
+
+    with pytest.raises(
+        ValueError, match="All input time series must be of equal length"
+    ):
         systems.MISO_numeric_optimal_spectral_analysis(inputs_mismatched, output, fs)
 
 
-def test_miso_numeric_optimal_spectral_analysis_output_length_mismatch(simple_miso_system):
+def test_miso_numeric_optimal_spectral_analysis_output_length_mismatch(
+    simple_miso_system,
+):
     """Tests that ValueError is raised when output length doesn't match inputs."""
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-    
+
     # Make output have different length
     output_mismatched = output[:-10]
-    
-    with pytest.raises(ValueError, match="The output time series must have the same length"):
+
+    with pytest.raises(
+        ValueError, match="The output time series must have the same length"
+    ):
         systems.MISO_numeric_optimal_spectral_analysis(inputs, output_mismatched, fs)
 
 
@@ -401,39 +418,70 @@ def test_miso_analytic_vs_numeric_consistency(simple_miso_system):
     inputs = simple_miso_system["inputs"]
     output = simple_miso_system["output"]
     fs = simple_miso_system["fs"]
-        
+
     f_analytic, asd_analytic = systems.MISO_analytic_optimal_spectral_analysis(
         inputs, output, fs
     )
     f_numeric, asd_numeric = systems.MISO_numeric_optimal_spectral_analysis(
         inputs, output, fs
     )
-    
+
     # Frequencies should be identical
     np.testing.assert_array_equal(f_analytic, f_numeric)
-    
+
     # ASDs should be very similar (within numerical precision)
     np.testing.assert_array_almost_equal(asd_analytic[4:], asd_numeric[4:], decimal=8)
 
 
-# def test_siso_vs_miso_single_input(simple_siso_system):
-#     """Tests that SISO and MISO (with single input) produce similar results."""
-#     input_sig = simple_siso_system["input"]
-#     output_sig = simple_siso_system["output"]
-#     fs = simple_siso_system["fs"]
-    
-#     kwargs = {"Jdes": 100, "win": "hann"}
-    
-#     f_siso, asd_siso = systems.SISO_optimal_spectral_analysis(
-#         input_sig, output_sig, fs, **kwargs
-#     )
-#     f_miso, asd_miso = systems.MISO_numeric_optimal_spectral_analysis(
-#         [input_sig], output_sig, fs, **kwargs
-#     )
-    
-#     # Frequencies should be identical
-#     np.testing.assert_array_equal(f_siso, f_miso)
-    
-#     # ASDs should be very similar
-#     np.testing.assert_array_almost_equal(asd_siso, asd_miso, decimal=8)
+def test_siso_vs_miso_single_input(simple_siso_system):
+    input_sig = simple_siso_system["input"]
+    output_sig = simple_siso_system["output"]
+    fs = simple_siso_system["fs"]
+    kwargs = {"Jdes": 100, "win": "hann"}
+    f_siso, asd_siso = systems.SISO_optimal_spectral_analysis(
+        input_sig, output_sig, fs, **kwargs
+    )
+    f_miso, asd_miso = systems.MISO_numeric_optimal_spectral_analysis(
+        [input_sig], output_sig, fs, **kwargs
+    )
+    np.testing.assert_array_equal(f_siso, f_miso)
+    np.testing.assert_array_almost_equal(asd_siso, asd_miso, decimal=8)
 
+
+@pytest.mark.parametrize("delay", [7, 0])
+def test_siso_residual_on_delayed_system(delay):
+    """
+    SISO returns sqrt(Gyy - |Gxy|^2 / Gxx) and matches one-input MISO.
+
+    A pure delay gives Gxy a large phase, which the old GyySx expansion got
+    wrong by O(10). The residual identity is exact, so tolerances are float
+    error on Gyy.
+    """
+    from speckit.analysis import compute_spectrum
+
+    rng = np.random.default_rng(1)
+    N, fs = 80_000, 200.0
+    x = rng.standard_normal(N)
+    y = 0.8 * np.roll(x, delay) + 0.3 * rng.standard_normal(N)
+    kwargs = {
+        "win": "hann",
+        "olap": 0.5,
+        "Jdes": 100,
+        "Kdes": 30,
+        "order": -1,
+        "scheduler": "ltf",
+    }
+
+    res = compute_spectrum(np.vstack([x, y]), fs=fs, **kwargs)
+    f_siso, asd_siso = systems.SISO_optimal_spectral_analysis(x, y, fs, **kwargs)
+    f_miso, asd_miso = systems.MISO_numeric_optimal_spectral_analysis(
+        [x], y, fs, **kwargs
+    )
+
+    np.testing.assert_array_equal(f_siso, res.f)
+    np.testing.assert_array_equal(f_siso, f_miso)
+    assert np.all(np.isfinite(asd_siso))
+    np.testing.assert_allclose(asd_siso, np.sqrt(res.GyyRx), rtol=1e-12, atol=0)
+    assert np.all(np.abs(asd_siso**2 - asd_miso**2) <= 1e-9 * res.Gyy)
+    # A residual can't exceed the output spectrum it was subtracted from.
+    assert np.all(asd_siso**2 <= res.Gyy)

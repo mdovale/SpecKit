@@ -34,11 +34,12 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import pytest
 import numpy as np
+import pytest
+from numpy.testing import assert_allclose
 from tqdm import trange
 
-from speckit import SpectrumAnalyzer
+from speckit import SpectrumAnalyzer, compute_spectrum
 
 
 def test_error_formulas_against_monte_carlo():
@@ -116,3 +117,105 @@ def test_error_formulas_against_monte_carlo():
     assert measured_errors["Hxy_mag"] == pytest.approx(
         analytical_predictions["Hxy_mag_error"], rel=0.2
     )
+
+
+def _delay_spectrum(olap):
+    rng = np.random.default_rng(1)
+    N, fs = 80_000, 200.0
+    x = rng.standard_normal(N)
+    y = 0.8 * np.roll(x, 7) + 0.3 * rng.standard_normal(N)
+    return compute_spectrum(
+        np.vstack([x, y]),
+        fs=fs,
+        win="hann",
+        olap=olap,
+        Jdes=100,
+        Kdes=30,
+        order=-1,
+        scheduler="ltf",
+    )
+
+
+def test_phase_error_is_bendat_closed_form():
+    """
+    Hxy_rad_error = sqrt(1 - coh) / sqrt(2 coh n_d), Bendat & Piersol's phase
+    standard deviation in radians, with n_d = nu / 2 (= navg at zero overlap).
+
+    The closed form is checked to float tolerance. A coh ~ 0.2 bin separates
+    it from the former arcsin(sqrt(1 - coh)) numerator by a factor ~1.24.
+    """
+    res = _delay_spectrum(olap=0.0)
+    coh, navg = res.coh, res.navg.astype(float)
+    sel = (coh > 0.2) & (coh < 0.99) & (navg > 1)
+    assert sel.sum() > 10
+    # Rounded starts can overlap by a sample or two; window tails make that
+    # a ~1e-8 correction, not a change of regime.
+    assert_allclose(res.nu[sel], 2 * navg[sel], rtol=1e-6)
+    n_d = 0.5 * res.nu[sel]
+
+    bendat = np.sqrt(1 - coh[sel]) / np.sqrt(coh[sel] * 2 * n_d)
+    assert_allclose(res.Hxy_rad_error[sel], bendat, rtol=1e-12)
+    assert_allclose(res.Hxy_deg_error[sel], np.rad2deg(bendat), rtol=1e-12)
+    assert_allclose(res.Hxy_mag_error[sel], bendat, rtol=1e-12)
+
+    old = np.arcsin(np.sqrt(1 - coh[sel])) / np.sqrt(coh[sel] * 2 * n_d)
+    low = coh[sel] < 0.3
+    assert low.any()
+    assert np.all(old[low] / res.Hxy_rad_error[sel][low] > 1.15)
+
+    # With overlap the same formula uses nu / 2.
+    res = _delay_spectrum(olap=0.5)
+    coh, n_d = res.coh, 0.5 * res.nu
+    sel = (coh > 0.2) & (coh < 0.99) & (res.navg > 1)
+    expected = np.sqrt(1 - coh[sel]) / np.sqrt(coh[sel] * 2 * n_d[sel])
+    assert_allclose(res.Hxy_rad_error[sel], expected, rtol=1e-12)
+
+
+@pytest.mark.parametrize("win", ["hann", "kaiser"])
+def test_zero_overlap_errors_are_independent_segment_limit(win):
+    """Without overlap nu == 2 navg and every error keeps its navg form."""
+    rng = np.random.default_rng(4)
+    x = rng.standard_normal(40_000)
+    ana = SpectrumAnalyzer(x, 200.0, win=win, olap=0.0, order=-1)
+    r = ana.compute_single_bin(20.0, L=512)
+    D = r.D[0]
+    assert np.all(np.diff(D) >= 512)
+    navg = r.navg.astype(float)
+    assert_allclose(r.nu, 2 * navg, rtol=0, atol=0)
+    assert_allclose(r.Gxx_dev, r.Gxx / np.sqrt(navg), rtol=1e-15)
+    assert_allclose(r.Gxx_error, 1 / np.sqrt(navg), rtol=1e-15)
+    scale = 2.0 / (200.0 * r.S2)
+    assert_allclose(r.Gxx_emp_dev, scale * np.sqrt(r.M2 / navg), rtol=1e-15)
+
+
+def test_overlap_corrected_psd_error_matches_monte_carlo():
+    """
+    Hann at 75% overlap: Gxx_dev = Gxx sqrt(2/nu) predicts the PSD scatter.
+
+    Setup: white unit-variance noise, fs = 200, N = 40000, 20 Hz,
+    L = 512, order -1, 400 realizations, numpy Generator seed 4. Measured
+    std uses ddof=1; the prediction is averaged over realizations because
+    Gxx_dev scales with each realization's Gxx. The standard error of a
+    std estimate at n = 400 is ~3.5%, so +/-0.12 is ~3.4 sigma.
+
+    Percival & Walden give nu / (2K) ~ 0.52 for Hann at 75% overlap, so the
+    independent-segment prediction is low by sqrt(1/0.52) ~ 1.39. The empirical
+    M2-based error had the same bias and is checked the same way.
+    """
+    fs, N, freq, L = 200.0, 40_000, 20.0, 512
+    rng = np.random.default_rng(4)
+    g, dev, emp, old = [], [], [], []
+    for _ in range(400):
+        x = rng.standard_normal(N)
+        ana = SpectrumAnalyzer(x, fs, win="hann", olap=0.75, order=-1)
+        r = ana.compute_single_bin(freq, L=L)
+        g.append(r.Gxx[0])
+        dev.append(r.Gxx_dev[0])
+        emp.append(r.Gxx_emp_dev[0])
+        old.append(r.Gxx[0] / np.sqrt(r.navg[0]))
+    std = np.std(g, ddof=1)
+    nu_ratio = r.nu[0] / (2 * r.navg[0])
+    assert 0.50 < nu_ratio < 0.54
+    assert std / np.mean(dev) == pytest.approx(1.0, abs=0.12)
+    assert std / np.mean(emp) == pytest.approx(1.0, abs=0.12)
+    assert std / np.mean(old) > 1.25
