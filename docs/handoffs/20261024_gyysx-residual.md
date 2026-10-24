@@ -66,14 +66,43 @@ that scale. CSD sign is SciPy, `Pxy = X * conj(Y)`.
 
 ## Current status
 
-Reproduced on 24 Oct 2026 against the working tree. Not fixed. No test locks
-`GyySx` against `GyyRx` or against a delayed system. `tests/unit/test_systems.py`
-checks that the SISO ASD is finite and non-negative. It does not check the
-level.
+**Resolved 24 Oct 2026.** The diagnosis below is correct. The old expansion
+is the residual for SciPy's `Gxy = conj(X) Y`, where `Hxy = Gxy / Gxx`. In
+SpecKit's `Gxy = X conj(Y)` convention the two cross terms need `Hxy` and
+`Hyx` swapped:
+`E|Y - Hxy X|² = Gyy - Hxy Gxy - Hyx Gyx + Hxy Hyx Gxx = Gyy - |Gxy|²/Gxx`.
 
-`sympy` was not installed in `.venv`, so `MISO_analytic_optimal_spectral_analysis`
-was not executed. The numeric MISO formula was evaluated on the same `Gxx`,
-`Gyy`, and `Gxy` arrays. It matched `GyyRx` to about `1e-15`.
+Fix (`speckit/analysis.py`): `GyyRx` and `GyySx` share one branch,
+`np.maximum(1 - coh, 0) * Gyy`. `GyySx` is kept as a name because
+`SISO_optimal_spectral_analysis` and notebook 0.9 read it. The floor at 0
+removes the roundoff-negative `1 - coh` at `navg == 1` bins, where `coh`
+is 1 in exact arithmetic. That was the bin that overflowed in the repro.
+Neither `Hxy` nor the MISO summation changed. `systems.py` changed only in
+the SISO docstring.
+
+On the repro, the median `GyySx / GyyRx` on `0.2 < coh < 0.9` bins went from
+7.48 to 1.0, with an exact array match.
+
+Tests:
+- `tests/integration/test_analysis_api.py::test_gyysx_is_coherent_residual`
+  (delay 7 and 0) checks `GyySx == GyyRx`, `1e-12 * Gyy` agreement with
+  `Gyy - |Gxy|²/Gxx`, and the `|phase| > 60°, coh > 0.5` bins.
+- `tests/unit/test_systems.py::test_siso_residual_on_delayed_system` (delay
+  7 and 0) checks that SISO equals `sqrt(GyyRx)` at `rtol=1e-12`, that it
+  matches one-input MISO within `1e-9 * Gyy` on the squared ASD, and that
+  the residual stays below `Gyy`.
+- `test_siso_vs_miso_single_input` is enabled again. It was commented out
+  in `docs/handoffs/20261024_lean-library-reorganization.md` because of this
+  bug.
+
+Related convention issue, not part of this fix:
+`docs/handoffs/20261024_csd-convention-vs-scipy.md`. SpecKit's `Gxy` is the
+conjugate of `scipy.signal.csd`, and the manuscript's `Hxy = Gxy / Gxx` only
+holds in SciPy's convention.
+
+The original status, kept for the record: reproduced against the working
+tree, no test locked `GyySx`, and SymPy was not installed. The analytic MISO
+name now delegates to the numeric solver.
 
 ## Repro
 

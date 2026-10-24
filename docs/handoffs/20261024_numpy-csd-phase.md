@@ -37,8 +37,47 @@ fallback flag off still returns the Numba phase from the single-bin path.
 
 ## Current status
 
-Reproduced on 24 Oct 2026. Not fixed. Powers agree to about `1e-14`. Phases
-are negatives of each other.
+**Resolved 24 Oct 2026.** The diagnosis is correct. The Goertzel recurrence
+returns `exp(i ω (L-1)) * sum_n v[n] exp(-i ω n)`. That common per-segment
+phase cancels in `|X|²` and `X conj(Y)`, so the Numba kernels carry the
+`exp(-i ω n)` sign. The fallbacks used `exp(+i ω n)` and returned the
+conjugate.
+
+Fix (`speckit/core.py`, `speckit/analysis.py`):
+- All six `_np` kernels use `np.exp(-1j * omega * n)`.
+- New `core._bin_stats(x1, x2, starts, L, w, omega, order, Q)` is the only
+  dispatcher. It reads `core._NUMBA_ENABLED` on every call.
+  `_lpsd_core` and `compute_single_bin` both call it, so the twelve-branch
+  ladder and the copied flag are gone from `analysis.py`. Patching
+  `speckit.core._NUMBA_ENABLED` now selects the fallbacks everywhere.
+  `speckit.analysis._NUMBA_ENABLED` no longer exists.
+  `notebooks/0.3_compute-times.ipynb` still assigns it, which is harmless.
+
+After the fix, NumPy and Numba `Gxy` agree to about `2e-9` of
+`sqrt(Gxx Gyy)` for every order. That is Goertzel roundoff at large `L`.
+On the kernel repro, both phases are `-144.181°`.
+
+Tests (`tests/integration/test_analysis_api.py`):
+- `_force_numpy_fallback` patches the core flag and wraps the six `_np`
+  kernels in a call counter, so a test fails if the fallback did not run.
+- `test_numpy_vs_numba_parity` keeps its auto-spectrum `Gxx` check at the
+  same `rtol=5e-3`, now with the call count.
+- `test_numpy_vs_numba_cross_parity`, for `order` in `{-1, 0, 1, 2}`:
+  `Gxx`, `Gyy`, `Gxy.real`, and `Gxy.imag` match within
+  `1e-6 * sqrt(Gxx Gyy)`, `Hxy` phase on the NumPy path matches a 5-sample
+  delay, and `compute_single_bin` matches the NumPy pipeline.
+- `test_numpy_csd_kernel_sign_on_delay`, for `order` in `{-1, 0, 1}`, checks
+  the 3-sample `roll` at the kernel level to `1e-12` relative.
+
+`test_csd_phase_matches_scipy` is unchanged and passes.
+
+Correction to the references below: SciPy's `signal.csd` forms
+`conj(X) * Y`, not `X * conj(Y)`. See
+`docs/handoffs/20261024_csd-convention-vs-scipy.md`. That does not change
+this fix. The sign to keep is still the Goertzel `exp(-i ω n)`.
+
+The original status: powers agreed to about `1e-14` and the phases were
+negatives of each other.
 
 ## Repro
 

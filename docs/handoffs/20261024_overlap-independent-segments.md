@@ -35,8 +35,71 @@ this bug is not fixed by switching callers over to `M2`.
 
 ## Current status
 
-Reproduced on 24 Oct 2026 with 40 realizations. Not fixed. The ratios below
-are evidence of a bias. They are not constants to multiply into `Gxx_dev`.
+**Resolved 24 Oct 2026.** The bias is real. Its size was overstated: the
+40-realization 1.64 at Hann 75% was sampling noise. With 400 realizations
+(seed 4, `ddof=1`, standard error about 3.5%):
+
+| Window, overlap      | `K` | std / old `Gxx_dev` | P&W `sqrt(2K/nu)` | std / new `Gxx_dev` |
+|----------------------|-----|---------------------|-------------------|---------------------|
+| Hann 0.00            | 78  | 0.97                | 1.000             | 0.97                |
+| Hann 0.50            | 155 | 1.06                | 1.027             | 1.03                |
+| Hann 0.75            | 310 | 1.39                | 1.385             | 1.00                |
+| Kaiser psll=200, 0.766 | 330 | 1.05              | 1.056             | 1.00                |
+
+Fix:
+- `speckit/core.py::_overlap_dof(w, starts)`, NumPy only, computes
+  `nu = 2 K² / sum_{j,k} rho(|s_j - s_k|)²` from the bin's window and its
+  actual starts. With an even hop that is the formula in this note
+  (Percival & Walden eq. 292b). Using the actual starts follows the
+  schedulers' per-start rounding rather than a median hop. `nu` is not
+  rounded.
+- `SpectrumAnalyzer._lpsd_core` and `compute_single_bin` store `nu` per bin
+  as `SpectrumResult.nu`. A result built without it falls back to
+  `2 * navg`.
+- Every Bendat property uses `n_d = nu / 2` where it used `navg`:
+  `Gxx_dev`, `Gyy_dev`, `Gxy_dev`, `Hxy_dev`, `coh_dev`, and all the
+  `*_error` properties. The `arcsin` removal landed first, in the same
+  change.
+
+**Deviation from this note:** `XY_emp_var`, `XY_emp_dev`, `Gxx_emp_dev`,
+and `Gxy_emp_dev` also divide `M2` by `n_d`. `M2` itself is unchanged. It is
+the measured per-segment scatter. But `M2 / navg` as the variance of the
+average is a model that assumes independent segments, the same assumption
+as here. The 400-realization run measured std / old `Gxx_emp_dev` = 1.39 at
+Hann 75%, and 1.00 after the change.
+
+Cross-spectral quantities: a 1500-realization run at Hann 75%, `coh = 0.5`,
+two seeds, compared against the true-coherence prediction. The scatter of
+`angle(Hxy)` and of `|Hxy|` was 0.97–1.03 of
+`sqrt(1 - coh) / sqrt(2 coh n_d)`. A first attempt that used the prediction
+from realization 0 alone gave seed-dependent ratios of 0.9 to 1.5, because
+that prediction carries the estimated `coh`. Average the prediction, or use
+the true value.
+
+Cost: about 6% of `compute_spectrum` on a 2×10⁶-sample series with the
+default plan. The window correlation is a few length-`L` dot products per
+bin.
+
+Tests:
+- `tests/unit/test_core.py`: non-overlap gives `2 K`, identical starts give
+  2, Hann (periodic) at 50% matches P&W `36 K / 19` at `rtol=1e-4` (the
+  finite-`K` term is 2.6e-5 at `K = 2000`), and the actual-start form
+  equals eq. 292b for the default Kaiser.
+- `tests/integration/test_errors.py::test_zero_overlap_errors_are_independent_segment_limit`
+  (Hann and Kaiser) checks `nu == 2 * navg` exactly and the old `Gxx_dev`,
+  `Gxx_error`, and `Gxx_emp_dev`.
+- `tests/integration/test_errors.py::test_overlap_corrected_psd_error_matches_monte_carlo`:
+  Hann 75%, 400 realizations, `ddof=1`, prediction averaged. `Gxx_dev` and
+  `Gxx_emp_dev` must be within 1 ± 0.12, and the old form above 1.25.
+- The existing 200-realization test at Hann 50% passes without a tolerance
+  change.
+
+Still open: the chi-square interval in
+`docs/handoffs/20261024_overlap-degrees-of-freedom.md`. It can use
+`SpectrumResult.nu` directly.
+
+The original status, kept for the record: reproduced with 40 realizations.
+The ratios below are evidence of a bias, not constants.
 
 ## Repro
 

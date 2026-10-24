@@ -48,6 +48,14 @@ paper over it with a looser tolerance on `Gxx` only.
 `analysis.py` has bound its own copy of that flag, and it compares `Gxx`
 only, so it does not lock the phase.
 
+*Update 24 Oct 2026:* the fallback sign and the flag copy are fixed. The
+dispatcher is `core._bin_stats`, and `test_numpy_vs_numba_cross_parity`
+locks `Gxy` phase for all orders (`docs/handoffs/20261024_numpy-csd-phase.md`).
+Step 1 below is done. A new N-channel kernel should be dispatched through
+`_bin_stats` or a sibling that reads the flag the same way. Also, SciPy's
+`csd` is `conj(X) * Y`, so "SciPy: `Pxy = X * conj(Y)`" above is wrong
+about SciPy. See `docs/handoffs/20261024_csd-convention-vs-scipy.md`.
+
 **BinStats.** Do not change the field meanings for the 2-channel path.
 Extend the reduction so the old fields are still the `(0,0)`, `(1,1)`, and
 `(0,1)` entries.
@@ -57,7 +65,9 @@ Extend the reduction so the old fields are still the `(0,0)`, `(1,1)`, and
 `systems.py` and the conditioned spectra `GyyCx`, `GyyRx`, `GyySx` may keep
 taking pairs until a follow-up wires them to the matrix. `GyySx` is not the
 same quantity as `GyyRx` when `Gxy` has a nonzero phase. Do not use `GyySx`
-as the check that a 3-channel residual matches the pair path.
+as the check that a 3-channel residual matches the pair path. *(Superseded
+24 Oct 2026: `GyySx` now equals `GyyRx`. See
+`docs/handoffs/20261024_gyysx-residual.md`.)*
 
 ## Settled decisions
 

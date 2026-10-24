@@ -37,9 +37,13 @@ is not imported.
 `test_miso_analytic_vs_numeric_consistency` still passes at decimal 8 after
 the first four bins.
 
-SISO versus one-input MISO does not agree. The comparison stays commented
-out in `tests/unit/test_systems.py`. Do not scale one ASD onto the other.
-Details are under **What was tried**.
+SISO versus one-input MISO: explained and fixed on 24 Oct 2026. The old
+`GyySx` expansion swapped `Hxy` and `Hyx` in its cross terms (see
+`docs/handoffs/20261024_gyysx-residual.md`). `GyySx` is now
+`Gyy - |Gxy|²/Gxx`, and `test_siso_vs_miso_single_input` is enabled and
+passes at decimal 8. Neither ASD was scaled. The numbers under **What was
+tried** record the pre-fix state. Bin 0 there was the `navg == 1` bin, where
+the correct residual is 0.
 
 `requests` is still listed in `requirements.txt` and is still not imported
 by `speckit/`.

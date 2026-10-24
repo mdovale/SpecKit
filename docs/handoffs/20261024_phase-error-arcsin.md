@@ -53,9 +53,43 @@ asks.
 
 ## Current status
 
-Reproduced from the source and from the closed form on 24 Oct 2026. Not
-fixed. `tests/integration/test_errors.py` Monte Carlo checks `Gxx_dev`,
-`coh_dev`, `Hxy_dev`, and `Gxy_dev`. It does not read `Hxy_rad_error`.
+**Resolved 24 Oct 2026.** The `arcsin` is gone. `Hxy_rad_error` is now
+`sqrt(|1 - coh|) / sqrt(coh * 2 * n_d)`, the same value as `Hxy_mag_error`,
+and `Hxy_deg_error = rad2deg` of it. `n_d` is `nu / 2` from the overlap
+fix in `docs/handoffs/20261024_overlap-independent-segments.md`, which
+landed in the same change. Without overlap it equals `navg`. The `coh == 0`
+singularity is unchanged and has no NaN guard.
+
+`arcsin(r)` is the phase bound for a confidence circle of relative radius
+`r` around `H`. Even that form wraps the whole ratio. Wrapping only the
+numerator matches no reference.
+
+Evidence beyond the algebra: a 400-realization Monte Carlo of `angle(Hxy)`
+(Hann, no overlap, `K = 78`, 20 Hz, 3-sample delay, seed 7), measured
+against each formula:
+
+| true `coh` | measured / Bendat | measured / old `arcsin` |
+|------------|-------------------|-------------------------|
+| 0.333      | 1.03              | 0.88                    |
+| 0.500      | 1.02              | 0.92                    |
+| 0.750      | 1.02              | 0.97                    |
+| 0.900      | 1.02              | 1.00                    |
+
+The standard error is about 3.5%. These numbers are evidence, not test
+tolerances.
+
+Test: `tests/integration/test_errors.py::test_phase_error_is_bendat_closed_form`
+builds the delay spectrum from this note and checks `Hxy_rad_error`,
+`Hxy_deg_error`, and `Hxy_mag_error` against the closed form at
+`rtol=1e-12`, at no overlap and at 50% overlap. It also checks that the
+former `arcsin` value is more than 15% larger on the `coh < 0.3` bins.
+
+The manuscript table (`docs/paper/main.tex`, row `Hxy_deg_error`) still
+shows the radian formula in a degree column. It was not edited, as
+recommended below.
+
+The original status: reproduced from source and closed form, and
+`test_errors.py` did not read `Hxy_rad_error`.
 
 On the delay series in `docs/handoffs/20261024_gyysx-residual.md` (`N = 80000`,
 `fs = 200`, seed 1, 7-sample delay), bins grouped by coherence had median
