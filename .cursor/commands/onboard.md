@@ -83,6 +83,8 @@ Dev install: `pip install -e '.[dev]'`.
 | `feature-edit-e2e` | Change a public API or numerical claim; analysis first |
 | `add-test` | Lock a behavior in pytest |
 | `code-review` | Review the current diff |
+| `type-annotations` | Check and fix annotations in the named scope |
+| `numpy-docstrings` | Check and fix NumPy docstrings in the named scope |
 | `write-feature-doc` | Write `docs/reference/` from the code |
 | `create-handoff` / `work-handoff` | Pause or resume an investigation |
 | `plan-status` | Score a plan document against the tree |
