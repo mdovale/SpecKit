@@ -10,7 +10,6 @@
 \usepackage{xcolor}
 \usepackage{xparse}
 \usepackage{graphicx}
-\graphicspath{{figures/}}
 \usepackage{caption}
 \usepackage{upgreek}
 \usepackage{dcolumn}
@@ -522,7 +521,7 @@ The performance advantage of \speckit{} can be attributed to several factors. Fi
 
 \begin{figure}[t!]
     \centering
-    \includegraphics[scale=1]{performance.pdf}
+    \includegraphics[scale=1]{fig02.pdf}
     \caption{Performance scaling comparison between Numba-accelerated and pure NumPy implementations across varying data lengths and detrending orders. Solid lines represent the Numba path, dashed lines represent the NumPy fallback. The analysis parameters are: $J_{\text{des}} = 1000$, $K_{\text{des}} = 100$, $L_{\min} = 1$, window = ``Hann'', $\xi = 0.75$, $f_s = 2$\,Hz. Timings are averaged over 5 runs. The speedup factor increases with data size and detrending complexity, demonstrating the critical role of JIT compilation for performance.}
     \label{fig:numba-scaling}
 \end{figure}
@@ -539,7 +538,7 @@ The analysis configuration utilized a desired overlap of $\xi=0.75$, a target nu
 
 \begin{figure*}[t!]
     \centering
-    \includegraphics[scale=1]{scheduler_comparison.pdf}
+    \includegraphics[scale=1]{fig03.pdf}
     \caption{Comparative analysis of \speckit{} schedulers for $N=2 \times 10^6$ samples, $f_s = 2$\,Hz, $K_{\rm des} = 100$, $\xi = 0.75$, $b_{\rm min} = 3.5$, and $L_{\rm min} = 1000$. (a) Frequency point distribution. (b) Resolution bandwidth $r(j)$. (c) Fractional bin number $b(j)$. (d) Segment length $L(j)$. (e) Number of averages $K(j)$. (f) Actual fractional overlap. Note that the vectorized LTF implementation overlaps almost perfectly with the standard LTF curves.}
     \label{fig:scheduler_comparison}
 \end{figure*}
@@ -593,7 +592,7 @@ This comparison highlights that for high-precision instrumentation, the choice o
 
 \begin{figure}
     \centering
-    \includegraphics[scale=1]{window_comparison}
+    \includegraphics[scale=1]{fig04.pdf}
     \caption{Impact of window function selection on the ASD of a high dynamic range signal (GRACE-FO LRI range data). The signal spans over 14 decades of power. The \texttt{boxcar} and \texttt{hann} windows suffer from spectral leakage, masking the true noise floor at high frequencies. The optimized Kaiser and HFT248D windows (included in \texttt{speckit.flattop}) provide sufficient side-lobe suppression to reveal the sensor's intrinsic noise floor at approximately $10^{-10}\,{\rm m}/\sqrt{\rm Hz}$.}
     \label{fig:windows_comparison}
 \end{figure}
@@ -619,7 +618,7 @@ This validation highlights a critical feature of the LTF scheduler discussed in 
 
 \begin{figure}[t]
     \centering
-    \includegraphics[scale=1]{delay_bias_error}
+    \includegraphics[scale=1]{fig05.pdf}
     \caption{Normalized Bias Error (NBE) in spectral estimates due to uncompensated time delay, computed using \speckit{}. The simulation consists of white noise and a delayed copy analyzed with a rectangular window. The estimates for the transfer function magnitude (circles) and coherence (crosses) computed via \texttt{SpectrumAnalyzer.compute\_single\_bin} match the theoretical predictions by Seybert and Hamilton~\cite{Seybert1978} exactly. The systematic underestimation grows as the delay $\tau_0$ approaches the segment duration $T$, justifying the use of the $L_{\min}$ constraint in the LTF scheduler.}
     \label{fig:time_delay_bias}
 \end{figure}
@@ -630,7 +629,7 @@ This validation highlights a critical feature of the LTF scheduler discussed in 
 
 \begin{figure}[t]
     \centering
-    \includegraphics{miso_time_domain}
+    \includegraphics{fig06.pdf}
     \caption{Time series data for a synthetic MISO system with three inputs and one output. The inputs contain distinct frequency components which are linearly combined to form the output, obscuring the intrinsic noise floor.}
     \label{fig:miso_time}
 \end{figure}
@@ -659,7 +658,7 @@ The spectral results are shown in Figure~\ref{fig:miso_freq}. The dashed blue li
 
 \begin{figure}[t]
     \centering
-    \includegraphics{miso_frequency_domain}
+    \includegraphics{fig07.pdf}
     \caption{Results of optimal spectral analysis on the MISO system. The raw output ASD is dominated by the input signals. By applying \speckit{}'s optimal analysis functions, the linear influence of the inputs is removed. Both the analytic solver and the numeric solver recover the true underlying noise floor of the system.}
     \label{fig:miso_freq}
 \end{figure}
