@@ -53,6 +53,8 @@ Design notes
 -----------------------------------------------------------------------------
 """
 
+from __future__ import annotations
+
 __all__ = [
     "_NUMBA_ENABLED",
     "BinStats",
@@ -85,8 +87,10 @@ __all__ = [
     "_overlap_dof",
 ]
 
-from typing import NamedTuple, Tuple
+from typing import Any, Callable, NamedTuple
+
 import numpy as np
+from numpy.typing import ArrayLike
 
 # Optional Numba integration ---------------------------------------------------
 
@@ -97,13 +101,15 @@ try:
 except Exception:  # pragma: no cover
     _NUMBA_ENABLED = False
 
-    def _njit(*args, **kwargs):
+    def _njit(
+        *args: Any, **kwargs: Any
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def _decorator(f):
             return f
 
         return _decorator
 
-    def _prange(*args, **kwargs):
+    def _prange(*args: Any, **kwargs: Any) -> range:
         return range(*args)
 
 
@@ -178,7 +184,7 @@ def _build_Q(L: int, order: int) -> np.ndarray:
 @_njit(cache=True, fastmath=True)
 def _goertzel_real_imag(
     y: np.ndarray, cosw: float, sinw: float, coeff: float
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Goertzel recurrence for a single DFT bin on an in-memory segment y.
 
@@ -241,7 +247,7 @@ def _reduce_stats(
 @_njit(cache=True, fastmath=True)
 def _reduce_stats_nb(
     xx: np.ndarray, yy: np.ndarray, xyr: np.ndarray, xyi: np.ndarray
-) -> Tuple[float, float, float, float, float]:
+) -> tuple[float, float, float, float, float]:
     """
     Numba version of _reduce_stats returning 5 floats (not a NamedTuple).
     """
@@ -315,7 +321,13 @@ def _apply_poly_detrend_inplace_nb_rowdot(
 
 
 @_njit(parallel=True, fastmath=True, cache=True)
-def _stats_win_only_auto(x, starts, L, w, omega):
+def _stats_win_only_auto(
+    x: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+) -> tuple[float, float, float, float, float]:
     """
     Single-bin auto-spectral sufficient statistics using windowing only.
 
@@ -370,7 +382,14 @@ def _stats_win_only_auto(x, starts, L, w, omega):
 
 
 @_njit(parallel=True, fastmath=True, cache=True)
-def _stats_win_only_csd(x1, x2, starts, L, w, omega):
+def _stats_win_only_csd(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+) -> tuple[float, float, float, float, float]:
     """
     Single-bin cross-spectral sufficient statistics using windowing only.
 
@@ -422,7 +441,13 @@ def _stats_win_only_csd(x1, x2, starts, L, w, omega):
 
 
 @_njit(parallel=True, fastmath=True, cache=True)
-def _stats_detrend0_auto(x, starts, L, w, omega):
+def _stats_detrend0_auto(
+    x: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+) -> tuple[float, float, float, float, float]:
     """
     Single-bin auto-spectral stats with mean removal (order=0 detrend).
     """
@@ -464,7 +489,14 @@ def _stats_detrend0_auto(x, starts, L, w, omega):
 
 
 @_njit(parallel=True, fastmath=True, cache=True)
-def _stats_detrend0_csd(x1, x2, starts, L, w, omega):
+def _stats_detrend0_csd(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+) -> tuple[float, float, float, float, float]:
     """
     Single-bin cross-spectral stats with mean removal (order=0 detrend).
 
@@ -520,7 +552,14 @@ def _stats_detrend0_csd(x1, x2, starts, L, w, omega):
 
 
 @_njit(parallel=True, fastmath=True, cache=True)
-def _stats_poly_auto(x, starts, L, w, omega, Q):
+def _stats_poly_auto(
+    x: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    Q: np.ndarray,
+) -> tuple[float, float, float, float, float]:
     """
     Single-bin auto-spectral stats with polynomial detrending via Q.
 
@@ -565,7 +604,15 @@ def _stats_poly_auto(x, starts, L, w, omega, Q):
 
 
 @_njit(parallel=True, fastmath=True, cache=True)
-def _stats_poly_csd(x1, x2, starts, L, w, omega, Q):
+def _stats_poly_csd(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    Q: np.ndarray,
+) -> tuple[float, float, float, float, float]:
     """
     Single-bin cross-spectral stats with polynomial detrending via Q.
 
@@ -654,7 +701,15 @@ def _gather_segments(x: np.ndarray, starts: np.ndarray, L: int) -> np.ndarray:
 # ----------------------------------------------------------------------
 
 
-def _stats_win_only_auto_np(x, starts, L, w, omega, *, _chunk=32768):
+def _stats_win_only_auto_np(
+    x: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    *,
+    _chunk: int = 32768,
+) -> tuple[float, float, float, float, float]:
     """Auto-spectral stats with windowing only (NumPy)."""
     K = int(len(starts))
     if K == 0:
@@ -684,7 +739,16 @@ def _stats_win_only_auto_np(x, starts, L, w, omega, *, _chunk=32768):
     return MXX, MXX, mu_r, mu_i, M2
 
 
-def _stats_win_only_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
+def _stats_win_only_csd_np(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    *,
+    _chunk: int = 32768,
+) -> tuple[float, float, float, float, float]:
     """Cross-spectral stats with windowing only (NumPy)."""
     K = int(len(starts))
     if K == 0:
@@ -728,7 +792,15 @@ def _stats_win_only_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
     return MXX, MYY, mu_r, mu_i, M2
 
 
-def _stats_detrend0_auto_np(x, starts, L, w, omega, *, _chunk=32768):
+def _stats_detrend0_auto_np(
+    x: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    *,
+    _chunk: int = 32768,
+) -> tuple[float, float, float, float, float]:
     """Auto-spectral stats with mean removal (NumPy)."""
     K = int(len(starts))
     if K == 0:
@@ -760,7 +832,16 @@ def _stats_detrend0_auto_np(x, starts, L, w, omega, *, _chunk=32768):
     return MXX, MXX, mu_r, mu_i, M2
 
 
-def _stats_detrend0_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
+def _stats_detrend0_csd_np(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    *,
+    _chunk: int = 32768,
+) -> tuple[float, float, float, float, float]:
     """Cross-spectral stats with mean removal (NumPy)."""
     K = int(len(starts))
     if K == 0:
@@ -808,7 +889,16 @@ def _stats_detrend0_csd_np(x1, x2, starts, L, w, omega, *, _chunk=32768):
     return MXX, MYY, mu_r, mu_i, M2
 
 
-def _stats_poly_auto_np(x, starts, L, w, omega, Q, *, _chunk=16384):
+def _stats_poly_auto_np(
+    x: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    Q: np.ndarray,
+    *,
+    _chunk: int = 16384,
+) -> tuple[float, float, float, float, float]:
     """Auto-spectral stats with polynomial detrending (NumPy)."""
     K = int(len(starts))
     if K == 0:
@@ -845,7 +935,17 @@ def _stats_poly_auto_np(x, starts, L, w, omega, Q, *, _chunk=16384):
     return MXX, MXX, mu_r, mu_i, M2
 
 
-def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q, *, _chunk=8192):
+def _stats_poly_csd_np(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    Q: np.ndarray,
+    *,
+    _chunk: int = 8192,
+) -> tuple[float, float, float, float, float]:
     """Cross-spectral stats with polynomial detrending (NumPy)."""
     K = int(len(starts))
     if K == 0:
@@ -905,7 +1005,16 @@ def _stats_poly_csd_np(x1, x2, starts, L, w, omega, Q, *, _chunk=8192):
 # ----------------------------------------------------------------------
 
 
-def _bin_stats(x1, x2, starts, L, w, omega, order, Q=None):
+def _bin_stats(
+    x1: np.ndarray,
+    x2: np.ndarray | None,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    order: int,
+    Q: np.ndarray | None = None,
+) -> tuple[float, float, float, float, float]:
     """
     Run the kernel for detrend `order` on one bin and return `BinStats` fields.
 
@@ -945,7 +1054,7 @@ def _bin_stats(x1, x2, starts, L, w, omega, order, Q=None):
 # ----------------------------------------------------------------------
 
 
-def _overlap_dof(w: np.ndarray, starts: np.ndarray) -> float:
+def _overlap_dof(w: ArrayLike, starts: ArrayLike) -> float:
     """
     Equivalent degrees of freedom of a segment-averaged periodogram.
 
