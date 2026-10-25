@@ -82,6 +82,7 @@ __all__ = [
     "_stats_poly_csd_np",
     # dispatch and segment-layout statistics
     "_bin_stats",
+    "segment_coefficients",
     "_overlap_dof",
 ]
 
@@ -1452,6 +1453,134 @@ def _bin_stats(
         fn = _stats_poly_csd if nb else _stats_poly_csd_np
         return fn(x1, x2, starts, L, w, omega, Q)
     raise ValueError(f"Unsupported detrend order: {order}.")
+
+
+def _detrend_rows(segs: np.ndarray, order: int, Q: np.ndarray | None) -> np.ndarray:
+    """Detrend each row the way the NumPy bin kernels do.
+
+    ``order=-1`` returns ``segs``. ``order=0`` subtracts the row mean.
+    ``order=1`` or ``2`` subtracts ``(segs @ Q) @ Q.T``.
+    """
+    if order == -1:
+        return segs
+    if order == 0:
+        return segs - segs.mean(axis=1, keepdims=True)
+    if order in (1, 2):
+        if Q is None:
+            raise ValueError("Polynomial detrend needs Q from _build_Q.")
+        basis = np.asarray(Q, dtype=np.float64, order="C")
+        if basis.shape[0] != segs.shape[1]:
+            raise ValueError("Q.shape mismatch with L")
+        return segs - (segs @ basis) @ basis.T
+    raise ValueError(f"Unsupported detrend order: {order}.")
+
+
+def _direct_coefficients_np(
+    rows: np.ndarray, w: np.ndarray, omega: float
+) -> np.ndarray:
+    """Direct sum ``(rows * w) @ exp(-i omega n)``, one coefficient per row."""
+    length = rows.shape[1]
+    tone = np.exp(-1j * omega * np.arange(length, dtype=np.float64))
+    return (rows * w) @ tone
+
+
+def _direct_coefficients_nb(
+    rows: np.ndarray, w: np.ndarray, omega: float
+) -> np.ndarray:
+    """Goertzel on each row, rotated onto the direct-sum coefficient.
+
+    Uses ``_goertzel_real_imag``. The recurrence equals the direct sum
+    times ``exp(i omega (L-1))``, so the returned value is multiplied by
+    ``exp(-i omega (L-1))``.
+    """
+    length = int(rows.shape[1])
+    count = int(rows.shape[0])
+    cosw = float(np.cos(omega))
+    sinw = float(np.sin(omega))
+    coeff = 2.0 * cosw
+    phase = np.exp(-1j * omega * (length - 1))
+    out = np.empty(count, dtype=np.complex128)
+    for j in range(count):
+        windowed = np.ascontiguousarray(rows[j] * w, dtype=np.float64)
+        real, imag = _goertzel_real_imag(windowed, cosw, sinw, coeff)
+        out[j] = complex(real, imag) * phase
+    return out
+
+
+def segment_coefficients(
+    x1: np.ndarray,
+    x2: np.ndarray | None,
+    starts: np.ndarray,
+    L: int,
+    w: np.ndarray,
+    omega: float,
+    order: int,
+    Q: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Per-segment direct DFT coefficients for one bin.
+
+    The NumPy path is the matrix product the NumPy bin kernels reduce.
+    The Numba path evaluates ``_goertzel_real_imag`` on the same windowed
+    segment and removes the Goertzel phase, so both families return
+    ``sum y[n] exp(-i omega n)``. ``|X|**2`` and ``X * conj(Y)`` match
+    the ``MXX`` and cross-spectrum mean from ``_bin_stats``.
+
+    One-sided scaling is not applied. Retaining these replicates does not
+    change ``nu``.
+
+    Parameters
+    ----------
+    x1 : (N,) ndarray
+        First series.
+    x2 : (N,) ndarray or None
+        Second series. ``None`` selects an auto bin and the second return
+        value is ``None``.
+    starts : (K,) ndarray
+        Segment start indices.
+    L : int
+        Segment length.
+    w : (L,) ndarray
+        Window weights.
+    omega : float
+        Digital radian frequency of the bin.
+    order : int
+        Detrend order: -1 window only, 0 mean removal, 1 or 2 polynomial.
+    Q : (L, order + 1) ndarray or None, optional
+        Basis from ``_build_Q``. Required when ``order`` is 1 or 2.
+        Defaults to None.
+
+    Returns
+    -------
+    X : (K,) ndarray
+        Complex direct coefficients of ``x1``.
+    Y : (K,) ndarray or None
+        Complex direct coefficients of ``x2`` when ``x2`` is given.
+
+    Raises
+    ------
+    ValueError
+        If ``order`` is not supported, a polynomial order is missing ``Q``,
+        or a segment start overruns the series.
+    """
+    if order not in (-1, 0, 1, 2):
+        raise ValueError(f"Unsupported detrend order: {order}.")
+    if order in (1, 2) and Q is None:
+        raise ValueError("Polynomial detrend needs Q from _build_Q.")
+
+    x1 = np.asarray(x1, dtype=np.float64, order="C")
+    starts = np.asarray(starts, dtype=np.int64, order="C")
+    w = np.asarray(w, dtype=np.float64, order="C")
+    _check_starts_bounds(x1.shape[0], starts, L)
+    rows = _detrend_rows(_gather_segments(x1, starts, L), order, Q)
+    direct = _direct_coefficients_np if not _NUMBA_ENABLED else _direct_coefficients_nb
+    x_coef = direct(rows, w, float(omega))
+    if x2 is None:
+        return x_coef, None
+
+    x2 = np.asarray(x2, dtype=np.float64, order="C")
+    _check_starts_bounds(x2.shape[0], starts, L)
+    rows2 = _detrend_rows(_gather_segments(x2, starts, L), order, Q)
+    return x_coef, direct(rows2, w, float(omega))
 
 
 # ----------------------------------------------------------------------
