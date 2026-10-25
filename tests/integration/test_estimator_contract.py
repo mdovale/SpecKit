@@ -45,6 +45,7 @@ import pytest
 from scipy.stats import chi2
 
 from speckit import SpectrumAnalyzer, compute_single_bin, compute_spectrum
+from speckit.plan import SpectralPlan
 
 # Generator seed 20261025, N = 4096, fs = 200 Hz, Jdes = 64, Kdes = 20,
 # default vectorized_ltf plan and Kaiser window. SHA-256 prefixes of the
@@ -109,6 +110,93 @@ def test_released_103_spectra_stay_put():
         assert _sha(np.asarray(auto.K, dtype=np.int64)) == _K_SHA
         starts = np.concatenate([np.asarray(d, dtype=np.int64) for d in auto.D])
         assert _sha(starts) == _D_SHA
+
+
+def _plan_config(plan):
+    return {
+        "fs": plan.fs,
+        "N": plan.N,
+        "olap": plan.olap,
+        "bmin": plan.bmin,
+        "Lmin": plan.Lmin,
+        "Jdes": plan.Jdes,
+        "Kdes": plan.Kdes,
+        "order": plan.order,
+        "scheduler": plan.scheduler,
+        "window": plan.window,
+        "missing": plan.missing,
+        "psll": plan.psll,
+        "band": plan.band,
+    }
+
+
+def test_spectral_plan_preserves_the_lock_and_the_report():
+    x, _pair = _locked_series()
+    analyzer = SpectrumAnalyzer(x, _LOCK_FS, Jdes=_LOCK_JDES, Kdes=_LOCK_KDES, order=-1)
+    plan = analyzer.spectral_plan()
+    view = plan.as_dict()
+    assert _sha(view["f"]) == _F_SHA
+    assert _sha(np.asarray(view["L"])) == _L_SHA
+    assert _sha(view["r"]) == _R_SHA
+    assert _sha(np.asarray(view["K"], dtype=np.int64)) == _K_SHA
+    starts = np.concatenate([np.asarray(row, dtype=np.int64) for row in view["D"]])
+    assert _sha(starts) == _D_SHA
+    before = view["f"].tobytes()
+    facts = plan.report()
+    assert facts["nf"] == 47
+    assert facts["f_min"] <= facts["f_max"]
+    assert "K median" in facts["text"]
+    assert "L at bound" in facts["text"]
+    assert analyzer.plan()["f"].tobytes() == before
+    again = SpectrumAnalyzer(x, _LOCK_FS, Jdes=_LOCK_JDES, Kdes=_LOCK_KDES, order=-1)
+    assert again.spectral_plan().digest() == plan.digest()
+    shifted = plan.as_dict()
+    moved = False
+    for index, row in enumerate(shifted["D"]):
+        room = plan.N - int(plan.L[index])
+        for sample, start in enumerate(row):
+            if int(start) + 1 <= room:
+                edited = np.array(row, copy=True)
+                edited[sample] = int(start) + 1
+                shifted["D"][index] = edited
+                moved = True
+                break
+        if moved:
+            break
+    assert moved
+    assert (
+        SpectralPlan.from_dict(shifted, **_plan_config(plan)).digest() != plan.digest()
+    )
+    other = SpectrumAnalyzer(
+        x, _LOCK_FS, Jdes=_LOCK_JDES, Kdes=_LOCK_KDES, order=1, win="hann", olap=0.5
+    )
+    assert other.spectral_plan().digest() != plan.digest()
+    assert SpectralPlan.from_json(plan.to_json()).digest() == plan.digest()
+    assert _sha(analyzer.compute().Gxx) == _GXX_SHA[-1]
+
+
+def test_replicates_reduce_to_the_summary_on_the_lock_series():
+    _x, pair = _locked_series()
+    kwargs = {
+        "freq": 20.0,
+        "L": 256,
+        "order": -1,
+        "win": "hann",
+        "olap": 0.0,
+        "Jdes": _LOCK_JDES,
+        "Kdes": _LOCK_KDES,
+    }
+    summary = compute_single_bin(pair, _LOCK_FS, storage="summary", **kwargs)
+    replicates = compute_single_bin(pair, _LOCK_FS, storage="replicates", **kwargs)
+    assert summary.Xseg is None
+    assert replicates.Xseg is not None and replicates.Yseg is not None
+    assert float(np.mean(np.abs(replicates.Xseg) ** 2)) == pytest.approx(
+        float(summary.XX[0]), rel=1e-12
+    )
+    cross = np.mean(replicates.Xseg * np.conj(replicates.Yseg))
+    assert complex(cross) == pytest.approx(complex(summary.XY[0]), rel=1e-12, abs=1e-12)
+    with pytest.raises(ValueError, match="storage"):
+        compute_single_bin(pair, _LOCK_FS, storage="samples", **kwargs)
 
 
 def test_missing_raise_reports_the_count():

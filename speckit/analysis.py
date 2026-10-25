@@ -56,6 +56,7 @@ from scipy.signal.windows import kaiser as sp_kaiser
 from scipy.stats import chi2
 
 from speckit.flattop import olap_dict, win_dict
+from speckit.plan import SpectralPlan
 from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan, vectorized_ltf_plan
 from speckit.spectral import integral_rms
 from speckit.utils import (
@@ -72,7 +73,7 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
-from .core import _bin_stats, _build_Q, _overlap_dof
+from .core import _bin_stats, _build_Q, _overlap_dof, segment_coefficients
 
 
 class SpectrumAnalyzer:
@@ -579,8 +580,44 @@ class SpectrumAnalyzer:
         self._plan_cache = plan_output
         return self._plan_cache
 
+    def spectral_plan(self) -> SpectralPlan:
+        """Return the immutable plan beside the dict from ``plan``.
+
+        The dict from ``plan`` is unchanged. Kaiser windows record ``psll``.
+        Every other window records ``psll`` as absent. The PSD convention
+        on the plan is one-sided and the CSD orientation is ``X*conj(Y)``.
+
+        Returns
+        -------
+        SpectralPlan
+            Validated copy of the cached plan and this analyzer's configuration.
+        """
+        raw = self.plan()
+        psll = self.config["psll"] if self.config["win_name"] == "kaiser" else None
+        return SpectralPlan.from_dict(
+            raw,
+            fs=self.fs,
+            N=self.nx,
+            olap=float(self.config["final_olap"]),
+            bmin=float(self.config["bmin"]),
+            Lmin=int(self.config["Lmin"]),
+            Jdes=int(self.config["Jdes"]),
+            Kdes=int(self.config["Kdes"]),
+            scheduler=str(self.config["scheduler_name"]),
+            window=str(self.config["win_name"]),
+            psll=None if psll is None else float(psll),
+            order=int(self.config["order"]),
+            missing=str(self.config["missing"]),
+            band=self.config["band"],
+        )
+
     def compute_single_bin(
-        self, freq: float, *, fres: Optional[float] = None, L: Optional[int] = None
+        self,
+        freq: float,
+        *,
+        fres: Optional[float] = None,
+        L: Optional[int] = None,
+        storage: str = "summary",
     ) -> "SpectrumResult":
         """
         Executes spectral analysis for a single, user-defined frequency bin.
@@ -600,17 +637,24 @@ class SpectrumAnalyzer:
         L : int, optional
             Segment length in samples. Provide this or ``fres``, not both.
             Defaults to None.
+        storage : str, optional
+            ``"summary"`` (default) returns the five bin statistics.
+            ``"replicates"`` also keeps each segment's direct coefficient
+            on ``Xseg`` and, for a cross-spectrum, ``Yseg``. The summary
+            statistic is unchanged. An unknown value raises.
 
         Returns
         -------
         SpectrumResult
             One-bin result. Cross-spectra use ``Pxy = X * conj(Y)``.
+            Densities are one-sided.
 
         Raises
         ------
         ValueError
             If ``freq`` is invalid, both or neither of ``fres`` and ``L``
-            are set, or the segment length does not fit the series.
+            are set, the segment length does not fit the series, or
+            ``storage`` is not ``"summary"`` or ``"replicates"``.
 
         Notes
         -----
@@ -619,6 +663,11 @@ class SpectrumAnalyzer:
         """
         import numpy as _np
         import time as _time
+
+        if storage not in ("summary", "replicates"):
+            raise ValueError(
+                f"storage must be 'summary' or 'replicates', got {storage!r}."
+            )
 
         # -------- Basic validation ----------
         if not _np.isfinite(freq) or freq < 0:
@@ -739,6 +788,20 @@ class SpectrumAnalyzer:
             "nu": _np.array([nu], dtype=_np.float64),
             "compute_t": _np.array([float(tm)], dtype=_np.float64),
         }
+        if storage == "replicates":
+            xseg, yseg = segment_coefficients(
+                x1,
+                x2 if is_cross else None,
+                starts,
+                segL,
+                w,
+                omega,
+                order,
+                Q,
+            )
+            single_bin_results["Xseg"] = xseg
+            if yseg is not None:
+                single_bin_results["Yseg"] = yseg
 
         return SpectrumResult(single_bin_results, self.config, self.iscsd, self.fs)
 
@@ -984,6 +1047,14 @@ class SpectrumResult:
         self.iscsd = bool(iscsd)
         self.fs = float(fs)
         self._cache: Dict[str, Any] = {}
+        xseg = self._data.pop("Xseg", None)
+        yseg = self._data.pop("Yseg", None)
+        self._Xseg = (
+            None if xseg is None else np.ascontiguousarray(xseg, dtype=np.complex128)
+        )
+        self._Yseg = (
+            None if yseg is None else np.ascontiguousarray(yseg, dtype=np.complex128)
+        )
 
         # ---- Normalize shapes/dtypes (robustness) ---------------------------
         # Convert list-valued entries to arrays (preserve ragged D as object)
@@ -1054,6 +1125,38 @@ class SpectrumResult:
         if self.nf:
             fspan = f"[{self._data['f'][0]:.6g}, {self._data['f'][-1]:.6g}] Hz"
         return f"SpectrumResult(mode={mode}, nf={self.nf}, f={fspan})"
+
+    @property
+    def Xseg(self) -> Optional[np.ndarray]:
+        """Per-segment direct coefficients of channel 0.
+
+        Set when ``compute_single_bin`` is called with
+        ``storage="replicates"``. Each value is
+        ``sum y[n] exp(-i omega n)`` after the detrend and the window.
+        The mean of ``|Xseg|**2`` is ``XX``. One-sided scaling is not
+        applied. The summary path leaves this as None.
+
+        Returns
+        -------
+        (K,) ndarray or None
+            Complex coefficients, one per segment.
+        """
+        return self._Xseg
+
+    @property
+    def Yseg(self) -> Optional[np.ndarray]:
+        """Per-segment direct coefficients of channel 1.
+
+        Present for a cross-spectrum computed with
+        ``storage="replicates"``. The cross-spectrum mean is
+        ``mean(Xseg * conj(Yseg))``, which is ``Pxy = X * conj(Y)``.
+
+        Returns
+        -------
+        (K,) ndarray or None
+            Complex coefficients, one per segment.
+        """
+        return self._Yseg
 
     def __getattr__(self, name: str) -> np.ndarray | None:
         """Lazy computation and caching of spectral properties.
@@ -1824,6 +1927,7 @@ def compute_single_bin(
     *,
     fres: Optional[float] = None,
     L: Optional[int] = None,
+    storage: str = "summary",
     **kwargs: Any,
 ) -> SpectrumResult:
     """
@@ -1846,6 +1950,10 @@ def compute_single_bin(
     L : int, optional
         The desired segment length in samples. Either `fres` or `L` must
         be provided.
+    storage : str, optional
+        ``"summary"`` (default) or ``"replicates"``. Replicates keep the
+        per-segment direct coefficients on the result. Densities are
+        one-sided either way.
     **kwargs :
         Additional keyword arguments for configuration (e.g., `win`, `olap`),
         passed to the `SpectrumAnalyzer`.
@@ -1854,12 +1962,13 @@ def compute_single_bin(
     -------
     SpectrumResult
         A result object containing the scalar spectral estimates for the bin.
+        Cross-spectra use ``Pxy = X * conj(Y)``.
     """
     # 1. Instantiate the analyzer
     analyzer = SpectrumAnalyzer(data, fs, **kwargs)
 
     # 2. Call the single-bin computation method
-    result = analyzer.compute_single_bin(freq=freq, fres=fres, L=L)
+    result = analyzer.compute_single_bin(freq=freq, fres=fres, L=L, storage=storage)
 
     # 3. Return the result
     return result

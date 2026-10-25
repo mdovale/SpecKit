@@ -17,6 +17,17 @@ and gets at least a minor version bump.
 
 ### Added
 
+- `SpectralPlan` is an immutable copy of a scheduler dict plus the window,
+  detrend order, resolved overlap, missing-sample policy, and the one-sided
+  `X*conj(Y)` convention. `SpectrumAnalyzer.plan()` still returns the dict.
+  `SpectrumAnalyzer.spectral_plan()` returns the object. `digest()` is
+  SHA-256 of a documented little-endian layout. `report()` states boundary
+  counts and does not edit the plan.
+- `BinResponse` evaluates one bin's direct-DFT response. For `order=-1`
+  its ENBW is `fs * S2 / S1**2`. For a detrend, the reported ENBW is the
+  projected analysis tap.
+- `compute_single_bin(..., storage="replicates")` keeps per-segment direct
+  coefficients. The default remains `storage="summary"`.
 - `SpectrumResult.gxx_interval(conf=0.95)` returns the pointwise chi-square
   bounds on the one-sided PSD. `nu` is the unrounded overlap-corrected
   degrees of freedom. The interval assumes a locally white Gaussian
