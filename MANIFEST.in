@@ -1,5 +1,6 @@
 # Include top-level metadata
 include LICENSE
+include NOTICE
 include README.md
 include AUTHORS
 include pyproject.toml

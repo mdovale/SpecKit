@@ -14,7 +14,7 @@ license-files = ["LICENSE", "NOTICE", "AUTHORS"]
 
 authors = [
   { name = "Miguel Dovale", email = "mikedovale@pm.me" },
-  { name = "Gerhard Heinzel" }
+  { name = "Gerhard Heinzel", email = "gerhard.heinzel@aei.mpg.de" }
 ]
 
 classifiers = [
