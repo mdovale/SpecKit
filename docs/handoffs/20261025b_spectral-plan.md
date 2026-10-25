@@ -49,11 +49,22 @@ for, and they reduce to the same bin statistic.
 
 ## Current status
 
-Not started. Phase 0 is implemented: the spectral contract, the direct-DFT
-oracle, `vectorized_ltf_plan` tests, `missing="raise"`, and
-`SpectrumResult.gxx_interval`. The seeded 1.0.3 lock in
-`tests/integration/test_estimator_contract.py` is the regression this note
-must keep.
+Implemented on 25 Oct 2026. `SpectralPlan` validates a copy of the scheduler
+dict, `plan()` still returns that dict, and the 1.0.3 lock hashes are
+unchanged. `BinResponse` matches the direct-DFT oracle inside the stated
+roundoff bound. For `order=-1`, its ENBW matches `fs * S2 / S1**2` and the
+DFT integral of the window. `storage="replicates"` on `compute_single_bin`
+reduces to the summary `XX` and `XY`. The synthetic corpus passes.
+
+Phase 2 (a response-aware scheduler, debiasing, multitaper, robust
+reduction) has not been started.
+
+`ruff check` on the new test modules passes. `speckit/plan.py` and
+`speckit/response.py` still report `UP006`, `UP035`, and `UP045` because
+they keep `typing.Dict`, `Tuple`, and `Optional`, as
+`.cursor/rules/type-annotations.mdc` requires. Those findings were not
+rewritten to `dict` or `X | None`. `ruff format --check` passes on the new
+Python.
 
 `SpectrumAnalyzer.plan()` returns a dict. Required keys are `f`, `r`, `b`,
 `L`, `K`, `navg`, `D`, and `O`. The method adds `nf`, casts the vectors to
@@ -201,49 +212,87 @@ SpecKit file.
   plan fields, the hash, and the response, and points here. The notebooks
   below run the new cells.
 
+## What was tried
+
+The fused Numba reductions were left as they are. They square a Goertzel
+value and do not return it. `segment_coefficients` calls the existing
+`_goertzel_real_imag` and multiplies by `exp(-i ω (L-1))`, which is the
+direct sum. The NumPy path is the same `(rows * w) @ exp(-i ω n)` product
+the NumPy kernels reduce. Both match the oracle, and the mean of `|X|**2`
+and of `X * conj(Y)` match `_bin_stats`. The summary kernels were not given
+an optional output buffer.
+
+The oracle casts its segment to float64, so a complex exponential is
+compared as the oracle's cosine coefficient plus `i` times its sine
+coefficient. The operator is real and linear. That comparison passes for
+Hann and Kaiser and for every `order`.
+
+A delayed channel 1 gives `Y = X exp(-i ω τ)` at an integer bin with a
+rectangular window. `Gxy = X * conj(Y)` then has phase `+ω τ`. `Hxy =
+conj(XY) / XX` has phase `-ω τ`. The minus sign in the original success
+criterion is the transfer-function phase, not the phase of `X * conj(Y)`.
+
+The corpus, all seed `20261025`:
+
+- White noise from `white_noise(fs=256, psd=1/fs)`, Hann, `order=-1`, no
+  overlap, `L=256`, `K=200`, bin at 32 Hz. Target one-sided level `2/fs`.
+  The draw sits inside four `Gxx_dev`.
+- Pink noise, two-sided `f**(-1)`, one-sided target `2/f`, on 2–8 Hz.
+  Median `Gxx * f / 2` is inside 0.75–1.25. That checks the factor of two.
+  It is not a leakage calibration.
+- A half-bin cosine, rectangular window, one segment. `XX` matches
+  `|cosine coefficient|**2` from `BinResponse`, which includes the negative
+  frequency.
+- The integer delay above, and a one-pole `0.2 / (1 - 0.8 z^{-1})` whose
+  `Hxy` is within 5% of the filter response (Hann, 80 segments, 32 Hz).
+
+On the scheduler fixture the vectorized plan reports `nf=849`, one `K=1`
+bin, and 425 lengths at `Lmin` or `N`. `report()` does not change the arrays.
+
 ## Recommended next steps
 
-1. Add `SpectralPlan`, the copy-out dict, the hash, and `report()`, with
-   tests against the four schedulers and the 1.0.3 lock. Stop if the lock
-   hashes move.
-2. Add the single-row response and check it against the oracle and against
-   `fs * S2 / S1²` at `order=-1`. Stop on a scale mismatch.
-3. Return per-segment coefficients from the oracle, then from one production
-   path, and reduce them to the summary statistic.
-4. Add the four synthetic cases. The leakage case uses the response from
-   step 2 as the predicted neighbor level.
-5. Update `docs/reference/spectral-contract.md` and the notebooks.
+The criteria in this note are met. The next design note is a response-aware
+scheduler or one research estimator from the blueprint's Phase 2. Do not
+start it in the same change as a retune of `ltf_plan` or
+`vectorized_ltf_plan`.
 
-If step 2 or 3 needs a new kernel or a change to `Gxx` on finite data, stop
-and extend this note with the repro, the formula, and the files. Do not land
-a special case for one `order` or one window.
+Verification on 25 Oct 2026:
+
+`python -m pytest -q`
+
+180 passed.
+
+`ruff check` passes on `tests/unit/test_spectral_plan.py`,
+`tests/unit/test_bin_response.py`, `tests/unit/test_segment_coefficients.py`,
+`tests/integration/test_spectral_corpus.py`, and
+`tests/integration/test_estimator_contract.py`. `ruff format --check` passes
+on the new Python. Annotation findings in `speckit/plan.py` and
+`speckit/response.py` are the `typing` forms named under Current status.
 
 ## Files touched
 
-Expected, not yet edited:
-
-- `speckit/analysis.py` and, if the plan type lives with the schedulers,
-  `speckit/schedulers.py`
-- `speckit/core.py` only if the existing reduction grows an optional
-  coefficient output. Both the Numba kernel and the NumPy fallback change
-  together
-- `tests/direct_dft_oracle.py` and new tests under `tests/unit/` and
-  `tests/integration/`
+- `speckit/plan.py` (new), `speckit/response.py` (new)
+- `speckit/analysis.py` — `spectral_plan`, `storage` on `compute_single_bin`,
+  `Xseg` and `Yseg`
+- `speckit/core.py` — `segment_coefficients`. The fused summary kernels are
+  unchanged
+- `speckit/__init__.py` — exports `SpectralPlan` and `BinResponse`
+- `tests/unit/test_spectral_plan.py`, `tests/unit/test_bin_response.py`,
+  `tests/unit/test_segment_coefficients.py`
+- `tests/integration/test_spectral_corpus.py`
+- `tests/integration/test_estimator_contract.py` — lock, report, replicates
 - `docs/reference/spectral-contract.md`
 - `CHANGELOG.md` under `## Unreleased`
-- `notebooks/0.6_schedulers.ipynb` or `notebooks/1.3_vectorized-ltf.ipynb`
-  for `report()` and the digest
-- a new notebook, `notebooks/1.6_bin-response.ipynb`, for one row's response,
-  the detrend, the delay phase, and `storage="replicates"` against the summary
+- `notebooks/0.6_schedulers.ipynb`, `notebooks/1.6_bin-response.ipynb`
 
 ## Test gaps
 
-`plan()` invariants are enforced and untested as a separate object. Nothing
-hashes a plan. Nothing evaluates a bin's response to a tone, a negative
-frequency, or a delay. Production code cannot return segment coefficients.
-The accuracy tests use broad aggregate tolerances and are not this corpus.
-Real-data acceptance cases remain in the blueprint. Coherence intervals
-remain in `docs/handoffs/20261024_overlap-degrees-of-freedom.md`.
+Closed for this note. The four schedulers build a `SpectralPlan`. The lock
+hashes, the digest, the JSON round trip, the response, both kernel families'
+coefficients, and the four synthetic cases each have a test. Replicate
+storage is the single-bin path only. A full-spectrum replicate buffer was
+not added. Real-data acceptance cases remain in the blueprint. Coherence
+intervals remain in `docs/handoffs/20261024_overlap-degrees-of-freedom.md`.
 
 ## References
 
@@ -260,4 +309,4 @@ remain in `docs/handoffs/20261024_overlap-degrees-of-freedom.md`.
 - `tests/integration/test_estimator_contract.py`
 - `tests/direct_dft_oracle.py`
 - `notebooks/0.6_schedulers.ipynb`, `notebooks/1.3_vectorized-ltf.ipynb`,
-  `notebooks/1.5_direct-dft.ipynb`
+  `notebooks/1.5_direct-dft.ipynb`, `notebooks/1.6_bin-response.ipynb`

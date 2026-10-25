@@ -16,9 +16,10 @@ statistics in `speckit/core.py`, the logarithmic plans in
 `speckit/schedulers.py`, the missing-sample policy, and
 `SpectrumResult.gxx_interval`.
 
-Out: a typed `SpectralPlan`, a spectral-response operator, replicate
-storage, debiasing, multitaper, robust averaging, and the N-channel matrix.
-Those are later work in `docs/handoffs/20261024_speckit-2.0-blueprint.md`.
+Out: debiasing, multitaper, robust averaging, and the N-channel matrix.
+`SpectralPlan`, the single-bin response, and optional segment coefficients
+are below. Scheduler objectives and new estimators stay in
+`docs/handoffs/20261024_speckit-2.0-blueprint.md`.
 
 ## Estimand
 
@@ -95,6 +96,34 @@ then steps by the resolution it looks up. Lengths on that path use
 same `L` on every bin. The measured differences are in
 [frequency-scheduling.md](frequency-scheduling.md).
 
+## Plan, hash, and one bin's response
+
+`SpectrumAnalyzer.plan()` still returns the scheduler dict. `spectral_plan()`
+returns a `SpectralPlan`: a write-protected copy of `f`, `r`, `b`, `L`, `K`,
+`navg`, `D`, and `O`, plus `fs`, `N`, the resolved overlap, `bmin`, `Lmin`,
+`Jdes`, `Kdes`, the scheduler name, the window name, Kaiser `psll` when that
+window is used, the detrend order, the missing-sample policy, and `band` when
+it removed rows. The recorded conventions are one-sided densities and
+`X*conj(Y)`. Schema version is 1, separate from the package version.
+
+`digest()` is SHA-256 of a little-endian layout documented on `SpectralPlan`.
+`to_json` stores float arrays as hex of those bytes, so a round trip keeps
+the digest. `report()` returns counts and ranges, including how many bins
+have `K = 1` or `L` equal to `Lmin` or `N`. It does not change the plan.
+
+`BinResponse` evaluates one row without calling Goertzel or a scheduler. The
+coefficient of a complex exponential is the direct sum after the detrend and
+the window. For `order=-1`, ENBW is `fs * S2 / S1**2`, and the same value
+comes from the DFT of the window. For `order >= 0` the reported ENBW is the
+ENBW of the analysis tap after the projection. `SpectrumResult.ENBW` remains
+the raw-window formula.
+
+`compute_single_bin(..., storage="replicates")` keeps those direct
+coefficients on `Xseg` and, for a cross-spectrum, `Yseg`. The default
+`storage="summary"` is the five bin statistics. The mean of `|Xseg|**2` is
+`XX`. The mean of `Xseg * conj(Yseg)` is the cross-spectrum mean. Keeping
+the replicates does not set `nu` to `2 * K`.
+
 ## Degrees of freedom and the pointwise interval
 
 `nu` is Percival and Walden (1993), eq. 292b, from the window autocorrelation
@@ -146,8 +175,10 @@ spectra, DC, and Nyquist are outside that claim.
 
 ## Key files
 
-- `speckit/analysis.py` — `missing`, `n_replaced`, `gxx_interval`
-- `speckit/core.py` — kernels and `_overlap_dof`
+- `speckit/analysis.py` — `missing`, `n_replaced`, `gxx_interval`, `spectral_plan`
+- `speckit/plan.py` — `SpectralPlan`
+- `speckit/response.py` — `BinResponse`
+- `speckit/core.py` — kernels, `_overlap_dof`, `segment_coefficients`
 - `speckit/schedulers.py` — `vectorized_ltf_plan`, `ltf_plan`
 - `tests/direct_dft_oracle.py`
 - [spectrum-estimation.md](spectrum-estimation.md),
