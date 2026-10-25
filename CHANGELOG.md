@@ -6,6 +6,23 @@ and gets at least a minor version bump.
 
 ## Unreleased
 
+### Changed (behavioral)
+
+- Non-finite input samples raise `ValueError` by default
+  (`missing="raise"`). The message includes the count.
+  `missing="zero"` is the 1.0.3 behavior: replace those samples with 0 and
+  record the count on `SpectrumAnalyzer.n_replaced`. Bin outputs and the
+  derived error properties are no longer passed through `numpy.nan_to_num`.
+  On a finite series, `Gxx`, `Gxy`, `nu`, and the plan are unchanged.
+
+### Added
+
+- `SpectrumResult.gxx_interval(conf=0.95)` returns the pointwise chi-square
+  bounds on the one-sided PSD. `nu` is the unrounded overlap-corrected
+  degrees of freedom. The interval assumes a locally white Gaussian
+  process, ignores the detrend, and is not a simultaneous band. See
+  `docs/reference/spectral-contract.md`.
+
 ## 1.0.3 — 2026-10-24
 
 ### Changed (behavioral)

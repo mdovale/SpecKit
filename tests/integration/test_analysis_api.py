@@ -349,7 +349,9 @@ def test_polynomial_detrend_ordering():
 def test_empirical_stats_exposed_and_finite(rand_seed):
     fs = 200.0
     x = _white_noise(100000)
-    y = signal.lfilter([1.0], [0.1, 1.0], x)  # simple low-pass
+    # One-pole low-pass with its pole inside the unit circle. The previous
+    # coefficients [1] / [0.1, 1] placed the pole at -10 and overflowed.
+    y = signal.lfilter([0.2], [1.0, -0.8], x)
     res = compute_spectrum([x, y], fs=fs, win="hann", Jdes=128, Kdes=30, order=0)
 
     for attr in ("XX_mean", "YY_mean", "XY_M2", "XY_emp_var", "XY_emp_dev"):

@@ -53,6 +53,7 @@ import numpy as np
 from numpy import kaiser as np_kaiser
 from numpy.typing import ArrayLike
 from scipy.signal.windows import kaiser as sp_kaiser
+from scipy.stats import chi2
 
 from speckit.flattop import olap_dict, win_dict
 from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan, vectorized_ltf_plan
@@ -101,6 +102,7 @@ class SpectrumAnalyzer:
         scheduler: Union[str, Callable] = "vectorized_ltf",
         band: Optional[Tuple[float, float]] = None,
         force_target_nf: Optional[bool] = False,
+        missing: str = "raise",
         verbose: bool = False,
     ) -> None:
         """
@@ -153,6 +155,11 @@ class SpectrumAnalyzer:
             If True, performs a search to find the `Jdes` value that
             produces a plan with this target number of frequency bins.
             Defaults to False.
+        missing : str, optional
+            Policy for non-finite samples. ``"raise"`` (default) raises
+            ``ValueError`` and reports how many samples were rejected.
+            ``"zero"`` replaces them with 0 and records the count on
+            ``n_replaced``. That replacement is the 1.0.3 behavior.
         verbose : bool, optional
             If True, prints progress and diagnostic information. Defaults to False.
 
@@ -160,7 +167,9 @@ class SpectrumAnalyzer:
         ------
         ValueError
             If ``fs`` is not a positive finite float, if ``order`` is not
-            -1, 0, 1, or 2, or if ``data`` is not 1D or 2xN/Nx2.
+            -1, 0, 1, or 2, if ``data`` is not 1D or 2xN/Nx2, if ``missing``
+            is not ``"raise"`` or ``"zero"``, or if ``missing="raise"`` and
+            a sample is non-finite.
         """
         # ---- Basic validation -------------------------------------------------
         if not np.isfinite(fs) or fs <= 0:
@@ -184,7 +193,9 @@ class SpectrumAnalyzer:
             "scheduler": scheduler,
             "band": band,
             "force_target_nf": bool(force_target_nf),
+            "missing": missing,
         }
+        self.n_replaced = 0
 
         # --- Process and validate input data ---
         x = np.asarray(data)
@@ -198,12 +209,7 @@ class SpectrumAnalyzer:
             else:
                 data_2n = x if x.shape[0] == 2 else x.T
             self.data = np.ascontiguousarray(data_2n, dtype=np.float64)  # (2, N)
-            # Sanitize *after* stacking to ndarray
-            if not np.all(np.isfinite(self.data)):
-                logging.warning(
-                    "Input data contains NaN/Inf; replacing non-finite samples with 0."
-                )
-                np.nan_to_num(self.data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            self._apply_missing_policy()
             self.x1 = self.data[0]
             self.x2 = self.data[1]
             if self.verbose:
@@ -211,12 +217,7 @@ class SpectrumAnalyzer:
         elif x.ndim == 1:
             self.iscsd = False
             self.data = np.ascontiguousarray(x, dtype=np.float64)
-            # Sanitize *after* making ndarray
-            if not np.all(np.isfinite(self.data)):
-                logging.warning(
-                    "Input data contains NaN/Inf; replacing non-finite samples with 0."
-                )
-                np.nan_to_num(self.data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            self._apply_missing_policy()
             self.x1 = self.data
             if self.verbose:
                 logging.info(
@@ -224,10 +225,6 @@ class SpectrumAnalyzer:
                 )
         else:
             raise ValueError("Input data must be a 1D array or a 2xN/Nx2 array.")
-
-        # Warn (don’t fail) on NaN/Inf in input
-        if not np.all(np.isfinite(self.data)):
-            logging.warning("Input data contains NaN/Inf; results may be undefined.")
 
         self.nx = int(len(self.x1))
         self.config["N"] = self.nx
@@ -265,6 +262,37 @@ class SpectrumAnalyzer:
                 f"win={win_name} | olap={self.config.get('final_olap', '?')} | "
                 f"scheduler={sched_name}"
             )
+
+    def _apply_missing_policy(self) -> None:
+        """Apply ``missing`` to ``self.data``.
+
+        ``"raise"`` rejects any non-finite sample. ``"zero"`` replaces
+        those samples with 0 and stores the count on ``n_replaced``.
+
+        Raises
+        ------
+        ValueError
+            If ``missing`` is unknown, or if it is ``"raise"`` and a sample
+            is non-finite.
+        """
+        policy = self.config["missing"]
+        if policy not in ("raise", "zero"):
+            raise ValueError(f"missing must be 'raise' or 'zero', got {policy!r}.")
+        n_bad = int(np.size(self.data) - np.count_nonzero(np.isfinite(self.data)))
+        self.n_replaced = 0
+        if n_bad == 0:
+            return
+        if policy == "raise":
+            raise ValueError(
+                f"Input data contains {n_bad} non-finite sample(s). "
+                "Pass missing='zero' to replace them with 0."
+            )
+        logging.warning(
+            "Input data contains %s non-finite sample(s); replacing them with 0.",
+            n_bad,
+        )
+        np.nan_to_num(self.data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        self.n_replaced = n_bad
 
     def _process_window_config(self) -> None:
         """Resolve window function, Kaiser alpha, and default overlap.
@@ -763,17 +791,6 @@ class SpectrumAnalyzer:
                 tms[int(i)] = tm
                 nus[int(i)] = nu
 
-        # Make results finite once, globally
-        np.nan_to_num(XX, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        np.nan_to_num(YY, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        # Complex: clean real/imag separately
-        xy_r = np.nan_to_num(np.real(XY), nan=0.0, posinf=0.0, neginf=0.0)
-        xy_i = np.nan_to_num(np.imag(XY), nan=0.0, posinf=0.0, neginf=0.0)
-        XY[:] = xy_r + 1j * xy_i
-        np.nan_to_num(S2, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        np.nan_to_num(S12, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        np.nan_to_num(M2, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-
         final_results = {
             **plan,
             "XX": XX,
@@ -949,6 +966,9 @@ class SpectrumResult:
       From `XY_M2` it also derives empirical (non-parametric) uncertainties:
       `XY_emp_var`, `XY_emp_dev`, and the scaled spectral deviations
       `Gxx_emp_dev` (auto) / `Gxy_emp_dev` (cross).
+    - ``gxx_interval`` is a pointwise chi-square interval on the one-sided
+      PSD. It assumes a locally white Gaussian process, ignores the detrend,
+      and is not a simultaneous band. See the method docstring.
     """
 
     def __init__(
@@ -1191,14 +1211,11 @@ class SpectrumResult:
         # --- Errors and Deviations ---
         # --- Exposed kernel statistics (segment means and scatter) ---
         elif name == "XX_mean":
-            # Mean per-segment |X|^2 (already finite in practice, but sanitize)
-            val = np.nan_to_num(self._data["XX"], nan=0.0, posinf=0.0, neginf=0.0)
+            val = self._data["XX"]
         elif name == "YY_mean":
-            src = self._data["YY"] if self.iscsd else self._data["XX"]
-            val = np.nan_to_num(src, nan=0.0, posinf=0.0, neginf=0.0)
+            val = self._data["YY"] if self.iscsd else self._data["XX"]
         elif name == "XY_M2":
-            m2 = self._data["M2"]
-            val = np.nan_to_num(m2, nan=0.0, posinf=0.0, neginf=0.0)
+            val = self._data["M2"]
 
         elif name == "nu":
             # Results built without a segment layout get the independent limit.
@@ -1209,29 +1226,27 @@ class SpectrumResult:
 
         # --- Empirical (non-parametric) uncertainties from segment scatter ---
         elif name in ("XY_emp_var", "XY_emp_dev", "Gxx_emp_dev", "Gxy_emp_dev"):
-            n_d = np.nan_to_num(0.5 * self.nu, nan=0.0, posinf=0.0, neginf=0.0)
-            m2 = np.nan_to_num(self._data["M2"], nan=0.0, posinf=0.0, neginf=0.0)
+            n_d = 0.5 * self.nu
+            m2 = self._data["M2"]
 
             # var of the averaged complex XY over overlapped segments:
             # Var(mean) = M2 / (nu / 2), which is M2 / K without overlap
             if name == "XY_emp_var":
                 val = np.divide(m2, n_d, out=np.zeros_like(m2), where=(n_d > 0))
-                val = np.nan_to_num(val, nan=0.0, posinf=0.0, neginf=0.0)
 
             elif name == "XY_emp_dev":
                 tmp = np.divide(m2, n_d, out=np.zeros_like(m2), where=(n_d > 0))
-                val = np.sqrt(np.nan_to_num(tmp, nan=0.0, posinf=0.0, neginf=0.0))
+                val = np.sqrt(tmp)
 
             else:
                 # Convert raw std of XY to one-sided spectral units via scale = 2 / (fs*S2)
-                S2 = np.nan_to_num(self._data["S2"], nan=0.0, posinf=0.0, neginf=0.0)
+                S2 = self._data["S2"]
                 scale = np.divide(
                     2.0, self.fs * S2, out=np.zeros_like(S2), where=(S2 > 0)
                 )
                 base = np.sqrt(
                     np.divide(m2, n_d, out=np.zeros_like(m2), where=(n_d > 0))
                 )
-                base = np.nan_to_num(base, nan=0.0, posinf=0.0, neginf=0.0)
 
                 if name == "Gxx_emp_dev":
                     val = scale * base if not self.iscsd else None
@@ -1362,6 +1377,44 @@ class SpectrumResult:
         return sorted(
             list(set(default_attrs + list(self._data.keys()) + dynamic_attrs))
         )
+
+    def gxx_interval(self, conf: float = 0.95) -> Tuple[np.ndarray, np.ndarray]:
+        """Pointwise chi-square bounds on the one-sided PSD ``Gxx``.
+
+        For a Gaussian series whose spectrum is flat across the window,
+        away from DC and Nyquist, ``nu * Gxx / G_true`` is treated as
+        chi-square with the unrounded overlap-corrected ``nu`` degrees of
+        freedom. The detrend is ignored. The bounds are pointwise: a
+        fraction ``conf`` of bins is not claimed to fall inside them
+        together, and neighboring bins are not independent.
+
+        On a cross result the interval is still the auto-spectrum of
+        channel 0.
+
+        Parameters
+        ----------
+        conf : float, optional
+            Confidence level in ``(0, 1)``. Defaults to 0.95.
+
+        Returns
+        -------
+        low, high : ndarray
+            Lower and upper bounds in the same units as ``Gxx``.
+
+        Raises
+        ------
+        ValueError
+            If ``conf`` is not in ``(0, 1)``.
+        """
+        if not np.isfinite(conf) or not (0.0 < float(conf) < 1.0):
+            raise ValueError(f"conf must be in (0, 1), got {conf!r}.")
+        alpha = 1.0 - float(conf)
+        nu = np.asarray(self.nu, dtype=np.float64)
+        gxx = np.asarray(self.Gxx, dtype=np.float64)
+        # S_low divides by the upper chi-square quantile, S_high by the lower.
+        low = nu * gxx / chi2.ppf(1.0 - alpha / 2.0, nu)
+        high = nu * gxx / chi2.ppf(alpha / 2.0, nu)
+        return low, high
 
     def get_rms(self, pass_band: Optional[Tuple[float, float]] = None) -> float:
         """
@@ -1732,6 +1785,8 @@ def compute_spectrum(data: ArrayLike, fs: float, **kwargs: Any) -> SpectrumResul
         - `psll` (float): Peak side-lobe level for Kaiser window.
         - `band` (tuple): Frequency band `(f_min, f_max)`.
         - `verbose` (bool): Enable verbose output.
+        - `missing` (str): ``"raise"`` (default) or ``"zero"`` for non-finite
+          samples. ``"zero"`` is the 1.0.3 replacement with 0.
 
     Returns
     -------
