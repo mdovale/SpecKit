@@ -34,9 +34,10 @@
 # export authority as may be required before exporting such information to
 # foreign countries or providing access to foreign persons.
 #
-import pytest
 import numpy as np
-from speckit.schedulers import ltf_plan, lpsd_plan, new_ltf_plan
+import pytest
+
+from speckit.schedulers import lpsd_plan, ltf_plan, new_ltf_plan, vectorized_ltf_plan
 
 # Define a standard set of parameters for scheduler tests
 SCHEDULER_PARAMS = {
@@ -52,8 +53,8 @@ SCHEDULER_PARAMS = {
 
 
 @pytest.fixture(
-    params=[ltf_plan, lpsd_plan, new_ltf_plan],
-    ids=["ltf_plan", "lpsd_plan", "new_ltf_plan"],
+    params=[ltf_plan, lpsd_plan, new_ltf_plan, vectorized_ltf_plan],
+    ids=["ltf_plan", "lpsd_plan", "new_ltf_plan", "vectorized_ltf_plan"],
 )
 def scheduler_plan(request):
     """Fixture to generate a plan from each available scheduler using **kwargs."""
@@ -110,3 +111,93 @@ def test_plan_boundary_and_monotonicity_constraints(scheduler_plan):
     assert np.issubdtype(plan["L"].dtype, np.integer)
     assert np.all(plan["L"] > 0)
     assert np.all(plan["L"] <= params["N"])
+
+
+def _nearest_index(f_ref: np.ndarray, f_other: np.ndarray) -> np.ndarray:
+    idx = np.clip(np.searchsorted(f_ref, f_other), 0, f_ref.size - 1)
+    idx0 = np.clip(idx - 1, 0, f_ref.size - 1)
+    closer_left = np.abs(f_ref[idx0] - f_other) < np.abs(f_ref[idx] - f_other)
+    return np.where(closer_left, idx0, idx)
+
+
+def _starts_equal(left, right) -> bool:
+    a = np.asarray(left, dtype=np.int64)
+    b = np.asarray(right, dtype=np.int64)
+    return a.shape == b.shape and np.array_equal(a, b)
+
+
+def test_vectorized_ltf_step_equals_resolution():
+    """The walker claims f[j+1] - f[j] = r[j], tighter than the 0.01 mean test."""
+    cases = (
+        SCHEDULER_PARAMS,
+        {**SCHEDULER_PARAMS, "bmin": 1.0, "Lmin": 1, "Jdes": 200},
+        {
+            **SCHEDULER_PARAMS,
+            "N": 5000,
+            "Lmin": 4000,
+            "Jdes": 30,
+            "Kdes": 2,
+            "bmin": 1.0,
+            "olap": 0.5,
+        },
+    )
+    for params in cases:
+        plan = vectorized_ltf_plan(**params)
+        step = np.diff(plan["f"])
+        resolution = plan["r"][:-1]
+        relative = np.abs(step - resolution) / resolution
+        assert np.max(relative) < 1e-9
+
+
+def test_vectorized_ltf_documented_differences_from_ltf():
+    """Record where the default plan leaves ltf_plan. Do not force them equal.
+
+    Counts below were measured on 25 Oct 2026. A later scheduler edit that
+    moves them has to update this test and frequency-scheduling.md together.
+    """
+    fixture = vectorized_ltf_plan(**SCHEDULER_PARAMS)
+    iterative = ltf_plan(**SCHEDULER_PARAMS)
+    assert fixture["nf"] == 849
+    assert iterative["nf"] == 849
+    take = _nearest_index(iterative["f"], fixture["f"])
+    length_differs = np.asarray(iterative["L"])[take] != np.asarray(fixture["L"])
+    assert int(length_differs.sum()) == 424
+    first = int(np.flatnonzero(length_differs)[0])
+    assert fixture["f"][first] == pytest.approx(6e-6)
+    assert int(fixture["L"][first]) == 832707
+    assert int(iterative["L"][take[first]]) == 833333
+    for j in np.flatnonzero(~length_differs):
+        assert int(iterative["K"][take[j]]) == int(fixture["K"][j])
+        assert _starts_equal(iterative["D"][take[j]], fixture["D"][j])
+
+    low = {**SCHEDULER_PARAMS, "bmin": 1.0, "Lmin": 1, "Jdes": 200}
+    fixture = vectorized_ltf_plan(**low)
+    iterative = ltf_plan(**low)
+    assert fixture["nf"] == iterative["nf"] == 140
+    take = _nearest_index(iterative["f"], fixture["f"])
+    length_differs = np.asarray(iterative["L"])[take] != np.asarray(fixture["L"])
+    assert int(length_differs.sum()) == 130
+    start_differs = 0
+    for j in np.flatnonzero(~length_differs):
+        if not _starts_equal(iterative["D"][take[j]], fixture["D"][j]):
+            start_differs += 1
+    assert start_differs == 2
+
+    clamped = {
+        **SCHEDULER_PARAMS,
+        "N": 5000,
+        "Lmin": 4000,
+        "Jdes": 30,
+        "Kdes": 2,
+        "bmin": 1.0,
+        "olap": 0.5,
+    }
+    fixture = vectorized_ltf_plan(**clamped)
+    iterative = ltf_plan(**clamped)
+    assert fixture["nf"] == iterative["nf"]
+    assert np.array_equal(fixture["f"], iterative["f"])
+    assert np.array_equal(fixture["L"], iterative["L"])
+    assert np.array_equal(fixture["K"], iterative["K"])
+    assert int(np.sum(np.asarray(fixture["K"]) == 1)) == 3
+    for left, right in zip(iterative["D"], fixture["D"]):
+        assert _starts_equal(left, right)
