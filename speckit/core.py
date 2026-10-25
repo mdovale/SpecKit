@@ -888,8 +888,6 @@ def _check_starts_bounds(N: int, starts: np.ndarray, L: int) -> None:
 def _gather_segments(x: np.ndarray, starts: np.ndarray, L: int) -> np.ndarray:
     """Gather segments into an array of shape ``(K, L)``.
 
-    Non-finite samples are replaced with 0.
-
     Parameters
     ----------
     x : (N,) ndarray
@@ -905,8 +903,7 @@ def _gather_segments(x: np.ndarray, starts: np.ndarray, L: int) -> np.ndarray:
         One segment per row.
     """
     idx = starts[:, None] + np.arange(L, dtype=np.int64)[None, :]
-    segs = x[idx]  # (K, L)
-    return np.nan_to_num(segs, copy=False)
+    return x[idx]  # (K, L); advanced indexing copies
 
 
 # ----------------------------------------------------------------------
@@ -972,7 +969,6 @@ def _stats_win_only_auto_np(
             j1 = min(j0 + _chunk, K)
             segs = _gather_segments(x, starts[j0:j1], L)
             X = (segs * w) @ e
-            X = np.nan_to_num(X, copy=False)
             p_all[j0:j1] = X.real**2 + X.imag**2
 
     MXX = float(p_all.mean())
@@ -1049,8 +1045,6 @@ def _stats_win_only_csd_np(
             segs2 = _gather_segments(x2, starts[j0:j1], L)
             X = (segs1 * w) @ e
             Y = (segs2 * w) @ e
-            X = np.nan_to_num(X, copy=False)
-            Y = np.nan_to_num(Y, copy=False)
             Z = X * np.conj(Y)
             p1[j0:j1] = X.real**2 + X.imag**2
             p2[j0:j1] = Y.real**2 + Y.imag**2
@@ -1122,9 +1116,7 @@ def _stats_detrend0_auto_np(
             j1 = min(j0 + _chunk, K)
             segs = _gather_segments(x, starts[j0:j1], L)
             segs -= segs.mean(axis=1, keepdims=True)
-            segs = np.nan_to_num(segs, copy=False)
             X = (segs * w) @ e
-            X = np.nan_to_num(X, copy=False)
             p_all[j0:j1] = X.real**2 + X.imag**2
 
     MXX = float(p_all.mean())
@@ -1200,12 +1192,8 @@ def _stats_detrend0_csd_np(
             segs2 = _gather_segments(x2, starts[j0:j1], L)
             segs1 -= segs1.mean(axis=1, keepdims=True)
             segs2 -= segs2.mean(axis=1, keepdims=True)
-            segs1 = np.nan_to_num(segs1, copy=False)
-            segs2 = np.nan_to_num(segs2, copy=False)
             X = (segs1 * w) @ e
             Y = (segs2 * w) @ e
-            X = np.nan_to_num(X, copy=False)
-            Y = np.nan_to_num(Y, copy=False)
             Z = X * np.conj(Y)
             p1[j0:j1] = X.real**2 + X.imag**2
             p2[j0:j1] = Y.real**2 + Y.imag**2
@@ -1284,11 +1272,8 @@ def _stats_poly_auto_np(
             j1 = min(j0 + _chunk, K)
             segs = _gather_segments(x, starts[j0:j1], L)
             alpha = segs @ Q
-            alpha = np.nan_to_num(alpha, copy=False)
             segs_dt = segs - alpha @ Q.T
-            segs_dt = np.nan_to_num(segs_dt, copy=False)
             X = (segs_dt * w) @ e
-            X = np.nan_to_num(X, copy=False)
             p_all[j0:j1] = X.real**2 + X.imag**2
 
     MXX = float(p_all.mean())
@@ -1370,16 +1355,10 @@ def _stats_poly_csd_np(
             segs2 = _gather_segments(x2, starts[j0:j1], L)
             a1 = segs1 @ Q
             a2 = segs2 @ Q
-            a1 = np.nan_to_num(a1, copy=False)
-            a2 = np.nan_to_num(a2, copy=False)
             segs1_dt = segs1 - a1 @ Q.T
             segs2_dt = segs2 - a2 @ Q.T
-            segs1_dt = np.nan_to_num(segs1_dt, copy=False)
-            segs2_dt = np.nan_to_num(segs2_dt, copy=False)
             X = (segs1_dt * w) @ e
             Y = (segs2_dt * w) @ e
-            X = np.nan_to_num(X, copy=False)
-            Y = np.nan_to_num(Y, copy=False)
             Z = X * np.conj(Y)
             p1[j0:j1] = X.real**2 + X.imag**2
             p2[j0:j1] = Y.real**2 + Y.imag**2
