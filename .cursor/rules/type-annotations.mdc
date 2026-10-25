@@ -1,0 +1,38 @@
+---
+description: Python 3.9 type annotations for SpecKit signatures
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Type annotations
+
+Annotations describe the code that is already there. They do not change defaults, control flow, or numeric results.
+
+## Style
+
+Python 3.9. Match the annotations already used in the file.
+
+- `Optional`, `Union`, `Tuple`, `List`, `Dict`, `Callable`, and `Any` come from `typing`. Keep `Union` and `Optional`. Do not rewrite them to `X | Y`.
+- Concrete arrays are `np.ndarray`. Inputs the body passes through `np.asarray`, including lists, are `ArrayLike` from `numpy.typing`.
+- Use `NDArray` only in a file that already imports it.
+- `self` and `cls` stay unannotated. `__init__` returns `None`.
+- `*args` and `**kwargs` that forward an open call are `Any`. Annotate a fixed signature parameter by parameter.
+- Heavy imports (`pandas`, Matplotlib types) stay under `TYPE_CHECKING`, as in `speckit/analysis.py`.
+- If the module needs postponed annotations, put `from __future__ import annotations` after the BSD header and before the other imports.
+
+`Any` is acceptable for a genuinely open value. Narrow it when the body only accepts one shape.
+
+## Numba
+
+Files with `@njit`, `@jit`, or `numba.jit` must postpone annotations before any kernel signature is annotated. Numba reads evaluated annotations as a signature.
+
+Annotate a kernel and its `_np` fallback with the same types. Do not add an explicit Numba signature string.
+
+After editing a jitted function, import the module. If Numba rejects the annotation, remove it from the jitted function and report that.
+
+## Limits
+
+- Do not change runtime behavior to make an annotation easier.
+- Do not add `mypy` or `pyright`. Do not enable `ANN` in `pyproject.toml`.
+- Leave docstrings to `.cursor/rules/numpy-docstrings.mdc`.
+- A full audit of a named scope follows `.cursor/commands/type-annotations.md`. Stay inside that scope: a named function includes its signature and the imports that signature needs, not neighboring functions.

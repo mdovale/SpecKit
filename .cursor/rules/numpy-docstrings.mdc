@@ -1,0 +1,62 @@
+---
+description: NumPy-style docstrings and spectral conventions for SpecKit
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# NumPy docstrings
+
+The docstring describes the code and the tests. It does not invent a formula or a convention.
+
+Public functions, classes, and methods get a full docstring. Private functions get one when they implement a statistic, a plan, or a window quantity. Skip local closures.
+
+## Form
+
+Triple double quotes. One summary line, capital letter, period at the end. Keep a summary that already describes the function. SpecKit summaries are descriptive (`Performs ...`, `Calculates ...`). Do not rewrite them into imperative mood.
+
+Then the sections the function actually needs, in this order: extended description, `Parameters`, `Returns`, `Yields`, `Raises`, `Notes`, `References`, `Examples`. Omit empty sections.
+
+```python
+def example(x: np.ndarray, fs: float, order: int = 0) -> np.ndarray:
+    """Estimate the one-sided spectrum of ``x``.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input series.
+    fs : float
+        Sampling frequency in Hz. Must be positive.
+    order : int, optional
+        Detrend order. Defaults to 0.
+
+    Returns
+    -------
+    psd : np.ndarray
+        One-sided power spectral density.
+    """
+```
+
+- A blank line separates the summary from the body, and each section from the next. No blank line between a section name and its dashed underline, or between the underline and the first entry.
+- Match the file on blank lines between parameter entries. `analysis.py`, `core.py`, and `noise.py` pack them.
+- Every signature parameter appears under `Parameters`, except `self` and `cls`. Document the default in the description.
+- The docstring type agrees with the annotation (`array-like` may pair with `ArrayLike`). Write shapes the code guarantees, as in `Q : (L, order + 1) ndarray`.
+- `Raises` lists exceptions the body raises on purpose. Keep an exception callers can hit. Do not add exceptions that only escape from NumPy or Numba.
+- `**kwargs` says what they are forwarded to when that is what the code does.
+- Line length 88. Double quotes.
+
+## Spectral claims
+
+State the convention in the docstring of the function that returns or consumes the quantity.
+
+- `compute_spectrum` spectral densities are one-sided.
+- Noise-generator `psd` arguments are two-sided.
+- CSD is `Pxy = X * conj(Y)`.
+- A kernel docstring names the statistic (`MXX`, `MYY`, `mu_r`, `mu_i`, `M2`) and that the `_np` fallback computes the same one.
+
+If the docstring and the code disagree, follow `speckit/` and `tests/`. If the disagreement is a convention choice or an unchecked formula, stop and write a handoff (`.cursor/rules/handoff-documents.mdc`) instead of editing the formula text.
+
+## Limits
+
+- Do not delete an accurate `Notes`, `References`, or `Examples` section.
+- Do not change annotations or executable code to fit a docstring.
+- A full audit of a named scope follows `.cursor/commands/numpy-docstrings.md`. Do not enable `D` or `DOC` in `pyproject.toml`.
