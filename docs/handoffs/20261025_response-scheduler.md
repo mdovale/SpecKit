@@ -42,22 +42,28 @@ a finished result.
 
 ## Current status
 
-Not started. Phase 1 is implemented. `SpectralPlan` copies a scheduler
-dict, `BinResponse` evaluates one row, and `compute_single_bin` can keep
-segment coefficients. The seeded corpus in
-`tests/integration/test_spectral_corpus.py` locks white noise, pink noise,
-a half-bin tone, an integer delay, and a one-pole. It does not score a
-plan.
+Implemented 25 Oct 2026. `speckit/plan_risk.py` predicts the one-sided mean
+on the DFT grid of the segment and the variance from `_overlap_dof`. A flat
+`G` returns `G` at FFT roundoff. The sum uses `L * S2` and no extra scale.
+The constant-Hann-length search is not exported from `speckit` and is not a
+scheduler name. `vectorized_ltf_plan` is still the default. The package
+version is still `1.0.3`. `ltf_plan` and `vectorized_ltf_plan` were not
+edited.
 
-`vectorized_ltf_plan` is the `SpectrumAnalyzer` default. On `N = 10**6`,
-`fs = 1`, overlap 0.75, `bmin = 5`, `Lmin = 1000`, `Jdes = 1000`, and
-`Kdes = 100` it returns 849 frequencies, one `K = 1` bin, and 425 lengths
-at `Lmin` or `N`. `ltf_plan` differs in `L` on 424 of those 849 bins. Neither
-plan is the solution of a stated loss.
+Hann, `order=-1`, cost within 5 percent:
 
-The 1.0.3 lock in `tests/integration/test_estimator_contract.py` is
-`seed = 20261025`, `N = 4096`, `fs = 200`, `Jdes = 64`, `Kdes = 20`,
-default scheduler and Kaiser window. Those hashes must not move.
+- White. `fs = 256`, `N = 256 * 200`, band 8–64 Hz, `Jdes = 48`,
+  `Kdes = 40`, overlap 0.5, `bmin = 1`, `Lmin = 1`. Search mean risk
+  `5.20e-9` against the baseline `3.50e-8`, at 967110 segment-samples
+  against 921067. The search kept `L = 10`. The fixed reference
+  `L = 256`, no overlap, matches `2 G**2 / 400`.
+- Pink. `fs = 256`, `N = 2**16`, band 2–8 Hz, same scheduler settings.
+  The spectrum in the sum is `2 / max(f, 0.2)`. Search mean risk
+  `1.57e-3` against the baseline `1.29e-3`, at 822528 against 784599.
+  The search kept `L = 336`. This loss keeps it off `SpectrumAnalyzer`.
+- Half-bin tone. `fs = 64`, `N = 64 * 32`, `Jdes = 32`, `Kdes = 20`.
+  Squared leakage `8.06e-4` against `1.79e-2`, at 8128 against 8136.
+  The search kept `L = 8` with the analysis frequency at 8 Hz.
 
 ## Context
 
@@ -172,42 +178,76 @@ those forms are not a reason to rewrite them.
   prototype loss, and the segment-sample totals on the pink case and the
   tone case.
 
+## What was tried
+
+The DFT sum `sum |H(ν_k)|**2 * G(|ν_k|) / (L * S2)` recovers a flat
+one-sided `G`. On Hann, `L = 256`, `fs = 256`, `f = 32`, the relative
+residual was about `1e-16`. No factor of 2 was applied. An off-grid
+analysis frequency, `f = 32.5`, recovers the same flat level because
+Parseval holds for the modulated window.
+
+Scoring every feasible segment count with `_overlap_dof` is the same
+objective and was slow: the white band admits on the order of `10**4`
+counts. Bias does not depend on the starts, so each length keeps the
+count with the largest `nu`. A uniform-hop form of Percival & Walden
+eq. 292b ranks those counts. `_overlap_dof` on the rounded starts then
+walks to a neighboring count while `nu` increases. The reported risk
+uses that value. On `N = 600`, `fs = 60`, lengths 20, 30, and 40, the
+search matches an exhaustive score of the cost band.
+
+The pink result was not reweighted after the run. The mean is the
+unweighted mean of the pointwise risks. Baseline lengths on 2–8 Hz run
+from 479 down to 162. The search kept one length, 336, and lost.
+
+The tone risk is the squared leaked density of a deterministic cosine.
+`2 G**2 / nu` is the continuous-spectrum variance and was not added.
+A half-bin tone's leaked density scales with the line height, which
+grows as the resolution narrows, so the short length wins that case.
+The three results together are not three wins, so the search was not
+given a scheduler name.
+
+```
+python -m pytest tests/unit/test_plan_risk.py \
+  tests/integration/test_response_scheduler.py \
+  tests/integration/test_estimator_contract.py \
+  tests/unit/test_schedulers.py -q
+```
+
+That run passed, 39 tests. The 1.0.3 lock and the 424 length
+differences are unchanged.
+
 ## Recommended next steps
 
-1. Implement the predicted mean, variance, and risk for one row. Stop if
-   flat `G` is not recovered without a scale factor.
-2. Freeze the three cases and the cost rule in tests, with the baseline
-   `vectorized_ltf_plan` scored first.
-3. Search segment lengths under the cost cap. Keep the existing
-   schedulers unchanged.
-4. Register a public name only if every frozen case improves. Otherwise
-   leave the prototype unexported and record the case it loses.
-5. Update the spectral-contract paragraph and the notebook.
-
-If the search needs a second copy of `vectorized_ltf_plan` with a patched
-rounder, stop. That is a retune, not a new objective.
+1. Leave `speckit/plan_risk.py` unexported. Register a scheduler name
+   only if a later comparison, on a loss fixed before the search, is
+   lower on every frozen case, including the pink band.
+2. The next design note is one remaining Phase 2 estimator: debiased
+   dynamic WOSA, dynamic multitaper, or robust replicate reduction.
+3. Keep `ltf_plan` and `vectorized_ltf_plan` as they are in that note.
+   A second copy with a patched rounder is a retune, not a new loss.
 
 ## Files touched
 
-Expected, not yet edited:
-
-- a new module outside `speckit/__init__.py`, or a script under
-  `benchmarks/`, that builds candidate plans and scores them
-- `speckit/response.py` only if the kernel `W` belongs next to
-  `BinResponse`. Do not change `enbw` for `order=-1`
-- new tests under `tests/unit/` for the white identity and under
-  `tests/integration/` for the three cases
-- `docs/reference/spectral-contract.md`
-- `CHANGELOG.md` under `## Unreleased` only if a scheduler name is added
-- `notebooks/1.7_plan-risk.ipynb`
+- `speckit/plan_risk.py` — predicted mean, variance, risk, and the
+  constant-length search. Not imported by `speckit/__init__.py`.
+- `tests/unit/test_plan_risk.py` — flat-spectrum identity, leakage scale,
+  exhaustive cost band
+- `tests/integration/test_response_scheduler.py` — white, pink, and tone
+  comparisons
+- `docs/reference/spectral-contract.md` — the default plan is still the
+  heuristic
+- `notebooks/1.7_plan-risk.ipynb` — pink and tone losses
+- `speckit/response.py` was not required. `enbw` for `order=-1` is unchanged.
+- No scheduler name, so `CHANGELOG.md` has no new entry. Version stays
+  `1.0.3`.
 
 ## Test gaps
 
-Nothing scores `predicted_mean` against a known `G`. Nothing compares
-`vectorized_ltf_plan` to another plan on bias and variance together.
-The corpus checks levels and one tone. It does not check a scheduler
-objective. Debiasing, multitaper, and robust reduction have no benchmark
-yet. Real-data cases remain in the blueprint.
+The flat identity and the three frozen cases are tested. Still open:
+a detrended risk (`order >= 0`), debiasing, dynamic multitaper, robust
+replicate reduction, and a real instrument record. The pointwise risks
+are averaged as a sum of bin risks. They are not a variance of the sum,
+and they are not a covariance between bins.
 
 ## References
 

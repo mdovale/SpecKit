@@ -18,7 +18,9 @@ statistics in `speckit/core.py`, the logarithmic plans in
 
 Out: debiasing, multitaper, robust averaging, and the N-channel matrix.
 `SpectralPlan`, the single-bin response, and optional segment coefficients
-are below. Scheduler objectives and new estimators stay in
+are below. The single-length comparison in `speckit/plan_risk.py` is
+summarized with them. `SpectrumAnalyzer` keeps `vectorized_ltf_plan`.
+Debiasing, multitaper, and robust reduction stay in
 `docs/handoffs/20261024_speckit-2.0-blueprint.md`.
 
 ## Estimand
@@ -96,6 +98,14 @@ then steps by the resolution it looks up. Lengths on that path use
 same `L` on every bin. The measured differences are in
 [frequency-scheduling.md](frequency-scheduling.md).
 
+`vectorized_ltf_plan` remains the rule of thumb described above.
+`speckit/plan_risk.py` is a separate check for `order=-1`. It predicts
+each bin from the DFT of the window and from the overlap degrees of
+freedom, then tries one Hann length whose sample count stays within 5%
+of the default plan. `SpectrumAnalyzer` keeps `vectorized_ltf_plan`. On
+the 2–8 Hz pink example the single length has the higher average risk.
+The numbers are in `docs/handoffs/20261025_response-scheduler.md`.
+
 ## Plan, hash, and one bin's response
 
 `SpectrumAnalyzer.plan()` still returns the scheduler dict. `spectral_plan()`
@@ -172,6 +182,10 @@ spectra, DC, and Nyquist are outside that claim.
   `8 * L * eps * sum(|y_windowed|)` on the Fourier coefficient.
 - `tests/unit/test_schedulers.py` includes `vectorized_ltf_plan` and the
   counted differences from `ltf_plan`.
+- `tests/unit/test_plan_risk.py` checks that a flat one-sided `G` is
+  recovered from the DFT sum.
+  `tests/integration/test_response_scheduler.py` scores the
+  constant-length search against `vectorized_ltf_plan`.
 
 ## Key files
 
@@ -180,6 +194,7 @@ spectra, DC, and Nyquist are outside that claim.
 - `speckit/response.py` — `BinResponse`
 - `speckit/core.py` — kernels, `_overlap_dof`, `segment_coefficients`
 - `speckit/schedulers.py` — `vectorized_ltf_plan`, `ltf_plan`
+- `speckit/plan_risk.py` — predicted row risk; not a scheduler name
 - `tests/direct_dft_oracle.py`
 - [spectrum-estimation.md](spectrum-estimation.md),
   [bin-statistics.md](bin-statistics.md),
