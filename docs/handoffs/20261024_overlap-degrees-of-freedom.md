@@ -17,19 +17,23 @@ segment count `navg`.
 
 ## Current status
 
-**Step 1 done (24 Oct 2026), steps 2–4 open.** Per-bin `nu` is implemented
-as `speckit/core.py::_overlap_dof` and exposed as `SpectrumResult.nu`. It
-uses SpecKit's `L`, the window, and the actual starts in `D`, unrounded.
-The analytic and empirical errors divide by `nu / 2`. See
-`docs/handoffs/20261024_overlap-independent-segments.md` for the formula,
-tests, and Monte Carlo.
+**Steps 1 and 3 done (25 Oct 2026), steps 2 and 4 open.** Per-bin `nu` is
+implemented as `speckit/core.py::_overlap_dof` and exposed as
+`SpectrumResult.nu`. It uses SpecKit's `L`, the window, and the actual
+starts in `D`, unrounded. The analytic and empirical errors divide by
+`nu / 2`. See `docs/handoffs/20261024_overlap-independent-segments.md` for
+the formula, tests, and Monte Carlo.
+
+`SpectrumResult.gxx_interval` is the chi-square interval on `Gxx` (step 3).
+The assumptions and the single-bin coverage test are in
+`docs/reference/spectral-contract.md` and
+`tests/integration/test_estimator_contract.py`.
 
 A 400-realization rerun puts the Hann 75% ratio below at 1.39, not 1.64.
 P&W predicts 1.385.
 
 Not done: the LTPDA `getdof.m` / `psdconf.m` side-by-side at one `L` (step
-2), the chi-square interval on `Gxx` (step 3), and coherence intervals
-(step 4).
+2) and coherence intervals (step 4).
 
 The original status: not started, with `Gxx_dev = Gxx / sqrt(navg)` and the
 Bendat formulas using the segment count. That is the large-`K`, independent-segment limit, where

@@ -66,9 +66,23 @@ overlap expression. `plan()` requires the two counts to agree with `len(D)`.
 `vectorized_ltf_plan` evaluates the same compromise on a logarithmic grid of
 `10 * Jdes` points from `fmin` to `fmax`, then walks that map with
 `searchsorted` so each step equals the resolution looked up at the current
-frequency. Lengths use `numpy.round`. `navg` is set equal to `K`. The
-docstring describes the grid differences as small relative to `ltf_plan`.
-`tests/unit/test_schedulers.py` does not include this function.
+frequency. Lengths use `numpy.round`. `navg` is set equal to `K`.
+`ltf_plan` uses a half-up rounder, so the two plans are not the same
+sequence of segment lengths. On `N = 10**6`, `fs = 1`, overlap 0.75,
+`bmin = 5`, `Lmin = 1000`, `Jdes = 1000`, and `Kdes = 100`, both return 849
+frequencies. `r L` matches `fs` to a unit in the last place, and the
+vectorized step `f[j+1] - f[j] - r[j]` is below `10**-13` relative.
+Nearest-frequency relative differences reach `2.6 * 10**-3` (median
+`7.9 * 10**-4`). Segment length differs on 424 of the 849 bins. The first
+disagreement is at `6 * 10**-6` Hz, where the vectorized plan has
+`L = 832707` and `ltf_plan` has `L = 833333`. Where `L` and `K` agree, the
+starts agree.
+
+At `bmin = 1`, `Lmin = 1`, and `Jdes = 200` (the other parameters unchanged)
+both plans have 140 frequencies and the lengths differ on 130 of them. Two
+of the ten bins whose lengths match still have different starts. With
+`N = 5000`, `Lmin = 4000`, `Jdes = 30`, `Kdes = 2`, `bmin = 1`, and overlap
+0.5, the plans agree, including three bins with `K = 1`.
 
 `new_ltf_plan` uses one loop and three stages. Stage 1 is the LTF compromise.
 When the ideal resolution `fi * logfact` reaches `freslim`, later steps decay
@@ -80,12 +94,14 @@ The analyzer docstring says `num_patch_pts` prepends low-frequency rows.
 
 ## Numerical checks
 
-`tests/unit/test_schedulers.py` runs `ltf_plan`, `lpsd_plan`, and
-`new_ltf_plan`. It requires the keys above, `r * L = fs` within `rtol=1e-6`,
-and a mean relative error below `0.01` for `f[j+1] - f[j]` against `r[j]`.
-Frequencies must be positive and strictly increasing, and the last frequency
-must be at most Nyquist. Segment lengths must be positive integers no larger
-than `N`.
+`tests/unit/test_schedulers.py` runs `ltf_plan`, `lpsd_plan`,
+`new_ltf_plan`, and `vectorized_ltf_plan`. It requires the keys above,
+`r * L = fs` within `rtol=1e-6`, and a mean relative error below `0.01` for
+`f[j+1] - f[j]` against `r[j]`. The vectorized walker is also held to a
+maximum relative step error below `10**-9`. Frequencies must be positive and
+strictly increasing, and the last frequency must be at most Nyquist.
+Segment lengths must be positive integers no larger than `N`. The same file
+locks the `L` and start differences from `ltf_plan` quoted above.
 
 ## Key files
 
@@ -106,5 +122,6 @@ than `N`.
 
 ## Known limitations
 
-`vectorized_ltf_plan` is the analyzer default and is outside the scheduler
-unit test. `new_ltf_plan` ignores `num_patch_pts`.
+`new_ltf_plan` ignores `num_patch_pts`. The vectorized and iterative LTF
+plans satisfy the same DFT identities and still differ in `L` on a large
+fraction of bins, as counted above.

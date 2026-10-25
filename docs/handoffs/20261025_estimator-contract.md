@@ -38,7 +38,14 @@ PSD interval whose coverage is tested on the process class it claims.
 
 ## Current status
 
-Not started. No code has been added for this note.
+Implemented on 25 Oct 2026. The direct DFT agrees with both kernel families
+inside the stated roundoff bound, and the seeded 800-trial coverage test
+sits inside three binomial standard errors of 95%. Phase 1 (`SpectralPlan`)
+has not been started.
+
+`SpectrumAnalyzer` already documented `"vectorized_ltf"` as the default.
+The reference note that said the docstring still claimed `"ltf"` was stale
+and has been corrected. No scheduler algorithm was changed.
 
 What 1.0.3 already has:
 
@@ -53,8 +60,8 @@ What 1.0.3 already has:
 - Silent replacement of non-finite input samples and non-finite bin outputs
   with zero. No test locks either wipe.
 
-The chi-square interval on `Gxx` is still open. Coherence intervals stay
-open and are not part of this note.
+`SpectrumResult.gxx_interval` is the chi-square interval on `Gxx`.
+Coherence intervals stay open and are not part of this note.
 
 ## Repro
 
@@ -212,82 +219,83 @@ the docstring follow the signature.
   `ruff check` and `ruff format --check` pass on the touched Python.
 - Notebooks below run their new cells and describe the convention they plot.
 
+## What was tried
+
+The Goertzel recurrence was compared with the direct sum on windowed
+noise. For an integer bin, `exp(i ω (L-1))` reduces to `exp(-i ω)`. For
+fractional bins the same factor matches, with absolute errors well inside
+`8 * L * eps * sum(|y|)`. Production `MXX` and `X * conj(Y)` match the
+oracle reduction on both the Numba and NumPy paths for every `order` in
+the test grid. The work did not stop.
+
+`vectorized_ltf_plan` and `ltf_plan` were left as they are. On the
+scheduler fixture both return 849 frequencies, `r L = fs` holds, and the
+vectorized step is roundoff. Segment length differs on 424 of 849 bins.
+The first disagreement is at `6e-6` Hz (`L` 832707 versus 833333). Where
+`L` and `K` agree, the starts agree. At `bmin=1`, `Lmin=1`, `Jdes=200`,
+lengths differ on 130 of 140 bins and two of the length matches still have
+different starts. With `N=5000` and `Lmin=4000` the plans agree, including
+three `K=1` bins.
+
+`tests/integration/test_analysis_api.py::test_empirical_stats_exposed_and_finite`
+filtered with `b=[1], a=[0.1, 1]`, a pole at `-10`. The recurrence
+overflows. Release 1.0.3 replaced those non-finite samples with 0 and the
+test then required finite empirical statistics. The filter is now a stable
+one-pole, `b=[0.2], a=[1, -0.8]`. The estimator was not told to zero the
+overflow.
+
+NumPy kernel `nan_to_num` calls were removed with the output wipes. On the
+seeded finite lock, `Gxx`, `Gxy`, `nu`, and the plan hashes are the 1.0.3
+values. A one-NaN segment now returns a non-finite `MXX` from both kernel
+families.
+
+The white-noise notebook prints a median `Gxx / 2` of about 0.998 on an
+interior band. A count of bins whose interval contains the line on that
+one curve is about 0.89 and is not the coverage claim. Neighboring bins
+share samples. The claim is the single-bin Monte Carlo.
+
 ## Recommended next steps
 
-1. Write `docs/reference/spectral-contract.md` from
-   `docs/reference/spectrum-estimation.md`, `bin-statistics.md`, and
-   `frequency-scheduling.md`. Fix the scheduler-default docstring in
-   `SpectrumAnalyzer` to `"vectorized_ltf"`.
-2. Add the seeded 1.0.3 lock while the kernels and the default plan are
-   still unchanged.
-3. Extend `tests/unit/test_schedulers.py` with `vectorized_ltf_plan` and the
-   parity measurement against `ltf_plan`. Update
-   `docs/reference/frequency-scheduling.md` with what the measurement finds.
-4. Add the direct-DFT oracle under `tests/` and the comparisons listed in
-   the success criteria. Stop if a bin disagrees.
-5. Add `missing` on `SpectrumAnalyzer` and `compute_spectrum`. Default
-   `"raise"`. Implement `"zero"` as the recorded 1.0.3 path. Check that
-   finite inputs still produce finite bins, then remove the output and
-   property `nan_to_num` wipes. Note the break in `CHANGELOG.md`.
-6. Add the chi-square interval on `Gxx` only, and the single-bin coverage
-   test. Label the assumptions in the docstring, the contract, and
-   `docs/reference/bin-statistics.md`.
-7. Update the notebooks, after the API they call exists.
-   - `notebooks/0.4_noise.ipynb` already states `Gxx = 2 S2`. Add the
-     pointwise interval on the white series against that known one-sided
-     level. Add a short cell: one non-finite sample raises under the
-     default, and `missing="zero"` is the old substitution. Keep the
-     existing ASD round trip and the `A / sqrt(2)` scaling.
-   - `notebooks/0.5_errors.ipynb` plots the interval beside `Gxx_dev` and
-     says the interval is pointwise, locally white, and not the scatter
-     bar. Leave the existing empirical-versus-analytic comparison in place.
-   - `notebooks/0.6_schedulers.ipynb` already draws `vectorized_ltf`. After
-     the parity measurement, name in the prose where that plan leaves
-     `ltf`, instead of only overlaying the curves.
-   - `notebooks/1.3_vectorized-ltf.ipynb` times the two planners and
-     currently declines to compare plans. Add the plan comparison the unit
-     test records: `r L`, the frequency step, and the bins where `L` or `D`
-     differ. Keep the timing figure.
-   - `notebooks/1.2_polynomial-detrend.ipynb` shows each `order`. Add a cell
-     that the production bin matches the direct DFT for that order on one
-     interior frequency. If fractional bins, a near-zero frequency, and the
-     long-segment case do not fit there, add
-     `notebooks/1.5_direct-dft.ipynb` for those cases. Do not add that
-     notebook if `1.2` can carry them without changing its question.
-   - `notebooks/0.0_quickstart.ipynb` needs a sentence only if a reader would
-     otherwise think non-finite samples are still dropped silently. Do not
-     turn it into a second errors notebook.
-8. Stop. If the oracle or the labeled coverage test fails, update this
-   note and do not start `SpectralPlan`. If both pass, the next design note
-   is the plan object in the blueprint's Phase 1, still without a public
-   type.
+The criteria in this note are met. The next design note is the plan object
+in the blueprint's Phase 1, still without a public type. Do not start it in
+the same change as a scheduler retune.
+
+Verification on 25 Oct 2026:
+
+`python -m pytest tests/unit/test_schedulers.py tests/unit/test_direct_dft.py tests/unit/test_core.py tests/integration/test_estimator_contract.py tests/integration/test_errors.py tests/integration/test_analysis_api.py tests/integration/test_accuracy.py -q`
+
+71 passed.
+
+`ruff check` passes on `tests/unit/test_direct_dft.py`,
+`tests/unit/test_schedulers.py`, `tests/integration/test_estimator_contract.py`,
+and `tests/direct_dft_oracle.py`. `ruff check` on `speckit/analysis.py` and
+`speckit/core.py` still reports pre-existing annotation and `int()` findings
+that this change did not introduce. `tests/integration/test_analysis_api.py`
+still reports a pre-existing unused `tout` from `signal.lsim`.
 
 ## Files touched
-
-None yet. Expected:
 
 - `docs/reference/spectral-contract.md` (new)
 - `docs/reference/index.md`, `spectrum-estimation.md`,
   `frequency-scheduling.md`, `bin-statistics.md`
 - `docs/handoffs/20261024_overlap-degrees-of-freedom.md` (status only)
-- `CHANGELOG.md`
-- `speckit/analysis.py`
-- `tests/unit/test_schedulers.py`
-- new tests for the 1.0.3 lock, the direct DFT, the missing-sample policy,
-  and the interval
-- `notebooks/0.4_noise.ipynb`, `0.5_errors.ipynb`, `0.6_schedulers.ipynb`,
-  `1.3_vectorized-ltf.ipynb`, `1.2_polynomial-detrend.ipynb`, and
-  `0.0_quickstart.ipynb` as far as step 7 requires
-- `notebooks/1.5_direct-dft.ipynb` only if `1.2` cannot hold the oracle cases
+- `CHANGELOG.md` under `## Unreleased`
+- `speckit/analysis.py`, `speckit/core.py`
+- `tests/direct_dft_oracle.py`, `tests/unit/test_direct_dft.py`,
+  `tests/unit/test_schedulers.py`,
+  `tests/integration/test_estimator_contract.py`
+- `tests/integration/test_analysis_api.py` (stable filter in the finite-stats test)
+- `notebooks/0.0_quickstart.ipynb`, `0.4_noise.ipynb`, `0.5_errors.ipynb`,
+  `0.6_schedulers.ipynb`, `1.2_polynomial-detrend.ipynb`,
+  `1.3_vectorized-ltf.ipynb`, `1.5_direct-dft.ipynb`
 
 ## Test gaps
 
-- `vectorized_ltf_plan` has no unit test.
-- No direct-DFT comparison exists.
-- No test feeds a non-finite sample.
-- No test checks chi-square coverage. The Monte Carlo in
-  `tests/integration/test_errors.py` checks `Gxx_dev` and the Bendat
-  formulas, not an interval.
+Closed for this note. `vectorized_ltf_plan` is in the scheduler unit tests.
+The direct DFT, the missing-sample policy, the 1.0.3 lock, and the
+single-bin chi-square coverage each have a test. Coherence intervals and
+the LTPDA `getdof` / `psdconf` side-by-side remain open in
+`docs/handoffs/20261024_overlap-degrees-of-freedom.md`.
 
 ## References
 

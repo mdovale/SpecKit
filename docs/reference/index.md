@@ -50,6 +50,7 @@ one-sided density. The other notes own the pieces of that path.
 
 | Area | Note | Module |
 |------|------|--------|
+| Estimand, scaling, missing samples, PSD interval | [spectral-contract.md](spectral-contract.md) | `speckit/analysis.py`, `speckit/core.py` |
 | Estimator API, densities, errors | [spectrum-estimation.md](spectrum-estimation.md) | `speckit/analysis.py` |
 | Frequency plan | [frequency-scheduling.md](frequency-scheduling.md) | `speckit/schedulers.py` |
 | Segment bin statistics | [bin-statistics.md](bin-statistics.md) | `speckit/core.py` |

@@ -29,14 +29,15 @@ unit strings.
 
 `data` is a 1-D series, or a `2×N` or `N×2` pair. Channel 0 is `X` and
 channel 1 is `Y`. A square `2×2` array is read as two channels of length 2.
-Non-finite samples are replaced with 0. `fs` is in hertz and must be a
-positive finite float.
+Non-finite samples raise `ValueError` (`missing="raise"`, the default).
+The message includes the count. `missing="zero"` replaces them with 0 and
+stores the count on `SpectrumAnalyzer.n_replaced`. `fs` is in hertz and
+must be a positive finite float.
 
 Defaults on `SpectrumAnalyzer`: `olap="default"`, `bmin=1`, `Lmin=1`,
 `Jdes=500`, `Kdes=100`, `order=0`, `psll=200`, `win=numpy.kaiser`,
-`scheduler="vectorized_ltf"`, `band=None`, `force_target_nf=False`. The
-constructor docstring says the scheduler default is `"ltf"`. The signature
-default is `"vectorized_ltf"`.
+`scheduler="vectorized_ltf"`, `band=None`, `force_target_nf=False`,
+`missing="raise"`.
 
 `order` selects the segment detrend: `-1` window only, `0` mean removal,
 `1` linear, `2` quadratic. `band=(f_min, f_max)` keeps plan frequencies inside
@@ -51,7 +52,9 @@ that belong only to a cross result are `None`, and the reverse.
 this analyzer builds. Analytic and empirical errors do not divide by `navg`.
 They divide by `n_d = nu / 2`, where `nu` is the overlap-corrected degrees of
 freedom from [bin-statistics.md](bin-statistics.md). With no overlap,
-`nu = 2 * navg` and `n_d = navg`.
+`nu = 2 * navg` and `n_d = navg`. `gxx_interval(conf)` is the pointwise
+chi-square interval on `Gxx` under that same `nu`. The assumptions and the
+coverage claim are in [spectral-contract.md](spectral-contract.md).
 
 `get_measurement` interpolates with `numpy.interp`, component-wise for complex
 values, and clamps outside the tabulated frequencies. `get_rms` is auto-only

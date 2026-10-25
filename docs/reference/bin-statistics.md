@@ -142,7 +142,8 @@ under the default Kaiser window, the actual-start form equals eq. 292b.
   `exp(+i ω n)` and conjugated the cross-spectrum. Resolved.
 - `docs/handoffs/20261024_overlap-independent-segments.md` and
   `docs/handoffs/20261024_overlap-degrees-of-freedom.md` — `_overlap_dof` is
-  the `nu` both notes asked for. The chi-square interval is still open.
+  the `nu` both notes asked for. `SpectrumResult.gxx_interval` is the
+  chi-square interval on `Gxx`. Coherence intervals are still open.
 - `docs/handoffs/20261024_csd-convention-vs-scipy.md` — `X * conj(Y)` is the
   complex conjugate of `scipy.signal.csd`.
 
@@ -150,4 +151,7 @@ under the default Kaiser window, the actual-start form equals eq. 292b.
 
 `_overlap_dof` assumes a locally white Gaussian process and ignores the
 detrend. Near DC and Nyquist the pseudo-covariance terms it drops are not
-small.
+small. `gxx_interval` uses that `nu` and inherits the same limits. The
+NumPy kernels no longer replace non-finite samples or coefficients with
+zero; a non-finite input stays non-finite in the returned statistic. The
+public policy is `missing` on `SpectrumAnalyzer`.
