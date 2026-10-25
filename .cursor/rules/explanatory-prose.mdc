@@ -1,0 +1,27 @@
+---
+description: Approachable prose for explanations, docs, and docstrings
+alwaysApply: true
+---
+
+# Explanatory prose
+
+Write so a strong undergraduate can follow on a first reading. This covers replies, notebooks, docstrings, comments, handoffs, reference notes, the README, and the paper.
+
+Lead with the question or the result. Then add the detail that makes it precise. One idea per sentence.
+
+- Use a plain word for the idea, then the technical name. The first time a symbol or term appears, say what it is.
+- Keep the formula, the identifier, and the number. A vaguer phrase does not replace them.
+- Say what happens, in an order the reader can check. Name the input, the function, and the outcome.
+- Prefer the concrete quantity. If a comparison has a tolerance, a length, or a frequency, write those.
+- State the fact directly. If a sentence only says what something is not, follow it with what it is.
+- Python docstrings stay NumPy style (`.cursor/rules/numpy-docstrings.mdc`) and wrap at 88 characters. The summary line stays a descriptive sentence.
+
+```text
+# Avoid
+The helper applies the canonical reduction inside the feasible band.
+That path is not part of the public interface.
+
+# Write
+The function averages the squared error at each frequency, then keeps the shortest window whose cost is within 5%.
+On this example the average error is higher, so the default function stays in place.
+```
